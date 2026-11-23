@@ -6,20 +6,31 @@
 //     a freshly flashed device lights up (ADR-0015).
 //   - Detect a 5s long-press on BOOT (GPIO9) and restore factory
 //     default by restarting the factory-default playback (ADR-0015).
-//   - Enter PLAYING state once the factory default starts (ADR-0016).
 //
 // T3 (#23) adds:
-//   - Protocol parser (pure C, ADR-0003/0006) — compiled but not yet
-//     wired to a transport; the BLE GATT service lands in T6 and will
-//     call parser_feed/parser_next from its write callback.
+//   - Protocol parser (pure C, ADR-0003/0006).
 //   - Full state machine (ADR-0016) with illegal-transition detection
-//     returning ERR_INVALID_STATE (0x05). T3 ships the transition table
-//     and dispatch API; T6 wires commands to events.
-//   - Watchdog task (ADR-0016): feeds from the frame loop for now, and
-//     resets the MCU on a 5s unfed window. T6 moves the feed into the
-//     BLE command handler.
-// T6 (#26) adds: BLE GATT service, spiffs config persistence, full
-//   8-effect render set, layer composition.
+//     returning ERR_INVALID_STATE (0x05).
+//   - Watchdog task (ADR-0016): resets the MCU on a 5s unfed window.
+//
+// T6 (#26) adds: BLE GATT service (Write + Notify), spiffs config
+//   persistence (ADR-0014/0015), full 8-effect render set (ADR-0017),
+//   dual-layer composition (ADR-0020), config-driven playback with
+//   step duration/transition/loop (ADR-0021), GET_VERSION negotiation
+//   on connect (ADR-0009).
+//
+// Boot flow (T6):
+//   1. ledInit + bootButtonInit + stateMachineInit + watchdogInit.
+//   2. configPersistInit (mount spiffs, format-on-failure).
+//   3. configPersistLoad -> saved config or factory default (ADR-0015).
+//      State stays IDLE; the factory-default visual plays in IDLE so the
+//      user sees lights immediately. PLAYING is reserved for user-config
+//      playback after APPLY.
+//   4. bleServiceBegin (advertising + GATT server + notify char).
+//   5. Frame task: every TICK_MS, render the active config (or factory
+//      default when IDLE) + ledRefreshAll. Watchdog fed here + in BLE
+//      command handlers (ADR-0016).
+//   6. BOOT task: 5s long-press -> clear spiffs + factory default + IDLE.
 //
 // Note: no Serial console in T2. The ESP32-C3-DevKitM-1 has no
 // USB-UART bridge, and Serial.begin() blocks when the native USB-CDC
@@ -31,41 +42,77 @@
 #include "protocol_gen.h"
 #include "led_driver.h"
 #include "effects.h"
+#include "config.h"
+#include "composition.h"
+#include "config_persist.h"
+#include "ble_service.h"
 #include "factory_default.h"
 #include "boot_button.h"
 #include "state_machine.h"
 #include "watchdog.h"
 
-// Tick clock: one tick = TICK_MS (10ms). At each tick we advance the
-// breath-rainbow phase and push the new frame to all 8 strips.
+// ---- live device state ---------------------------------------------------
+
+static device_config_t sConfig;
+static group_playback_t sPlayback[PIN_COUNT][GROUPS_PER_PIN_MAX];
+
+// Tick clock: one tick = TICK_MS (10ms). The frame loop advances effect
+// phase by one tick per iteration.
 static uint32_t sTickCount = 0;
+
+// ---- frame task ----------------------------------------------------------
 
 static void frameTask(void *) {
     for (;;) {
-        // Factory-default playback: fill all pins, then refresh in order.
-        factoryDefaultFillAll(sTickCount);
+        fw_state_t st = stateMachineState();
+        if (st == FW_STATE_PLAYING) {
+            // Config-driven playback: render the active config, advance
+            // each group's step clock, refresh all 8 strips in order.
+            composition_render_all(&sConfig, sPlayback, 1 /* dt_ticks */);
+        } else if (st == FW_STATE_PREVIEW) {
+            // Preview: same render path; the step clock was set by
+            // TRIGGER_STEP. dt=1 keeps the effect animating.
+            composition_render_all(&sConfig, sPlayback, 1);
+        } else if (st == FW_STATE_PAUSED) {
+            // Hold current frame: just refresh (no re-render, no advance).
+            // The strips keep their last-written pixels.
+        } else {
+            // IDLE / CONNECTED / CONFIGURED: factory-default breath-rainbow
+            // visual so the device is never dark before first APPLY
+            // (ADR-0015 "开箱即亮").
+            factoryDefaultFillAll(sTickCount);
+        }
         ledRefreshAll();
         sTickCount++;
-        // The frame loop is the heartbeat: as long as we keep ticking,
-        // the firmware is alive. T6 will move the feed to the BLE
-        // command handler once it lands; for now feeding here means a
-        // hang in LED rendering or scheduling is what triggers reset.
+
+        // Frame loop is the heartbeat; the BLE command handler also feeds
+        // (ADR-0016). A hang in rendering or scheduling trips the reset.
         watchdogFeed();
         vTaskDelay(pdMS_TO_TICKS(TICK_MS));
     }
 }
 
+// ---- BOOT button task ----------------------------------------------------
+
 static void bootButtonTask(void *) {
     for (;;) {
         if (bootButtonPoll()) {
-            // 5s long-press complete -> restore factory default.
-            // In T2 "restore" means replay factory-default playback
-            // from tick 0. T6 will also clear spiffs /config.bin.
+            // 5s long-press complete -> factory reset (ADR-0015).
+            configPersistErase();
+            config_load_factory_default(&sConfig);
+            composition_init(&sConfig, sPlayback);
+            // Back to IDLE: the frame loop shows factory-default visuals.
+            // (If we were PLAYING, RESET_DEFAULT -> IDLE is legal; from
+            // any other state it's a no-op or self-loop. Force to IDLE so
+            // the visual path is deterministic regardless of prior state.)
+            stateMachineForce(FW_STATE_IDLE);
             sTickCount = 0;
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
+
+// ---- setup / loop --------------------------------------------------------
 
 void setup() {
     ledInit();
@@ -73,15 +120,25 @@ void setup() {
     stateMachineInit();
     watchdogInit();
 
-    // Factory-default playback at boot enters PLAYING (ADR-0015/0016).
-    // T6 will instead drive transitions from CONNECTED via APPLY when
-    // BLE config lands; for now boot must always end in PLAYING.
-    stateMachineForce(FW_STATE_PLAYING);
+    // Mount spiffs and restore the saved config, or fall back to the
+    // factory default if missing/corrupt (ADR-0015 重启自恢复).
+    configPersistInit();
+    int rc = configPersistLoad(&sConfig);
+    // rc: 1 = loaded saved config, 0 = missing (-> factory default already
+    // loaded by Load), -1 = corrupt (-> factory default already loaded).
+    // Either way sConfig now holds a valid config. Reset playback clocks.
+    (void)rc;
+    composition_init(&sConfig, sPlayback);
+
+    // Boot into IDLE (not PLAYING): the factory-default visual plays in
+    // IDLE via the frame loop, so the user sees lights immediately
+    // (ADR-0015 开箱即亮). PLAYING is entered on APPLY of a user config.
+    // stateMachineInit() already set IDLE; no force needed.
+
+    // Start the BLE GATT service (advertising + Write/Notify chars).
+    bleServiceBegin(&sConfig, sPlayback);
 
     // Three RTOS tasks: LED frame loop, BOOT button polling, watchdog.
-    // The watchdog task feeds itself from the protocol/loop side; here
-    // we just keep it fed while the frame task runs (T6 wires the feed
-    // to actual command-handler activity).
     xTaskCreate(frameTask, "frame", 4096, nullptr, 5, nullptr);
     xTaskCreate(bootButtonTask, "bootbtn", 2048, nullptr, 3, nullptr);
     xTaskCreate(watchdogTask, "wdt", 2048, nullptr, 1, nullptr);

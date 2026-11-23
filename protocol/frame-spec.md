@@ -96,3 +96,64 @@ notify 通道统一回传布局（固件构建 / 小程序解析共用）：
 - BLE 默认 MTU 23，实际有效负载 ~20 字节，因此 **整帧几乎总是分多次 BLE 传输送达**。
 - 重组逻辑必须容忍任意分包方式（按字节流处理，不假定传输边界）。
 - 空口 MTU 协商与 notify 时序由真机 smoke test 验证，不作为正确性前提（ADR-0006 / ADR-0012）。
+
+## 配置负载（WRITE_CONFIG / READ_CONFIG）
+
+`WRITE_CONFIG`（cmd=0x01）与 `READ_CONFIG`（cmd=0x02）的 payload 是同一份**配置 blob**（小端）。固件 `firmware/src/config.cpp` 编解码，spiffs `/config.bin` 存的就是这份 blob（含 magic + crc，便于重启自恢复与损坏检测）。层级：8 引脚 → 灯组 → 步骤 → 图层（ADR-0007/0020/0021）。
+
+### Blob 外层（自描述 + 完整性）
+
+| 偏移 | 字段 | 长度 | 说明 |
+|---|---|---|---|
+| 0 | `magic` | 4 | 固定 `42 54 4C 43`（"BTLC"，LE u32 = 0x434C5442） |
+| 4 | `version` | 1 | 配置结构版本，当前 = 1 |
+| 5 | `flags` | 1 | 预留，写 0 |
+| 6 | `body_len` | 2 LE | 后续 body 字节数 |
+| 8 | `body` | `body_len` | 引脚配置数据（见下） |
+| 8+body_len | `crc16` | 2 LE | CRC-16/CCITT，覆盖 `magic .. body_last_byte` |
+
+blob 总长 = `10 + body_len`。
+
+### Body（8 个引脚块，每块必存在）
+
+每个引脚块：
+
+| 字段 | 长度 | 说明 |
+|---|---|---|
+| `group_count` | 1 | 该引脚灯组数，0~5（`GROUPS_PER_PIN_MAX`） |
+| 灯组 × group_count | 变长 | 见下 |
+
+灯组：
+
+| 字段 | 长度 | 说明 |
+|---|---|---|
+| `led_start` | 1 | 起始灯珠索引，0~99 |
+| `led_end` | 1 | 结束灯珠索引，0~99，且 ≥ led_start |
+| `step_count` | 1 | 步骤数，1~5（`STEPS_PER_GROUP_MAX`） |
+| 步骤 × step_count | 变长 | 见下 |
+
+步骤（ADR-0021 步骤结构）：
+
+| 字段 | 长度 | 说明 |
+|---|---|---|
+| `duration` | 2 LE | 步骤时长（秒），1~60（`STEP_DURATION_MIN/MAX`） |
+| `transition` | 1 | 过渡：0=无 / 1=淡入淡出 / 2=平滑 |
+| `loop_mode` | 1 | 循环：0=单次 / 1=循环 / 2=往复 |
+| `layer_count` | 1 | 图层数，1~2（`LAYERS_PER_STEP_MAX`） |
+| 图层 × layer_count | 变长 | 见下 |
+
+图层：
+
+| 字段 | 长度 | 说明 |
+|---|---|---|
+| `effect_id` | 1 | 效果 ID，1~8（`EFFECT_TABLE`） |
+| `param_len` | 1 | 参数块字节数（按 effect_id 查表应为定值；置 0 表示用默认） |
+| `params` | `param_len` | 参数块，按 `EFFECT_PARAMS` schema 顺序拼接：rgb=3B(R,G,B)、u8=1B、u16=2B LE、u32=4B LE |
+
+### 约束
+
+- `10 + body_len ≤ FRAME_LEN_MAX(1500)`，否则固件回 `0x03 配置超限`。
+- 典型配置（8 引脚 × 2 灯组 × 2 步骤 × 2 图层）约 700~750 字节，单帧可承载。
+- 最坏情况（8×5×5×2）超 1500，按超限拒绝（ADR-0013a 预算针对典型场景）。
+- `effect_id` 未知 / `param_len` 与查表不符 / 索引越界 → 固件回 `0x04 参数非法`，不崩溃。
+- spiffs 加载：magic/version/crc 任一不符 → 视为损坏，fallback 出厂默认（ADR-0015）。
