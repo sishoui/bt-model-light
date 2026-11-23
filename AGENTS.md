@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## 沟通语言
+
+所有结论（回答、总结、计划、评审报告、issue 评论等面向用户的文本）统一用**中文**回答。
+
 ## Agent skills
 
 ### Issue tracker
