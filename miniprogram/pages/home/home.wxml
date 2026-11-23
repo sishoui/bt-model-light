@@ -1,0 +1,5 @@
+<view class="bt-card">
+  <view class="bt-row bt-row--between">
+    <text>{{deviceName}}</text>
+  </view>
+</view>

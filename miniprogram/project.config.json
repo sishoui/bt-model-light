@@ -1,0 +1,17 @@
+{
+  "description": "bt-model-light 微信小程序项目",
+  "miniprogramRoot": "./",
+  "projectname": "bt-model-light",
+  "appid": "touristappid",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "newFeature": true
+  },
+  "compileType": "miniprogram",
+  "libVersion": "2.32.0",
+  "condition": {}
+}

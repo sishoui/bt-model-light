@@ -4,3 +4,7 @@ __pycache__/
 # PlatformIO build artifacts (firmware/)
 firmware/.pio/
 firmware/.vscode/
+
+# Node / Jest artifacts (miniprogram/)
+miniprogram/node_modules/
+miniprogram/coverage/

@@ -1,0 +1,9 @@
+{
+  "desc": "小程序索引配置，允许微信搜索收录。灯控小程序无需被检索，全部 disallow。",
+  "rules": [
+    {
+      "action": "disallow",
+      "page": "*"
+    }
+  ]
+}

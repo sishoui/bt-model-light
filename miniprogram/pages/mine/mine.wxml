@@ -1,0 +1,6 @@
+<view class="bt-card">
+  <view class="bt-row bt-row--between">
+    <text>版本</text>
+    <text class="bt-text--secondary">v{{version}} (协议 {{protocolVersion}})</text>
+  </view>
+</view>

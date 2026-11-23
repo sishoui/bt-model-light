@@ -1,0 +1,26 @@
+{
+  "name": "bt-model-light-miniprogram",
+  "version": "0.1.0",
+  "private": true,
+  "description": "微信小程序（原生）：帧编解码 + BLE + 灯控页面。测试见 tests/。",
+  "scripts": {
+    "test": "jest",
+    "test:ci": "jest --ci"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/"
+    ],
+    "collectCoverageFrom": [
+      "utils/**/*.js"
+    ],
+    "clearMocks": true
+  }
+}
