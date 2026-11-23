@@ -1,0 +1,4 @@
+name,major,minor,released,notes
+protocol_version,1,0,2026-11-23,首版协议：TLV 帧 + 完整命令集 + 8 种效果
+firmware_version,0,1,2026-11-23,固件首版（与 protocol_version 同步发布）
+app_version,0,1,2026-11-23,小程序首版

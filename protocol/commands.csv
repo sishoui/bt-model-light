@@ -1,0 +1,12 @@
+id,name,code,direction,description
+1,WRITE_CONFIG,0x01,app_to_fw,下发整台设备配置（8 引脚 → 灯组 → 步骤 → 图层）
+2,READ_CONFIG,0x02,app_to_fw,读回固件当前配置
+3,APPLY,0x03,app_to_fw,将当前配置下发到灯珠并开始播放
+4,READ_STATUS,0x04,app_to_fw,读状态机当前状态
+5,TRIGGER_STEP,0x05,app_to_fw,只播第 N 步（灯组索引 + 步骤索引）
+6,STOP,0x06,app_to_fw,停止播放，保持当前亮灯
+7,RESET_DEFAULT,0x07,app_to_fw,恢复出厂默认
+8,GET_VERSION,0x08,app_to_fw,读协议版本 + 固件版本
+9,GET_PIN_CAPS,0x09,app_to_fw,读每引脚能力（灯珠数）
+129,STATUS_NOTIFY,0x81,fw_to_app,notify 回传状态/错误/进度
+240,OTA,0xF0,bidirectional,预留给 v2，命令码预留流程延后
