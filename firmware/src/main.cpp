@@ -8,8 +8,16 @@
 //     default by restarting the factory-default playback (ADR-0015).
 //   - Enter PLAYING state once the factory default starts (ADR-0016).
 //
-// T3 (#23) adds: protocol parser (pure C), full state machine with
-//   illegal-transition detection, watchdog task.
+// T3 (#23) adds:
+//   - Protocol parser (pure C, ADR-0003/0006) — compiled but not yet
+//     wired to a transport; the BLE GATT service lands in T6 and will
+//     call parser_feed/parser_next from its write callback.
+//   - Full state machine (ADR-0016) with illegal-transition detection
+//     returning ERR_INVALID_STATE (0x05). T3 ships the transition table
+//     and dispatch API; T6 wires commands to events.
+//   - Watchdog task (ADR-0016): feeds from the frame loop for now, and
+//     resets the MCU on a 5s unfed window. T6 moves the feed into the
+//     BLE command handler.
 // T6 (#26) adds: BLE GATT service, spiffs config persistence, full
 //   8-effect render set, layer composition.
 //
@@ -26,6 +34,7 @@
 #include "factory_default.h"
 #include "boot_button.h"
 #include "state_machine.h"
+#include "watchdog.h"
 
 // Tick clock: one tick = TICK_MS (10ms). At each tick we advance the
 // breath-rainbow phase and push the new frame to all 8 strips.
@@ -37,6 +46,11 @@ static void frameTask(void *) {
         factoryDefaultFillAll(sTickCount);
         ledRefreshAll();
         sTickCount++;
+        // The frame loop is the heartbeat: as long as we keep ticking,
+        // the firmware is alive. T6 will move the feed to the BLE
+        // command handler once it lands; for now feeding here means a
+        // hang in LED rendering or scheduling is what triggers reset.
+        watchdogFeed();
         vTaskDelay(pdMS_TO_TICKS(TICK_MS));
     }
 }
@@ -57,13 +71,20 @@ void setup() {
     ledInit();
     bootButtonInit();
     stateMachineInit();
+    watchdogInit();
 
     // Factory-default playback at boot enters PLAYING (ADR-0015/0016).
-    stateMachineSet(FW_STATE_PLAYING);
+    // T6 will instead drive transitions from CONNECTED via APPLY when
+    // BLE config lands; for now boot must always end in PLAYING.
+    stateMachineForce(FW_STATE_PLAYING);
 
-    // Two RTOS tasks: LED frame loop and BOOT button polling.
+    // Three RTOS tasks: LED frame loop, BOOT button polling, watchdog.
+    // The watchdog task feeds itself from the protocol/loop side; here
+    // we just keep it fed while the frame task runs (T6 wires the feed
+    // to actual command-handler activity).
     xTaskCreate(frameTask, "frame", 4096, nullptr, 5, nullptr);
     xTaskCreate(bootButtonTask, "bootbtn", 2048, nullptr, 3, nullptr);
+    xTaskCreate(watchdogTask, "wdt", 2048, nullptr, 1, nullptr);
 }
 
 void loop() {
