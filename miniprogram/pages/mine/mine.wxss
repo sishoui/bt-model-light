@@ -1,1 +1,17 @@
-/* 我的页样式。T5 实现。 */
+/* 我的页样式（ADR-0027 / #25）。 */
+
+.page {
+  padding: 0 0 32rpx;
+}
+
+.section-title {
+  padding: 24rpx 32rpx 8rpx;
+  font-size: 26rpx;
+  color: #888888;
+}
+
+.row__arrow {
+  color: #cccccc;
+  font-size: 32rpx;
+  margin-left: 16rpx;
+}

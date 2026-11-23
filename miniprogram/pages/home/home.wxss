@@ -1,1 +1,103 @@
-/* 首页（设备详情页）样式。T5 实现具体内容。 */
+/* 首页（设备详情页）样式（ADR-0027 / #25）。 */
+
+.page {
+  padding: 0 0 32rpx;
+}
+
+/* 左上设备名称栏：点击进设备列表 */
+.device-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx 32rpx 8rpx;
+}
+
+.device-header__title {
+  font-size: 36rpx;
+  font-weight: 600;
+}
+
+.device-header__action {
+  font-size: 26rpx;
+  color: #07c160;
+}
+
+/* 设备卡片 */
+.device-card__row {
+  display: flex;
+  align-items: center;
+}
+
+.device-card__img {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+  background: #eeeeee; /* 占位图底色（真机图片后续） */
+  margin-right: 24rpx;
+}
+
+.device-card__info {
+  flex: 1;
+}
+
+.device-card__name {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.device-card__status {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #999999;
+}
+
+.device-card__status--on {
+  color: #07c160;
+}
+
+.device-card__brightness {
+  display: flex;
+  align-items: center;
+  margin-top: 24rpx;
+  font-size: 26rpx;
+  color: #666666;
+}
+
+.device-card__brightness slider {
+  flex: 1;
+  margin: 0 24rpx;
+}
+
+/* 引脚卡片列表 */
+.pin-list {
+  margin-top: 8rpx;
+}
+
+.pin-card {
+  display: flex;
+  align-items: center;
+}
+
+.pin-card__img {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 12rpx;
+  background: #eeeeee;
+  margin-right: 24rpx;
+}
+
+.pin-card__info {
+  flex: 1;
+}
+
+.pin-card__name {
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.pin-empty {
+  padding: 64rpx 0;
+  text-align: center;
+}

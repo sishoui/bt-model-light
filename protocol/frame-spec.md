@@ -64,10 +64,24 @@ uint16_t crc16_ccitt(const uint8_t *data, size_t len) {
 
 1. 找帧头 `0xAA`；非帧头字节丢弃。
 2. 已收集 ≥3 字节时读 `len`（LE）。
-3. 校验 `len ≤ 1024`；否则丢弃已收集字节并回到步骤 1。
+3. 校验 `len ≤ 1500`；否则丢弃已收集字节并回到步骤 1。
 4. 等待缓冲凑齐 `6 + len` 字节（header + len + cmd + seq + payload + crc16）。
 5. 用 `crc16_ccitt` 校验；通过则交付一帧（cmd + seq + payload），否则丢弃该帧并回到步骤 1。
 6. 不依赖 BLE 单包整帧；不引入应用层 ACK。
+
+## STATUS_NOTIFY（0x81）负载
+
+notify 通道统一回传布局（固件构建 / 小程序解析共用）：
+
+| 偏移 | 字段 | 长度 | 说明 |
+|---|---|---|---|
+| 0 | status | 1 | 回传类型：`0`=OK / `1`=STATE / `2`=ERROR / `3`=VERSION |
+| 1 | code | 1 | OK：回显触发的命令码；STATE：状态机状态值；ERROR：错误码（见 `errors.csv`）；VERSION：固定 0 |
+| 2 | seq | 1 | 触发命令的 `seq` 回显；无触发（主动 notify）填 0 |
+| 3 | data | 4 | 仅 VERSION：`[协议主版本, 协议次版本, 固件主版本, 固件次版本]` 各 1 字节；其余类型无 data |
+
+- STATE 状态值：`0`=IDLE / `1`=CONNECTED / `2`=CONFIGURED / `3`=PLAYING / `4`=PREVIEW / `5`=PAUSED（状态机见 `docs/adr/0016-state-machine-watchdog.md`）。
+- VERSION 由小程序收到后校验协议版本主次均匹配（`docs/adr/0009-protocol-version-negotiation.md`）；ERROR 按错误码给出用户提示（`docs/adr/0026-error-handling.md`）。
 
 ## seq 语义
 

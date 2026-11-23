@@ -103,6 +103,35 @@ def load_effects() -> list[dict]:
     ]
 
 
+def load_ble() -> list[dict]:
+    return [
+        {
+            "key": row["key"].strip(),
+            "value": row["value"].strip(),
+            "description": row["description"].strip(),
+        }
+        for row in read_csv("ble.csv")
+    ]
+
+
+def load_notify() -> list[dict]:
+    """STATUS_NOTIFY status codes (notify.csv).
+
+    Byte-level payload layout defined in protocol/frame-spec.md
+    ("STATUS_NOTIFY（0x81）负载"); mirrored into both outputs so the two
+    ends can never disagree, like the frame constants above.
+    """
+    return [
+        {
+            "status": int(row["status"]),
+            "code": row["code"].strip(),
+            "name": row["name"].strip(),
+            "description": row["description"].strip(),
+        }
+        for row in read_csv("notify.csv")
+    ]
+
+
 # --- shared helpers -------------------------------------------------------
 
 def to_c_hex(value: str) -> str:
@@ -117,6 +146,12 @@ def to_js_hex(value: str) -> str:
     s = value.strip()
     n = int(s, 16) if s.lower().startswith("0x") else int(s)
     return f"0x{n:02X}"
+
+
+def to_camel_case(key: str) -> str:
+    """'service_uuid' -> 'serviceUuid' (JS object key for BLE entries)."""
+    parts = key.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
 
 
 def parse_effect_params(raw: str) -> list[dict]:
@@ -202,6 +237,16 @@ def gen_c_header() -> str:
     a(f"#define FRAME_TOTAL_MAX (FRAME_LEN_MAX + FRAME_OVERHEAD)")
     a(f"#define CRC16_CCITT_INIT 0x{CRC16_CCITT_INIT:04X}")
     a(f"#define CRC16_CCITT_POLY 0x{CRC16_CCITT_POLY:04X}")
+    a("")
+
+    a("/* ---- ble (ble.csv) ---- */")
+    for row in load_ble():
+        macro = "BLE_" + row["key"].upper()
+        a(f'#define {macro} "{row["value"]}"  /* {row["description"]} */')
+    a("")
+    a("/* ---- STATUS_NOTIFY status codes (notify.csv) ---- */")
+    for n in load_notify():
+        a(f"#define NOTIFY_STATUS_{n['name']} {n['code']}  /* {n['description']} */")
     a("")
 
     a("/* ---- commands (commands.csv) ---- */")
@@ -348,6 +393,19 @@ def gen_js_constants() -> str:
     a("};")
     a("")
 
+    a("/* ---- ble (ble.csv) ---- */")
+    a("const BLE = {")
+    for row in load_ble():
+        a(f"  {to_camel_case(row['key'])}: '{row['value']}',  // {row['description']}")
+    a("};")
+    a("")
+    a("/* STATUS_NOTIFY status codes (notify.csv) */")
+    a("const NOTIFY = {")
+    for n in load_notify():
+        a(f"  {n['name']}: {to_js_hex(n['code'])},  // {n['description']}")
+    a("};")
+    a("")
+
     a("/* ---- commands (commands.csv) ---- */")
     a("const CMD = {")
     for c in commands:
@@ -402,6 +460,8 @@ def gen_js_constants() -> str:
     a("  FIRMWARE_VERSION,")
     a("  APP_VERSION,")
     a("  FRAME,")
+    a("  BLE,")
+    a("  NOTIFY,")
     a("  CMD,")
     a("  CMD_DIRECTION,")
     a("  ERR,")

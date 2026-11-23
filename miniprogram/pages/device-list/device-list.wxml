@@ -1,3 +1,41 @@
-<view class="bt-card">
-  <text>设备列表（T5 实现）</text>
+<!-- 设备列表页（ADR-0025 / 0027 / #25）：已保存设备 + 扫描新增。 -->
+<view class="page">
+  <view class="section-title">已保存设备</view>
+
+  <view wx:if="{{devices.length}}">
+    <view wx:for="{{devices}}" wx:key="id" class="bt-card device-row"
+      data-id="{{item.id}}" bindtap="onTapDevice" bindlongpress="onLongPressDevice">
+      <view class="device-row__info">
+        <text class="device-row__name">{{item.name || item.deviceId}}</text>
+        <text wx:if="{{item.id === currentId}}" class="device-row__tag">当前</text>
+      </view>
+      <text class="device-row__arrow">›</text>
+    </view>
+  </view>
+  <view wx:else class="empty-tip">
+    <text class="bt-text--secondary">暂无已保存设备，点下方按钮扫描添加</text>
+  </view>
+
+  <view class="add-section">
+    <button class="add-btn" bindtap="onTapAdd">
+      {{scanning ? '停止扫描' : '+ 新增设备'}}
+    </button>
+  </view>
+
+  <block wx:if="{{scanning}}">
+    <view class="section-title">扫描结果（点选连接）</view>
+    <view wx:if="{{found.length}}">
+      <view wx:for="{{found}}" wx:key="deviceId" class="bt-card found-row"
+        data-device-id="{{item.deviceId}}" data-name="{{item.name}}" bindtap="onTapFound">
+        <view class="found-row__info">
+          <text class="found-row__name">{{item.name}}</text>
+          <text class="bt-text--secondary">信号 {{item.RSSI}}</text>
+        </view>
+        <text class="found-row__arrow">›</text>
+      </view>
+    </view>
+    <view wx:else class="empty-tip">
+      <text class="bt-text--secondary">正在扫描周边 BTLight_ 设备…</text>
+    </view>
+  </block>
 </view>

@@ -1,6 +1,29 @@
-<view class="bt-card">
-  <view class="bt-row bt-row--between">
-    <text>版本</text>
-    <text class="bt-text--secondary">v{{version}} (协议 {{protocolVersion}})</text>
+<!-- 我的页（底部导航第二 Tab）：设置/关于/帮助（ADR-0027 / #25）。 -->
+<view class="page">
+  <view class="section-title">设置</view>
+  <view class="bt-card">
+    <view class="bt-row bt-row--between" bindtap="onClearStorage">
+      <text>清除本地数据</text>
+      <text class="row__arrow">›</text>
+    </view>
+  </view>
+
+  <view class="section-title">关于</view>
+  <view class="bt-card">
+    <view class="bt-row bt-row--between" bindtap="onTapAbout">
+      <text>关于 bt-model-light</text>
+      <view class="bt-row">
+        <text class="bt-text--secondary">v{{version}} · 协议 {{protocolVersion}}</text>
+        <text class="row__arrow">›</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="section-title">帮助</view>
+  <view class="bt-card">
+    <view class="bt-row bt-row--between" bindtap="onTapHelp">
+      <text>使用帮助</text>
+      <text class="row__arrow">›</text>
+    </view>
   </view>
 </view>

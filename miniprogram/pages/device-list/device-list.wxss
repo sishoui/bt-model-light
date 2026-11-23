@@ -1,1 +1,83 @@
-/* 设备列表页样式。T5 实现。 */
+/* 设备列表页样式（ADR-0025 / 0027 / #25）。 */
+
+.page {
+  padding: 0 0 32rpx;
+}
+
+.section-title {
+  padding: 24rpx 32rpx 8rpx;
+  font-size: 26rpx;
+  color: #888888;
+}
+
+/* 已保存设备行 */
+.device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.device-row__info {
+  flex: 1;
+}
+
+.device-row__name {
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.device-row__tag {
+  display: inline-block;
+  margin-left: 16rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 8rpx;
+  background: rgba(7, 193, 96, 0.1);
+  color: #07c160;
+  font-size: 22rpx;
+}
+
+.device-row__arrow {
+  color: #cccccc;
+  font-size: 32rpx;
+}
+
+/* 扫描结果行 */
+.found-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.found-row__info {
+  flex: 1;
+}
+
+.found-row__name {
+  font-size: 30rpx;
+}
+
+.found-row__arrow {
+  color: #cccccc;
+  font-size: 32rpx;
+}
+
+/* 新增按钮 */
+.add-section {
+  padding: 32rpx;
+}
+
+.add-btn {
+  background: #07c160;
+  color: #ffffff;
+  border-radius: 12rpx;
+}
+
+.add-btn::after {
+  border: none;
+}
+
+/* 空态提示 */
+.empty-tip {
+  padding: 48rpx 32rpx;
+  text-align: center;
+}

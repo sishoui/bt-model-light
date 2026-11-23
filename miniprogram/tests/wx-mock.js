@@ -8,6 +8,9 @@
 //   // 每个测试文件在 beforeEach 中：
 //   installWxMock()
 //   // 之后可直接访问 global.wx，或通过 require 拿到 wx = global.wx
+//
+// Storage 语义与真机一致：getStorageSync 未命中返回 ''（不是 null/undefined）。
+// 依赖此行为的被测代码（如 deviceStore）应对 '' 做容错，测试不再全局 mockReset。
 
 'use strict'
 
@@ -97,10 +100,26 @@ function createWxMock() {
     screenHeight: 667,
     pixelRatio: 2,
   }))
-  wx.getStorageSync = j.fn((key) => null)
-  wx.setStorageSync = j.fn()
-  wx.removeStorageSync = j.fn()
-  wx.clearStorageSync = j.fn()
+  // Storage 为内存 KV，跨调用持久（setStorageSync 写入后 getStorageSync 可读回），
+  // 每个测试通过 installWxMock 重建 mock，天然隔离。真机 Storage 上限 10MB，此处不限。
+  const _storage = Object.create(null)
+  wx.getStorageSync = j.fn((key) =>
+    Object.prototype.hasOwnProperty.call(_storage, key) ? _storage[key] : ''
+  )
+  wx.setStorageSync = j.fn((key, value) => {
+    _storage[key] = value
+  })
+  wx.removeStorageSync = j.fn((key) => {
+    delete _storage[key]
+  })
+  wx.clearStorageSync = j.fn(() => {
+    for (const k of Object.keys(_storage)) delete _storage[k]
+  })
+  wx.getStorageInfoSync = j.fn(() => ({
+    keys: Object.keys(_storage),
+    currentSize: 0,
+    limitSize: 10240,
+  }))
 
   // ---- UI ----
   wx.showToast = j.fn()

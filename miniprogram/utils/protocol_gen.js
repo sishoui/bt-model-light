@@ -23,6 +23,22 @@ const FRAME = {
   crc16Poly: 0x1021,
 };
 
+/* ---- ble (ble.csv) ---- */
+const BLE = {
+  serviceUuid: '7a9c0001-4b1e-4f2a-9c3d-8e5f1a2b3c4d',  // 自定义 GATT 服务 UUID（ADR-0004）
+  writeCharUuid: '7a9c0002-4b1e-4f2a-9c3d-8e5f1a2b3c4d',  // 写特征 UUID：小程序到固件的命令通道
+  notifyCharUuid: '7a9c0003-4b1e-4f2a-9c3d-8e5f1a2b3c4d',  // 通知特征 UUID：固件到小程序的回传通道
+  namePrefix: 'BTLight_',  // BLE 广播名前缀，用于扫描过滤（ADR-0025）
+};
+
+/* STATUS_NOTIFY status codes (notify.csv) */
+const NOTIFY = {
+  OK: 0x00,  // 通用成功，code 回显触发的命令码
+  STATE: 0x01,  // 状态机状态，code = 状态值
+  ERROR: 0x02,  // 错误，code = 错误码（errors.csv）
+  VERSION: 0x03,  // GET_VERSION 响应，附加 4 字节版本
+};
+
 /* ---- commands (commands.csv) ---- */
 const CMD = {
   WRITE_CONFIG: 0x01,  // 下发整台设备配置（8 引脚 → 灯组 → 步骤 → 图层）
@@ -152,6 +168,8 @@ module.exports = {
   FIRMWARE_VERSION,
   APP_VERSION,
   FRAME,
+  BLE,
+  NOTIFY,
   CMD,
   CMD_DIRECTION,
   ERR,

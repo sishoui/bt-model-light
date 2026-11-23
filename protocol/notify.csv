@@ -1,0 +1,5 @@
+status,code,name,description
+0,0x00,OK,通用成功，code 回显触发的命令码
+1,0x01,STATE,状态机状态，code = 状态值
+2,0x02,ERROR,错误，code = 错误码（errors.csv）
+3,0x03,VERSION,GET_VERSION 响应，附加 4 字节版本
