@@ -26,7 +26,14 @@ These labels describe **which part of the project a change touches**. Apply them
 | `固件`      | Firmware / embedded code                                    |
 | `数据库`    | Schema, migrations, queries, data fixes                     |
 | `文档`      | Docs, README, guides, ADRs, glossary                        |
+| `测试`      | Adds or modifies test files                                 |
+| `人工测试`  | Requires manual (human) testing                             |
 
 When filing or triaging an issue that names a concrete change, add the matching component label(s) in the same `gh issue create` / `gh issue edit` call. If a change spans multiple components, apply every relevant label.
+
+Two special cases worth calling out:
+
+- `测试` — apply whenever the issue's deliverable includes adding or editing test files, even if the issue's primary component is something else. A bug fix that adds a regression test should carry both the bug's component label and `测试`.
+- `人工测试` — apply when the verification step requires a human to exercise the software (manual QA, on-device check, sign-off). Do not use it for issues fully verifiable by automated tests.
 
 Edit this section whenever a new area of the system is introduced; create the matching label on GitHub (`gh label create "<name>" --color "<hex>" --description "..."`) before applying it.
