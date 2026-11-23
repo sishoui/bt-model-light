@@ -13,7 +13,10 @@
 // T6 (#26) adds: BLE GATT service, spiffs config persistence, full
 //   8-effect render set, layer composition.
 //
-// Pin map and partition table live in led_driver.h / partitions.csv.
+// Note: no Serial console in T2. The ESP32-C3-DevKitM-1 has no
+// USB-UART bridge, and Serial.begin() blocks when the native USB-CDC
+// port is not enumerated, which would prevent the app task from
+// starting. Console logging is introduced in T8 (ADR-0026).
 
 #include <Arduino.h>
 
@@ -44,21 +47,13 @@ static void bootButtonTask(void *) {
             // 5s long-press complete -> restore factory default.
             // In T2 "restore" means replay factory-default playback
             // from tick 0. T6 will also clear spiffs /config.bin.
-            Serial.println("[factory] long-press BOOT -> restore default");
             sTickCount = 0;
-            // Note: ledInit() already configured; no re-init needed.
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
 void setup() {
-    Serial.begin(115200);
-    delay(200);
-    Serial.println();
-    Serial.printf("bt-model-light firmware %s (protocol %s)\n",
-                  FIRMWARE_VERSION_STRING, PROTOCOL_VERSION_STRING);
-
     ledInit();
     bootButtonInit();
     stateMachineInit();
