@@ -66,12 +66,12 @@ void setup() {
     // Factory-default playback at boot enters PLAYING (ADR-0015/0016).
     stateMachineSet(FW_STATE_PLAYING);
 
-    // Two RTSS tasks: LED frame loop and BOOT button polling.
+    // Two RTOS tasks: LED frame loop and BOOT button polling.
     xTaskCreate(frameTask, "frame", 4096, nullptr, 5, nullptr);
     xTaskCreate(bootButtonTask, "bootbtn", 2048, nullptr, 3, nullptr);
 }
 
 void loop() {
-    // All work is in dedicated RTSS tasks; nothing to do here.
+    // All work is in dedicated RTOS tasks; nothing to do here.
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
