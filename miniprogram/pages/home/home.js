@@ -5,6 +5,7 @@
 
 const { getCurrentBleClient } = require('../../utils/bleClient')
 const { listDevices, getDeviceConfig } = require('../../utils/deviceStore')
+const { friendlyMessage, logError } = require('../../utils/errorHandler')
 const GEN = require('../../utils/protocol_gen')
 
 Page({
@@ -38,12 +39,14 @@ Page({
     this._unsubscribeBle()
     const client = getCurrentBleClient()
     if (!client) return
-    // STATUS_NOTIFY 事件：错误 Toast（文案映射表在 T8 errorHandler，ADR-0026）；
+    // STATUS_NOTIFY 事件：错误 Toast（文案映射 + 本地日志 errorHandler，ADR-0026）；
     // 版本不兼容 → Modal 提示升级（ADR-0009）。
     this._offStatus = client.onStatus((evt) => {
       if (evt.type === 'error') {
-        wx.showToast({ title: `设备错误 ${evt.code}`, icon: 'none' })
+        logError(evt.code, '设备回传错误')
+        wx.showToast({ title: friendlyMessage(evt.code), icon: 'none' })
       } else if (evt.type === 'version' && !evt.compatible) {
+        logError({ errMsg: `版本不兼容 固件${evt.protocol}/需要${this.data.protocolVersion}` }, '版本不兼容')
         wx.showModal({
           title: '版本不兼容',
           content: `固件协议 ${evt.protocol}，小程序需要 ${this.data.protocolVersion}。请升级小程序或固件。`,

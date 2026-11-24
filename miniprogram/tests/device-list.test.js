@@ -51,7 +51,7 @@ describe('device-list 页（#25）', () => {
     expect(app.globalData.currentDeviceId).toBe(dev.id)
   })
 
-  test('点选已保存设备：连接失败 → Toast 错误，currentId 不变', async () => {
+  test('点选已保存设备：连接失败 → 友好文案 Toast + 本地日志，currentId 不变', async () => {
     wx.createBLEConnection.mockImplementation(() => Promise.reject(new Error('timeout')))
     const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
 
@@ -60,10 +60,15 @@ describe('device-list 页（#25）', () => {
     await page.onTapDevice({ currentTarget: { dataset: { id: dev.id } } })
     await flush()
 
+    // Error('timeout') 经 errorHandler → 用其 message。
     expect(wx.showToast).toHaveBeenCalledWith({
-      title: '连接失败：timeout',
+      title: 'timeout',
       icon: 'none',
     })
+    // 本地日志 error_log 记录一条（context = 连接设备）。
+    const log = JSON.parse(wx.getStorageSync('error_log'))
+    expect(log).toHaveLength(1)
+    expect(log[0].context).toBe('连接设备')
     expect(wx.getStorageSync('bt_current_device')).toBe('')
   })
 

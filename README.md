@@ -41,8 +41,10 @@ bt-model-light/
 - Jest + 自建 wx mock（JS 逻辑层，每 commit）
 - PlatformIO + Unity（固件协议解析层，每 commit）
 - 代码生成一致性检查（每 commit）
-- 真机 smoke test（发布前，iOS + Android 各一台）
+- 真机 smoke test（发布前，iOS + Android 各一台，含权限路径）——清单见 [`docs/smoke-test.md`](docs/smoke-test.md)
+
+CI 三层（`.github/workflows/ci.yml`）：代码生成一致性 + 小程序 Jest + 固件 Unity，每次 push/PR 运行。
 
 ## 状态
 
-设计阶段完成，代码尚未开始。跟踪进度见 GitHub issues。
+设计阶段完成。跟踪进度见 GitHub issues。

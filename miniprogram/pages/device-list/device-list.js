@@ -10,6 +10,7 @@ const {
   setCurrentDeviceId,
 } = require('../../utils/deviceStore')
 const { createBleClient, getCurrentBleClient, setCurrentBleClient } = require('../../utils/bleClient')
+const { friendlyMessage, logError } = require('../../utils/errorHandler')
 
 Page({
   data: {
@@ -97,7 +98,8 @@ Page({
       setTimeout(() => wx.navigateBack(), 500)
     } catch (err) {
       wx.hideLoading()
-      wx.showToast({ title: `连接失败：${(err && err.message) || err}`, icon: 'none' })
+      logError(err, '连接设备')
+      wx.showToast({ title: friendlyMessage(err), icon: 'none' })
     }
   },
 
@@ -129,7 +131,8 @@ Page({
       },
       onError: (err) => {
         this.setData({ scanning: false })
-        wx.showToast({ title: `扫描失败：${(err && err.errMsg) || err}`, icon: 'none' })
+        logError(err, '扫描设备')
+        wx.showToast({ title: friendlyMessage(err), icon: 'none' })
       },
     })
   },

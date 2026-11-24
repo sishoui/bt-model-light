@@ -31,10 +31,11 @@ describe('mine 页（#25）', () => {
     expect(page.data.protocolVersion).toBe(PROTOCOL_VERSION.string)
   })
 
-  test('清除本地数据：删除 bt_devices / bt_current_device / device_config_*，保留其他键', () => {
+  test('清除本地数据：删除 bt_devices / bt_current_device / device_config_* / error_log，保留其他键', () => {
     saveDevice({ name: 'A', deviceId: 'dev-1' })
     wx.setStorageSync('bt_current_device', 'x')
     wx.setStorageSync('device_config_d1', '{}')
+    wx.setStorageSync('error_log', '[]')
     wx.setStorageSync('user_pref_theme', 'dark') // 无关键：保留
 
     const page = loadPage(MINE, app)
@@ -43,6 +44,7 @@ describe('mine 页（#25）', () => {
     expect(wx.getStorageSync('bt_devices')).toBe('')
     expect(wx.getStorageSync('bt_current_device')).toBe('')
     expect(wx.getStorageSync('device_config_d1')).toBe('')
+    expect(wx.getStorageSync('error_log')).toBe('')
     expect(wx.getStorageSync('user_pref_theme')).toBe('dark')
     expect(wx.showToast).toHaveBeenCalledWith({ title: '已清除', icon: 'success' })
   })

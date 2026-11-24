@@ -103,7 +103,7 @@ describe('home 页（#25）', () => {
     expect(page.data.connected).toBe(false)
   })
 
-  test('STATUS_NOTIFY error → 页面 Toast 含错误码（T8 之前的占位映射）', async () => {
+  test('STATUS_NOTIFY error → 友好文案 Toast + 写本地日志（T8 / ADR-0026）', async () => {
     setupBle(wx)
 
     const client = createBleClient()
@@ -113,14 +113,19 @@ describe('home 页（#25）', () => {
     const page = loadPage(HOME, app)
     page.onShow()
 
+    // 0x01 = CRC_ERROR → 文案表（errorHandler），不泄露裸码。
     notify(wx, statusFrame(NOTIFY.ERROR, 0x01, 1))
-    expect(wx.showToast).toHaveBeenCalledWith({
-      title: '设备错误 1',
-      icon: 'none',
-    })
+    const arg = wx.showToast.mock.calls[wx.showToast.mock.calls.length - 1][0]
+    expect(arg.icon).toBe('none')
+    expect(arg.title).toMatch(/校验|数据/)
+    expect(arg.title).not.toContain('0x') // 不泄露协议码
+    // 本地日志 error_log 记录一条。
+    const log = JSON.parse(wx.getStorageSync('error_log'))
+    expect(log).toHaveLength(1)
+    expect(log[0].code).toBe(0x01)
   })
 
-  test('STATUS_NOTIFY version 不兼容 → Modal 提示升级（ADR-0009）', async () => {
+  test('STATUS_NOTIFY version 不兼容 → Modal 提示升级 + 写本地日志（ADR-0009 / 0026）', async () => {
     setupBle(wx)
 
     const client = createBleClient()
@@ -134,6 +139,10 @@ describe('home 页（#25）', () => {
     expect(wx.showModal).toHaveBeenCalled()
     const arg = wx.showModal.mock.calls[wx.showModal.mock.calls.length - 1][0]
     expect(arg.title).toBe('版本不兼容')
+    // 版本不兼容属关键错误，写本地日志便于排障（ADR-0026）。
+    const log = JSON.parse(wx.getStorageSync('error_log'))
+    expect(log).toHaveLength(1)
+    expect(log[0].context).toBe('版本不兼容')
   })
 
   test('整体开关/亮度滑块更新本地 data', () => {

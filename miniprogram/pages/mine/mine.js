@@ -28,7 +28,12 @@ Page({
         try {
           const keys = wx.getStorageInfoSync().keys
           for (const k of keys) {
-            if (k === 'bt_devices' || k === 'bt_current_device' || k.indexOf('device_config_') === 0) {
+            if (
+              k === 'bt_devices' ||
+              k === 'bt_current_device' ||
+              k === 'error_log' ||
+              k.indexOf('device_config_') === 0
+            ) {
               wx.removeStorageSync(k)
             }
           }

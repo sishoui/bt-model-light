@@ -10,6 +10,7 @@
 const { getCurrentBleClient } = require('../../utils/bleClient')
 const { getDeviceConfig, saveDeviceConfig } = require('../../utils/deviceStore')
 const { encodeConfigBlob, validateConfig, effectName, clampInt } = require('../../utils/configCodec')
+const { friendlyMessage, logError } = require('../../utils/errorHandler')
 const { EFF, EFFECT_PARAMS, LIMITS, CMD } = require('../../utils/protocol_gen')
 
 // ---- 静态选项（下拉 range / 文案） -------------------------------------------
@@ -524,7 +525,8 @@ Page({
       wx.showToast({ title: '已保存并应用', icon: 'success' })
     } catch (err) {
       wx.hideLoading()
-      wx.showToast({ title: `已保存到本地，下发失败：${(err && err.message) || err}`, icon: 'none' })
+      logError(err, '下发配置')
+      wx.showToast({ title: `已保存到本地，下发失败：${friendlyMessage(err)}`, icon: 'none' })
     }
   },
 })
