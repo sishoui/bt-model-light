@@ -379,6 +379,8 @@
 .led-picker-mask {
   position: fixed;
   inset: 0;
+  padding-bottom: 140rpx; /* 为底部取消区留出空间，避免面板被遮挡 */
+  box-sizing: border-box;
   z-index: 100;
   display: flex;
   align-items: center;
@@ -395,8 +397,8 @@
   position: relative;
   width: 90vw;
   max-width: 720rpx;
-  max-height: 80vh;
-  margin-bottom: 100rpx;
+  max-height: 70vh;
+  margin-bottom: 20rpx;
   background: var(--bt-color-bg-elevated);
   border-radius: 28rpx;
   padding: 24rpx;
