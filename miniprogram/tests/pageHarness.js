@@ -15,6 +15,21 @@
 
 'use strict'
 
+// 微信 setData 支持数据路径（'a.b[0].c'）。纯键仍走直接赋值，路径键逐段下钻。
+// 被测页面用路径键做嵌套数组的不可变更新，这里必须同构支持，否则测试观测不到。
+function setPath(obj, path, value) {
+  const segs = []
+  const re = /([^.[\]]+)|\[(\d+)\]/g
+  let m
+  while ((m = re.exec(path))) segs.push(m[2] !== undefined ? Number(m[2]) : m[1])
+  let cur = obj
+  for (let i = 0; i < segs.length - 1; i++) {
+    if (cur[segs[i]] == null) cur[segs[i]] = typeof segs[i + 1] === 'number' ? [] : {}
+    cur = cur[segs[i]]
+  }
+  cur[segs[segs.length - 1]] = value
+}
+
 // 装载页面模块并返回实例；全局 Page/getApp 在该测试文件内保持注入。
 function loadPage(pagePath, app) {
   global.getApp = () => app
@@ -28,11 +43,14 @@ function loadPage(pagePath, app) {
   })
   if (!def) throw new Error(`Page() not called by ${pagePath}`)
 
-  // 实例：data 深拷贝 + setData 合并 + 生命周期方法绑定。
+  // 实例：data 深拷贝 + setData（含路径键）+ 生命周期方法绑定。
   const page = {
     data: JSON.parse(JSON.stringify(def.data || {})),
     setData(patch) {
-      Object.assign(this.data, patch)
+      for (const key of Object.keys(patch)) {
+        if (key.indexOf('.') >= 0 || key.indexOf('[') >= 0) setPath(this.data, key, patch[key])
+        else this.data[key] = patch[key]
+      }
     },
   }
   for (const [k, v] of Object.entries(def)) {

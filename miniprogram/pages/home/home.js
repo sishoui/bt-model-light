@@ -82,8 +82,8 @@ Page({
       pins = cfgPins.map((p) => ({
         pin: p.pin,
         name: p.name || `引脚 ${p.pin + 1}`,
-        power: false, // 引脚级开关/图片 T7 接入
-        img: '',
+        power: !!p.power,
+        img: p.img || '',
         info: `${p.groups.length} 个灯组`,
       }))
     }
@@ -95,10 +95,10 @@ Page({
     wx.navigateTo({ url: '/pages/device-list/device-list' })
   },
 
-  // 引脚卡片 → 引脚配置详情页（T7 实现；占位提示）。
+  // 引脚卡片 → 引脚配置详情页（#27 / T7）。
   onTapPin(e) {
     const pin = e.currentTarget.dataset.pin
-    wx.showToast({ title: `引脚 ${pin + 1}（配置编辑即将上线）`, icon: 'none' })
+    wx.navigateTo({ url: `/pages/pin-detail/pin-detail?pin=${pin}` })
   },
 
   onPowerChange(e) {

@@ -143,4 +143,22 @@ describe('home 页（#25）', () => {
     page.onBrightnessChange({ detail: { value: 200 } })
     expect(page.data.brightness).toBe(200)
   })
+
+  test('引脚卡片点击 → navigateTo 引脚配置详情页（带 pin）', () => {
+    const page = loadPage(HOME, app)
+    page.onTapPin({ currentTarget: { dataset: { pin: 2 } } })
+    expect(wx.navigateTo).toHaveBeenCalledWith({ url: '/pages/pin-detail/pin-detail?pin=2' })
+  })
+
+  test('引脚卡片带出 power/img（#27 接入）', () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    saveDeviceConfig(dev.id, {
+      pins: [{ pin: 0, configured: true, name: 'P', power: true, img: 'x.png', groups: [{}] }],
+    })
+    app.globalData.currentDeviceId = dev.id
+    const page = loadPage(HOME, app)
+    page.onShow()
+    expect(page.data.pins[0].power).toBe(true)
+    expect(page.data.pins[0].img).toBe('x.png')
+  })
 })

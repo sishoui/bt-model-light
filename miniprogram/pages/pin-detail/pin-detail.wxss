@@ -1,1 +1,240 @@
-/* 引脚配置详情页样式。T7 实现。 */
+/* 引脚配置详情页样式（ADR-0027 / #27 / T7）。 */
+
+.page {
+  padding: 0 0 160rpx; /* 底部给固定保存栏留位 */
+}
+
+/* 顶部：图片 / 名称 / 开关 */
+.pin-head {
+  display: flex;
+  align-items: center;
+}
+
+.pin-head__img {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+  background: #eeeeee;
+  margin-right: 24rpx;
+}
+
+.pin-head__info {
+  flex: 1;
+}
+
+.pin-head__name {
+  font-size: 34rpx;
+  font-weight: 600;
+  height: 56rpx;
+}
+
+/* 灯组 Tab */
+.tabs {
+  display: flex;
+  align-items: center;
+  padding: 8rpx 16rpx;
+  white-space: nowrap;
+}
+
+.tab {
+  padding: 12rpx 24rpx;
+  margin-right: 12rpx;
+  border-radius: 24rpx;
+  background: #ffffff;
+  font-size: 26rpx;
+  color: #666666;
+}
+
+.tab--active {
+  background: #07c160;
+  color: #ffffff;
+}
+
+.tab--add {
+  color: #07c160;
+  font-size: 32rpx;
+  line-height: 1;
+}
+
+.tab--danger {
+  color: #e64340;
+  background: transparent;
+}
+
+.tab-bar__spacer {
+  flex: 1;
+}
+
+/* 通用行：标签 + 控件 */
+.row {
+  display: flex;
+  align-items: center;
+  margin-top: 16rpx;
+}
+
+.row__label {
+  width: 160rpx;
+  font-size: 26rpx;
+  color: #666666;
+}
+
+.row__input {
+  flex: 1;
+  height: 64rpx;
+  padding: 0 16rpx;
+  background: #f5f5f5;
+  border-radius: 8rpx;
+  font-size: 28rpx;
+}
+
+.row__input--num {
+  max-width: 200rpx;
+}
+
+.row__picker {
+  flex: 1;
+  padding: 0 16rpx;
+  height: 64rpx;
+  line-height: 64rpx;
+  background: #f5f5f5;
+  border-radius: 8rpx;
+  font-size: 28rpx;
+}
+
+/* 灯珠范围 */
+.range {
+  margin-top: 24rpx;
+}
+
+.range__title {
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.led-grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 16rpx 0 8rpx;
+}
+
+.led-cell {
+  width: 60rpx;
+  height: 60rpx;
+  margin: 4rpx;
+  border-radius: 8rpx;
+  background: #eeeeee;
+  color: #999999;
+  font-size: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.led-cell--on {
+  background: #07c160;
+  color: #ffffff;
+}
+
+/* 步骤卡片 */
+.step {
+  margin-top: 16rpx;
+}
+
+.step__head {
+  margin-bottom: 8rpx;
+}
+
+.step__title {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.step__del {
+  font-size: 24rpx;
+  color: #e64340;
+}
+
+/* 图层 */
+.layer {
+  margin-top: 16rpx;
+  padding: 16rpx;
+  background: #fafafa;
+  border-radius: 12rpx;
+}
+
+.layer__head {
+  margin-bottom: 8rpx;
+}
+
+.layer__title {
+  font-size: 26rpx;
+  font-weight: 500;
+}
+
+.layer__effect {
+  margin-bottom: 8rpx;
+}
+
+/* 参数行（rgb 三通道） */
+.param {
+  margin-top: 12rpx;
+}
+
+.rgb {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.rgb__ch {
+  font-size: 22rpx;
+  color: #999999;
+  margin: 0 6rpx;
+}
+
+.rgb__input {
+  width: 88rpx;
+  height: 56rpx;
+  padding: 0 8rpx;
+  background: #ffffff;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+  text-align: center;
+}
+
+/* 添加按钮 */
+.add-layer {
+  margin-top: 16rpx;
+  padding: 12rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #07c160;
+  border: 2rpx dashed #07c160;
+  border-radius: 12rpx;
+}
+
+.add-step {
+  margin: 16rpx;
+  padding: 20rpx;
+  text-align: center;
+  font-size: 28rpx;
+  color: #07c160;
+}
+
+/* 固定保存栏 */
+.save-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16rpx 32rpx;
+  background: #ffffff;
+  box-shadow: 0 -2rpx 8rpx rgba(0, 0, 0, 0.05);
+}
+
+.save-btn {
+  background: #07c160;
+  color: #ffffff;
+  border-radius: 12rpx;
+  font-size: 30rpx;
+}

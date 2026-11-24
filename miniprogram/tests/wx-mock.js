@@ -139,6 +139,10 @@ function createWxMock() {
   wx.navigateBack = j.fn()
   wx.reLaunch = j.fn()
 
+  // ---- 离开拦截（引脚配置详情页 dirty 时用，#27） ----
+  wx.enableAlertBeforeUnload = j.fn()
+  wx.disableAlertBeforeUnload = j.fn()
+
   // ---- 元信息 ----
   wx.__listeners = _listeners
   return wx
