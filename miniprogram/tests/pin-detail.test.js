@@ -100,43 +100,23 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.dirty).toBe(false)
   })
 
-  test('无配置：默认 1 灯组 / 1 步骤 / 1 图层 / 常亮', () => {
+  test('无配置：默认 5 灯组 / 1 步骤 / 1 图层 / 常亮', () => {
     const page = load(0)
     expect(page.data.pinName).toBe('引脚 1')
-    expect(page.data.groups).toHaveLength(1)
-    expect(page.data.groups[0].steps).toHaveLength(1)
-    expect(page.data.groups[0].steps[0].layers).toHaveLength(1)
-    expect(page.data.groups[0].steps[0].layers[0].effect).toBe(EFF.SOLID)
-    expect(page.data.groups[0].ledStart).toBe(0)
-    expect(page.data.groups[0].ledEnd).toBe(9)
+    expect(page.data.groups).toHaveLength(5)
+    for (let i = 0; i < 5; i++) {
+      expect(page.data.groups[i].name).toBe(`灯组 ${i + 1}`)
+      expect(page.data.groups[i].steps).toHaveLength(1)
+      expect(page.data.groups[i].steps[0].layers).toHaveLength(1)
+      expect(page.data.groups[i].steps[0].layers[0].effect).toBe(EFF.SOLID)
+      expect(page.data.groups[i].ledStart).toBe(0)
+      expect(page.data.groups[i].ledEnd).toBe(9)
+    }
+    expect(page.data.activeGroup).toBe(0)
     expect(page.data.dirty).toBe(false)
   })
 
-  // 灯组下拉（#31）：新增到上限 5，超出 Toast；onPickGroup 切换 + 弹层显隐。
-  test('灯组下拉：新增到上限 5，超出 Toast；onPickGroup 切换并关闭弹层', () => {
-    const page = load(0)
-    // 点击「当前灯组」行 → 打开弹层。
-    page.onToggleGroupMenu()
-    expect(page.data.groupMenuOpen).toBe(true)
-    page.onAddGroup()
-    expect(page.data.groups).toHaveLength(2)
-    expect(page.data.activeGroup).toBe(1)
-    expect(page.data.groupMenuOpen).toBe(false) // 新增后弹层自动关闭
-    page.onAddGroup()
-    page.onAddGroup()
-    page.onAddGroup() // 共 5
-    expect(page.data.groups).toHaveLength(5)
-    page.onAddGroup() // 第 6 个：拒绝
-    expect(page.data.groups).toHaveLength(5)
-    expect(wx.showToast).toHaveBeenCalled()
-
-    page.onPickGroup({ currentTarget: { dataset: { index: 0 } } })
-    expect(page.data.activeGroup).toBe(0)
-    expect(page.data.groupMenuOpen).toBe(false)
-    expect(page.data.dirty).toBe(true)
-  })
-
-  test('灯组弹层：切换 activeGroup 后灯组内容（范围/步骤/图层）正确刷新', () => {
+  test('灯组 Tab：onTapGroup 切换 activeGroup 并重建灯珠网格', () => {
     saveDeviceConfig(dev.id, {
       version: 1,
       pins: [
@@ -153,8 +133,7 @@ describe('pin-detail 页（#27）', () => {
       ],
     })
     const page = load(0)
-    page.onToggleGroupMenu()
-    page.onPickGroup({ currentTarget: { dataset: { index: 1 } } })
+    page.onTapGroup({ currentTarget: { dataset: { index: 1 } } })
     expect(page.data.activeGroup).toBe(1)
     expect(page.data.groups[1].name).toBe('彩虹')
     // 灯珠网格按新灯组范围重建：[4,9] 共 6 颗。
@@ -163,20 +142,11 @@ describe('pin-detail 页（#27）', () => {
     const layer = page.data.groups[1].steps[0].layers[0]
     expect(layer.effect).toBe(EFF.BREATH)
     expect(fieldOf(layer, 'period').value).toBe(3000)
-    // groups VM 不受切换影响（未标 dirty）。
+    // 切换不动 groups VM、不置 dirty。
     expect(page.data.dirty).toBe(false)
-  })
-
-  test('灯组删除入口：>1 才显示，删除走 wx.showModal 确认', () => {
-    const page = load(0)
-    // 仅 1 组：无删除入口（WXML 按 groups.length > 1 显隐，这里验证数据源条件）。
-    page.onAddGroup() // 2 组
-    page.onDeleteGroup({ currentTarget: { dataset: { index: 1 } } })
-    expect(page.data.groups).toHaveLength(1) // showModal mock 默认 confirm
-    expect(wx.showModal).toHaveBeenCalled()
-
-    page.onDeleteGroup({ currentTarget: { dataset: { index: 0 } } }) // 仅剩 1：拒绝
-    expect(page.data.groups).toHaveLength(1)
+    // 越界 index 忽略。
+    page.onTapGroup({ currentTarget: { dataset: { index: 9 } } })
+    expect(page.data.activeGroup).toBe(1)
   })
 
   test('重命名灯组：输入即改 name 并置 dirty', () => {
@@ -374,7 +344,7 @@ describe('pin-detail 页（#27）', () => {
     expect(cmd2).toBe(CMD.APPLY)
     // blob 解回配置，pin 0 存在且灯组数一致。
     const decoded = decodeConfigBlob(Uint8Array.from(blob))
-    expect(decoded.pins.find((p) => p.pin === 0).groups).toHaveLength(1)
+    expect(decoded.pins.find((p) => p.pin === 0).groups).toHaveLength(5)
     expect(page.data.dirty).toBe(false)
   })
 

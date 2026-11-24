@@ -29,109 +29,51 @@
   height: 64rpx;
 }
 
-/* 灯组下拉（#31） */
-.group-bar {
-  display: flex;
-  align-items: center;
+/* 灯组 Tab（固定 5 个；横向滚动防拥挤，design.md §5.4 热区 88rpx） */
+.group-tabs {
+  white-space: nowrap;
   padding: 12rpx 32rpx;
 }
 
-/* 视觉上胶囊 64rpx 高，热区经 padding 扩至 88rpx（design.md §5.4）。 */
-.group-bar__pick {
-  display: flex;
-  align-items: center;
-  padding: 12rpx 24rpx;
-  background: var(--bt-color-bg-elevated);
-  border-radius: 999rpx;
-  box-shadow: inset 0 0 0 1rpx var(--bt-color-separator);
-}
-
-.group-bar__name {
-  font-size: 30rpx;
-  line-height: 40rpx;
-  font-weight: 600;
-  color: var(--bt-color-label);
-}
-
-.group-bar__arrow {
-  margin-left: 8rpx;
-  font-size: 24rpx;
-  line-height: 40rpx;
-  color: var(--bt-color-label-secondary);
-  transition: transform 0.2s ease-out;
-}
-
-.group-bar__arrow--open {
-  transform: rotate(180deg);
-}
-
-.group-bar__spacer {
-  flex: 1;
-}
-
-.group-bar__add {
-  width: 64rpx;
-  height: 64rpx;
-  margin: 12rpx 0;
-  display: flex;
+.group-tab {
+  display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  border-radius: 999rpx;
+  min-width: 140rpx;
+  height: 88rpx;
+  padding: 8rpx 24rpx;
+  margin-right: 12rpx;
   background: var(--bt-color-bg-elevated);
-  color: var(--bt-color-accent);
-  font-size: 36rpx;
-  line-height: 40rpx;
-  box-shadow: inset 0 0 0 1rpx var(--bt-color-separator);
+  border-radius: 20rpx;
+  box-sizing: border-box;
+  transition: background-color 0.25s ease-out, color 0.25s ease-out;
 }
 
-/* 灯组弹层（position:fixed） */
-.group-menu {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
+.group-tab--active {
+  background: var(--bt-color-accent);
 }
 
-.group-menu__mask {
-  position: absolute;
-  inset: 0;
-  background: var(--bt-color-bg-mask);
-}
-
-.group-menu__sheet {
-  position: absolute;
-  left: 32rpx;
-  right: 32rpx;
-  top: 160rpx;
-  background: var(--bt-color-bg-elevated);
-  border-radius: 24rpx;
-  padding: 8rpx 0;
-  box-shadow: 0 16rpx 48rpx var(--bt-color-shadow-sheet);
-  max-height: 60vh;
-  overflow-y: auto;
-}
-
-.group-menu__item {
-  padding: 24rpx 32rpx;
-  font-size: 30rpx;
-  line-height: 40rpx;
+.group-tab__name {
+  font-size: 28rpx;
+  line-height: 36rpx;
   color: var(--bt-color-label);
+  transition: color 0.25s ease-out;
 }
 
-.group-menu__item--active {
-  color: var(--bt-color-accent);
-  font-weight: 600;
+.group-tab--active .group-tab__name {
+  color: #ffffff;
 }
 
-.group-menu__item:active {
-  background: var(--bt-color-bg-input);
+.group-tab__range {
+  font-size: 22rpx;
+  line-height: 30rpx;
+  color: var(--bt-color-label-tertiary);
+  transition: color 0.25s ease-out;
 }
 
-.group-menu__del {
-  padding: 24rpx 32rpx;
-  font-size: 30rpx;
-  line-height: 40rpx;
-  color: var(--bt-color-danger);
-  border-top: 1rpx solid var(--bt-color-separator);
+.group-tab--active .group-tab__range {
+  color: rgba(255, 255, 255, 0.75);
 }
 
 /* 通用行：标签 + 控件 */

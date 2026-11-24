@@ -174,10 +174,9 @@ Page({
     configured: false,
     // 模拟模式标志（onLoad 设置，用于显示提示）。
     simMode: false,
-    // 灯组下拉（#31）：顶部「当前灯组名 ▾」行 + position:fixed 弹层
+    // 灯组 Tab（固定 5 个，无新增/删除；tab 上小字显示灯珠区间）
     groups: [], // VM 数组
     activeGroup: 0,
-    groupMenuOpen: false, // 灯组弹层显隐
     // 灯珠范围点选：'start' 下一次点设起点，'end' 下一次点设终点
     picking: 'start',
     ledCells: [], // [{ i, on }] 渲染用（避免 WXML 里写表达式）
@@ -212,10 +211,11 @@ Page({
       const pins = (cfg && Array.isArray(cfg.pins) ? cfg.pins : []).filter((p) => p && p.pin === pin)
       pinEntry = pins.length ? pins[0] : null
     }
+    // 灯组固定 5 个（默认全建，无新增/删除入口）。
     const groups =
       pinEntry && Array.isArray(pinEntry.groups) && pinEntry.groups.length
         ? pinEntry.groups.map((g, i) => groupToVM(g, i))
-        : [defaultGroup('灯组 1')]
+        : Array.from({ length: LIMITS.groupsPerPinMax }, (_, i) => defaultGroup(`灯组 ${i + 1}`))
 
     this.setData({
       deviceId: this._deviceId,
@@ -227,7 +227,6 @@ Page({
       configured: !!(pinEntry && pinEntry.configured),
       groups,
       activeGroup: 0,
-      groupMenuOpen: false,
       picking: 'start',
       dirty: false,
       ledCells: this._buildLedCells(groups[0], ledCount),
@@ -281,59 +280,13 @@ Page({
     this._markDirty()
   },
 
-  // ---- 灯组下拉（#31：顶部「当前灯组名 ▾」行 + position:fixed 弹层） ----------
+  // ---- 灯组 Tab（固定 5 个，无新增/删除；tab 小字显示灯珠区间） -------------
 
-  // 切到指定灯组：重置点选态与弹层，灯珠网格按新组范围重建。
-  _switchGroup(index) {
-    this.setData({ activeGroup: index, picking: 'start', groupMenuOpen: false })
-    this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount) })
-  },
-
-  // 展开/收起灯组弹层。
-  onToggleGroupMenu() {
-    this.setData({ groupMenuOpen: !this.data.groupMenuOpen })
-  },
-
-  // 弹层内点选某灯组 → 切换 activeGroup 并关闭弹层。
-  onPickGroup(e) {
+  onTapGroup(e) {
     const index = Number(e.currentTarget.dataset.index)
     if (!this.data.groups[index]) return
-    this._switchGroup(index)
-  },
-
-  // 弹层内「＋」新增灯组：达上限 Toast 拒绝；成功后关闭弹层并切到新灯组。
-  onAddGroup() {
-    const groups = this.data.groups.slice()
-    if (groups.length >= LIMITS.groupsPerPinMax) {
-      wx.showToast({ title: `每引脚最多 ${LIMITS.groupsPerPinMax} 个灯组`, icon: 'none' })
-      return
-    }
-    const g = defaultGroup(`灯组 ${groups.length + 1}`)
-    groups.push(g)
-    this.setData({ groups })
-    this._switchGroup(groups.length - 1)
-    this._markDirty()
-  },
-
-  onDeleteGroup(e) {
-    const index = Number(e.currentTarget.dataset.index)
-    const groups = this.data.groups
-    if (groups.length <= 1) {
-      wx.showToast({ title: '至少保留一个灯组', icon: 'none' })
-      return
-    }
-    wx.showModal({
-      title: '删除灯组',
-      content: `确定删除「${groups[index].name}」？`,
-      success: (res) => {
-        if (!res.confirm) return
-        const next = groups.slice()
-        next.splice(index, 1)
-        this.setData({ groups: next })
-        this._switchGroup(Math.min(this.data.activeGroup, next.length - 1))
-        this._markDirty()
-      },
-    })
+    this.setData({ activeGroup: index, picking: 'start' })
+    this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount) })
   },
 
   onGroupNameInput(e) {
