@@ -75,7 +75,7 @@ static const fw_state_t kTransitionTable[FW_STATE_COUNT][FW_EVT_COUNT] = {
     /* PLAYING */ {
         /* CONNECT          */ FW_STATE_COUNT,
         /* DISCONNECT       */ FW_STATE_IDLE,
-        /* WRITE_CONFIG_OK  */ FW_STATE_COUNT,
+        /* WRITE_CONFIG_OK  */ FW_STATE_CONFIGURED,
         /* APPLY            */ FW_STATE_PLAYING,
         /* TRIGGER_STEP     */ FW_STATE_PREVIEW,
         /* STOP             */ FW_STATE_PAUSED,
@@ -87,7 +87,7 @@ static const fw_state_t kTransitionTable[FW_STATE_COUNT][FW_EVT_COUNT] = {
     /* PREVIEW */ {
         /* CONNECT          */ FW_STATE_COUNT,
         /* DISCONNECT       */ FW_STATE_IDLE,
-        /* WRITE_CONFIG_OK  */ FW_STATE_COUNT,
+        /* WRITE_CONFIG_OK  */ FW_STATE_CONFIGURED,
         /* APPLY            */ FW_STATE_PLAYING,
         /* TRIGGER_STEP     */ FW_STATE_PREVIEW,
         /* STOP             */ FW_STATE_PAUSED,
@@ -99,7 +99,7 @@ static const fw_state_t kTransitionTable[FW_STATE_COUNT][FW_EVT_COUNT] = {
     /* PAUSED */ {
         /* CONNECT          */ FW_STATE_COUNT,
         /* DISCONNECT       */ FW_STATE_IDLE,
-        /* WRITE_CONFIG_OK  */ FW_STATE_COUNT,
+        /* WRITE_CONFIG_OK  */ FW_STATE_CONFIGURED,
         /* APPLY            */ FW_STATE_PLAYING,
         /* TRIGGER_STEP     */ FW_STATE_COUNT,
         /* STOP             */ FW_STATE_PAUSED,

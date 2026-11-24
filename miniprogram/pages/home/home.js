@@ -36,6 +36,8 @@ Page({
     this.setData({ simMode: !!(app && app.globalData && app.globalData.simMode) })
     this._refresh()
     this._subscribeBle()
+    // 自动重连：若有已保存的当前设备且未连接，尝试重连（静默，不弹 loading）。
+    this._autoReconnect()
   },
 
   onHide() {
@@ -74,6 +76,27 @@ Page({
     if (this._offState) this._offState()
     this._offStatus = null
     this._offState = null
+  },
+
+  // 自动重连：onShow 时若有当前设备且未连接，静默尝试重连。
+  // 失败不弹 Toast（避免每次 onShow 骚扰），仅记录日志；下次 onShow 或
+  // 用户手动点设备列表仍可重试。sim 模式下跳过（模拟 client 无真机）。
+  _autoReconnect() {
+    const app = getApp()
+    if (app && app.globalData && app.globalData.simMode) return
+    const client = getCurrentBleClient()
+    if (!client || client.connected) return
+    const currentId = (app && app.globalData && app.globalData.currentDeviceId) || null
+    if (!currentId) return
+    const dev = listDevices().find((d) => d.id === currentId)
+    if (!dev || !dev.deviceId) return
+    // 防抖：同一设备 5s 内不重复自动重连（onShow 频繁触发时）。
+    const now = Date.now()
+    if (this._lastAutoReconnect && now - this._lastAutoReconnect < 5000) return
+    this._lastAutoReconnect = now
+    client.connect(dev.deviceId).catch((err) => {
+      logError(err, '自动重连')
+    })
   },
 
   // 从 deviceStore + bleClient 重建页面状态（切设备返回时 onShow 会重跑）。

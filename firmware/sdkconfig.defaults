@@ -1,0 +1,5 @@
+# Increase Bluedroid BTC task stack to avoid stack overflow on GATT connect
+# (ESP32-C3 default 4096 is too small for service discovery). See ADR-0016.
+CONFIG_BT_BTC_TASK_STACK_SIZE=12288
+# Also bump the main Arduino task stack slightly for safety.
+CONFIG_ARDUINO_LOOP_STACK_SIZE=8192

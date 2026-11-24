@@ -13,6 +13,13 @@
       <text class="settings-row__title">清除本地数据</text>
       <text class="settings-row__arrow">›</text>
     </view>
+    <view class="bt-row bt-row--between settings-row bt-pressable" bindtap="onViewErrorLog">
+      <text class="settings-row__title">本地日志</text>
+      <view class="settings-row__meta">
+        <text class="settings-row__value">{{errorLogCount}} 条</text>
+        <text class="settings-row__arrow">›</text>
+      </view>
+    </view>
   </view>
 
   <view class="bt-section-title">关于</view>

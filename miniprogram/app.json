@@ -27,5 +27,13 @@
       }
     ]
   },
-  "sitemapLocation": "sitemap.json"
+  "sitemapLocation": "sitemap.json",
+  "permission": {
+    "scope.bluetooth": {
+      "desc": "扫描并连接周边的 BTLight_ 灯控设备"
+    },
+    "scope.userLocation": {
+      "desc": "Android 11 及以下系统扫描蓝牙设备需要定位权限"
+    }
+  }
 }

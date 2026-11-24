@@ -53,7 +53,10 @@ int configPersistLoad(device_config_t *out) {
         config_load_factory_default(out);
         return -1;
     }
-    uint8_t buf[FRAME_LEN_MAX + 16];
+    // Static buffer: 1516 bytes is too large for the BTC task stack (3072
+    // bytes on ESP32-C3); Load/Save run in the BTC callback context. Static is
+    // safe because callbacks are serialized on BTC.
+    static uint8_t buf[FRAME_LEN_MAX + 16];
     size_t got = f.read(buf, n);
     f.close();
     if (got != n) {
@@ -76,7 +79,8 @@ int configPersistLoad(device_config_t *out) {
 bool configPersistSave(const device_config_t *c) {
     if (!c) return false;
 #if defined(ARDUINO)
-    uint8_t buf[FRAME_LEN_MAX + 16];
+    // Static buffer (BTC task stack is small; see Load above).
+    static uint8_t buf[FRAME_LEN_MAX + 16];
     uint8_t err = 0;
     size_t n = config_encode(c, buf, sizeof(buf), &err);
     if (n == 0) return false;

@@ -45,13 +45,16 @@ static void notify_send(const uint8_t *frame, size_t len) {
 }
 
 static void notify_status(uint8_t status, uint8_t code, uint8_t seq) {
-    uint8_t buf[FRAME_TOTAL_MAX];
+    // Static buffer: this runs in the BTC task context (BLE callback), where
+    // the stack is small (3072 bytes on ESP32-C3). A 1507-byte local would
+    // overflow it. Static is safe because callbacks are serialized on BTC.
+    static uint8_t buf[FRAME_TOTAL_MAX];
     size_t n = notify_build_status(buf, sizeof(buf), status, code, seq);
     if (n > 0) notify_send(buf, n);
 }
 
 static void notify_version(uint8_t seq) {
-    uint8_t buf[FRAME_TOTAL_MAX];
+    static uint8_t buf[FRAME_TOTAL_MAX];
     size_t n = notify_build_version(buf, sizeof(buf), seq);
     if (n > 0) notify_send(buf, n);
 }
@@ -66,7 +69,10 @@ static void handle_get_version(uint8_t seq) {
 }
 
 static void handle_write_config(uint8_t seq, const uint8_t *payload, size_t len) {
-    device_config_t decoded;
+    // Static buffer: decoded config is ~5.4KB, too large for the BTC task
+    // stack (3072 bytes on ESP32-C3). Static is safe because callbacks are
+    // serialized on BTC.
+    static device_config_t decoded;
     uint8_t rc = config_decode(payload, len, &decoded);
     if (rc != 0) {
         notify_status(NOTIFY_STATUS_ERROR, rc, seq);
@@ -89,14 +95,15 @@ static void handle_write_config(uint8_t seq, const uint8_t *payload, size_t len)
 
 static void handle_read_config(uint8_t seq) {
     // Encode the active config and send it back as a cmd=0x02 frame.
-    uint8_t buf[FRAME_LEN_MAX];
+    // Static buffers: this runs in the BTC task context (small stack).
+    static uint8_t buf[FRAME_LEN_MAX];
     uint8_t err = 0;
     size_t n = config_encode(sCfg, buf, sizeof(buf), &err);
     if (n == 0) {
         notify_status(NOTIFY_STATUS_ERROR, err, seq);
         return;
     }
-    uint8_t frame[FRAME_TOTAL_MAX];
+    static uint8_t frame[FRAME_TOTAL_MAX];
     size_t fn = notify_build_frame(frame, sizeof(frame), CMD_READ_CONFIG, seq,
                                    buf, n);
     if (fn > 0) notify_send(frame, fn);
@@ -166,7 +173,8 @@ static void handle_get_pin_caps(uint8_t seq) {
     // come from a future GET_PIN_CAPS v2; see ADR-0013a).
     uint8_t caps[PIN_COUNT];
     for (uint8_t i = 0; i < PIN_COUNT; i++) caps[i] = LEDS_PER_PIN_MAX;
-    uint8_t frame[FRAME_TOTAL_MAX];
+    // Static buffer (BTC task stack is small; see notify_status above).
+    static uint8_t frame[FRAME_TOTAL_MAX];
     size_t n = notify_build_frame(frame, sizeof(frame), CMD_GET_PIN_CAPS, seq,
                                   caps, PIN_COUNT);
     if (n > 0) notify_send(frame, n);
@@ -251,8 +259,15 @@ class ServerCallbacks : public BLEServerCallbacks {
     void onDisconnect(BLEServer *s) override {
         (void)s;
         sConnected = false;
-        // Any state -> IDLE (table allows DISCONNECT from all states).
-        stateMachineDispatch(FW_EVT_DISCONNECT);
+        // 保持当前灯效：PLAYING/PREVIEW/PAUSED 状态下不断电、不回 IDLE，
+        // 让 frameTask 继续用 sConfig 渲染用户配置（ADR-0015 修订：断连
+        // 不丢配置）。仅 CONNECTED/CONFIGURED（尚未 APPLY）回 IDLE 显示
+        // 出厂默认呼吸彩光。
+        fw_state_t st = stateMachineState();
+        if (st == FW_STATE_CONNECTED || st == FW_STATE_CONFIGURED) {
+            stateMachineDispatch(FW_EVT_DISCONNECT);
+        }
+        // PLAYING / PREVIEW / PAUSED：保持状态，frameTask 继续渲染。
         // Restart advertising so the device is discoverable again (ADR-0025).
         BLEDevice::startAdvertising();
     }

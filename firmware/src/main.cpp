@@ -63,16 +63,31 @@ static uint32_t sTickCount = 0;
 // ---- frame task ----------------------------------------------------------
 
 static void frameTask(void *) {
+    // 用真实时间差推进 tick：ledRefreshAll 对 8 个 pin 各 show() 一次，
+    // RMT 推 100 灯 × 8 pin 实际耗时可能 >TICK_MS，固定 dt=1 会让 step 变慢
+    // （实测 5s 步骤跑 15s）。这里按墙钟时间推进，保证 step 时长准确。
+    uint32_t last_ms = 0;
     for (;;) {
+        uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        uint32_t dt_ticks;
+        if (last_ms == 0) {
+            dt_ticks = 1;
+        } else {
+            uint32_t elapsed_ms = now_ms - last_ms;
+            dt_ticks = elapsed_ms / TICK_MS;
+            if (dt_ticks == 0) dt_ticks = 1; // 至少推进 1 tick，避免 0 速
+        }
+        last_ms = now_ms;
+
         fw_state_t st = stateMachineState();
         if (st == FW_STATE_PLAYING) {
             // Config-driven playback: render the active config, advance
             // each group's step clock, refresh all 8 strips in order.
-            composition_render_all(&sConfig, sPlayback, 1 /* dt_ticks */);
+            composition_render_all(&sConfig, sPlayback, dt_ticks);
         } else if (st == FW_STATE_PREVIEW) {
             // Preview: same render path; the step clock was set by
-            // TRIGGER_STEP. dt=1 keeps the effect animating.
-            composition_render_all(&sConfig, sPlayback, 1);
+            // TRIGGER_STEP. dt keeps the effect animating at real time.
+            composition_render_all(&sConfig, sPlayback, dt_ticks);
         } else if (st == FW_STATE_PAUSED) {
             // Hold current frame: just refresh (no re-render, no advance).
             // The strips keep their last-written pixels.
@@ -127,13 +142,14 @@ void setup() {
     // rc: 1 = loaded saved config, 0 = missing (-> factory default already
     // loaded by Load), -1 = corrupt (-> factory default already loaded).
     // Either way sConfig now holds a valid config. Reset playback clocks.
-    (void)rc;
     composition_init(&sConfig, sPlayback);
 
-    // Boot into IDLE (not PLAYING): the factory-default visual plays in
-    // IDLE via the frame loop, so the user sees lights immediately
-    // (ADR-0015 开箱即亮). PLAYING is entered on APPLY of a user config.
-    // stateMachineInit() already set IDLE; no force needed.
+    // 若从 SPIFFS 恢复了用户配置（rc==1），直接进 PLAYING 渲染保存的灯效，
+    // 而不是 IDLE 播出厂默认（ADR-0015 修订：重启后保持用户配置）。
+    // 无保存配置（rc!=1）时保持 IDLE，frameTask 播出厂呼吸彩光「开箱即亮」。
+    if (rc == 1) {
+        stateMachineForce(FW_STATE_PLAYING);
+    }
 
     // Start the BLE GATT service (advertising + Write/Notify chars).
     bleServiceBegin(&sConfig, sPlayback);

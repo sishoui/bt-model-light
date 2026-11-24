@@ -72,13 +72,13 @@ void test_connect_from_connected_is_illegal(void) {
     TEST_ASSERT_EQUAL(FW_STATE_CONNECTED, stateMachineState());
 }
 
-void test_write_config_from_playing_is_illegal(void) {
-    // PLAYING --WRITE_CONFIG_OK--> ???  Must go through CONFIGURED
-    // first; writing config mid-play is not a legal edge.
+void test_write_config_from_playing_returns_configured(void) {
+    // PLAYING --WRITE_CONFIG_OK--> CONFIGURED (edit mid-play is allowed; APPLY
+    // from CONFIGURED resumes PLAYING).
     stateMachineForce(FW_STATE_PLAYING);
-    TEST_ASSERT_EQUAL_UINT8(ERR_INVALID_STATE,
+    TEST_ASSERT_EQUAL_UINT8(0,
                             stateMachineDispatch(FW_EVT_WRITE_CONFIG_OK));
-    TEST_ASSERT_EQUAL(FW_STATE_PLAYING, stateMachineState());
+    TEST_ASSERT_EQUAL(FW_STATE_CONFIGURED, stateMachineState());
 }
 
 void test_trigger_step_from_idle_is_illegal(void) {
@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_trigger_step_enters_preview);
     RUN_TEST(test_apply_from_idle_is_illegal);
     RUN_TEST(test_connect_from_connected_is_illegal);
-    RUN_TEST(test_write_config_from_playing_is_illegal);
+    RUN_TEST(test_write_config_from_playing_returns_configured);
     RUN_TEST(test_trigger_step_from_idle_is_illegal);
     RUN_TEST(test_reset_default_from_playing);
     RUN_TEST(test_reset_default_from_paused);

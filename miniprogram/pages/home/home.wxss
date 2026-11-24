@@ -73,6 +73,35 @@
   line-height: 40rpx;
 }
 
+/* 连接状态徽标（左上标题内，绿点=已连接 / 灰点=未连接） */
+.hero-card__conn {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: 12rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.hero-card__conn-dot {
+  width: 10rpx;
+  height: 10rpx;
+  margin-right: 6rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.hero-card__conn--on .hero-card__conn-dot {
+  background: #34c759;
+}
+
+.hero-card__conn-text {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 20rpx;
+  line-height: 28rpx;
+}
+
 /* 右下开机按钮（accent 圆钮） */
 .hero-card__power {
   position: absolute;

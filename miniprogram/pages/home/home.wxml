@@ -13,6 +13,10 @@
     </view>
     <view class="hero-card__title" catchtap="onTapDeviceName">
       <text class="hero-card__title-text">{{deviceName || '未连接设备'}}</text>
+      <view class="hero-card__conn {{connected ? 'hero-card__conn--on' : ''}}">
+        <view class="hero-card__conn-dot"></view>
+        <text class="hero-card__conn-text">{{connected ? '已连接' : '未连接'}}</text>
+      </view>
       <text class="hero-card__title-action">切换 ›</text>
     </view>
     <view class="hero-card__power {{power ? 'hero-card__power--on' : ''}}"

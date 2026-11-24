@@ -142,11 +142,29 @@ function createBleClient() {
 
     const emit = (devices) => {
       for (const d of devices) {
-        if (!d || !d.name || d.name.indexOf(BLE.namePrefix) !== 0) continue
+        if (!d) continue
+        // Android 12+ 在仅授予 SCAN 时可能只回传 localName / serviceUuids，
+        // name 为空；优先用 name，其次 localName，避免把真机设备误过滤掉。
+        const name = (d.name || d.localName || '').trim()
+        const serviceUuids = Array.isArray(d.advertisServiceUUIDs)
+          ? d.advertisServiceUUIDs
+          : []
+        const hasPrefix = name.indexOf(BLE.namePrefix) === 0
+        const hasService = serviceUuids.some(
+          (u) => String(u).toLowerCase() === String(BLE.serviceUuid).toLowerCase()
+        )
+        if (!hasPrefix && !hasService) {
+          // 诊断：记录被过滤的设备，便于真机排查（不抛错）。
+          if (typeof console !== 'undefined' && console.debug) {
+            console.debug('[bleClient] filtered device', d.deviceId, name, serviceUuids)
+          }
+          continue
+        }
+        const displayName = hasPrefix ? name : `${BLE.namePrefix}${String(d.deviceId || '').slice(-4)}`
         const prev = found.get(d.deviceId)
-        const rssi = d.RSSI || 0
+        const rssi = d.RSSI || d.rssi || 0
         const device = {
-          name: d.name,
+          name: displayName,
           deviceId: d.deviceId,
           RSSI: prev ? Math.max(prev.RSSI, rssi) : rssi,
         }
@@ -156,7 +174,12 @@ function createBleClient() {
     }
 
     _ensureAdapter()
-      .then(() => _wx().startBluetoothDevicesDiscovery({ allowDuplicatesKey: true }))
+      .then(() => {
+        const wx = _wx()
+        return wx
+          .startBluetoothDevicesDiscovery({ allowDuplicatesKey: true, services: [BLE.serviceUuid] })
+          .catch(() => wx.startBluetoothDevicesDiscovery({ allowDuplicatesKey: true }))
+      })
       .then(() => {
         _scanEmit = (res) => {
           if (stopped) return
@@ -165,6 +188,17 @@ function createBleClient() {
         _wx().onBluetoothDeviceFound((res) => {
           if (_scanEmit) _scanEmit(res)
         })
+        // 主动拉取一次已发现列表：部分机型 onBluetoothDeviceFound 回调滞后，
+        // 扫描启动后立即 getBluetoothDevices 可避免「授权成功但列表为空」。
+        const wx = _wx()
+        if (typeof wx.getBluetoothDevices === 'function') {
+          wx.getBluetoothDevices({
+            success: (res) => {
+              if (stopped) return
+              emit((res && res.devices) || [])
+            },
+          })
+        }
       })
       .catch((err) => {
         if (typeof opts.onError === 'function') opts.onError(err)
@@ -208,25 +242,84 @@ function createBleClient() {
     _compatible = true
     _versionInfo = null
 
+    // 先关闭可能残留的连接（Android 部分机型重复点击会累积连接句柄），
+    // 仅在当前已连接时才做，避免在测试/首次连接时引入无谓延迟与副作用。
+    if (_connected && _deviceId) {
+      await wx.closeBLEConnection({ deviceId: _deviceId }).catch(() => {})
+      _connected = false
+      _parser.reset()
+    }
+
     await wx.createBLEConnection({ deviceId }) // 超时由 wx 层控制，失败 reject
     _deviceId = deviceId
 
-    const { services } = await wx.getBLEDeviceServices({ deviceId })
-    const svc = (services || []).find((s) => s.uuid === BLE.serviceUuid)
+    // UUID 规范化：去掉连字符并转小写，兼容微信不同平台的返回格式。
+    function normUuid(u) {
+      return String(u || '').replace(/-/g, '').toLowerCase()
+    }
+    const targetSvc = normUuid(BLE.serviceUuid)
+
+    // Android 微信在 createBLEConnection resolve 后，GATT 服务发现往往尚未完成：
+    // 立即 getBLEDeviceServices 会返回空列表或抛错。策略：先立即尝试一次（Windows/macOS
+    // 上服务早已就绪，0ms 延迟），若为空再做 500ms/1s/1s/2s 的重试，最多 5 次。
+    // 每次打印实际返回的服务 UUID，便于真机排查。
+    let services = []
+    let svc = null
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, attempt === 1 ? 500 : 1000))
+      }
+      try {
+        const res = await wx.getBLEDeviceServices({ deviceId })
+        services = (res && res.services) || []
+      } catch (e) {
+        services = []
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('[bleClient] getBLEDeviceServices threw:', e && e.errMsg)
+        }
+      }
+      if (typeof console !== 'undefined' && console.debug) {
+        console.debug('[bleClient] services attempt', attempt, services.map((s) => s.uuid))
+      }
+      // 宽松匹配：完全相等 或 包含关系（兼容 16 位短 UUID / 大小写 / 连字符差异）。
+      svc = services.find((s) => {
+        const u = normUuid(s.uuid)
+        return u === targetSvc || u.indexOf(targetSvc) >= 0 || targetSvc.indexOf(u) >= 0
+      })
+      if (svc) break
+    }
     if (!svc) {
+      await wx.closeBLEConnection({ deviceId }).catch(() => {})
+      await new Promise((r) => setTimeout(r, 300))
       _deviceId = null
       throw new Error(`未找到 ${BLE.serviceUuid} 服务（设备可能不是 BTLight 固件）`)
     }
     _serviceId = svc.uuid
 
-    const { characteristics } = await wx.getBLEDeviceCharacteristics({
-      deviceId,
-      serviceId: _serviceId,
-    })
-    const chars = characteristics || []
-    const write = chars.find((c) => c.properties && c.properties.write)
-    const notifyCh = chars.find((c) => c.properties && c.properties.notify)
+    // 特征发现同样做重试（部分机型需要 settling）。
+    let chars = []
+    let write = null
+    let notifyCh = null
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 500))
+      }
+      try {
+        const res = await wx.getBLEDeviceCharacteristics({
+          deviceId,
+          serviceId: _serviceId,
+        })
+        chars = (res && res.characteristics) || []
+      } catch (e) {
+        chars = []
+      }
+      write = chars.find((c) => c.properties && c.properties.write)
+      notifyCh = chars.find((c) => c.properties && c.properties.notify)
+      if (write && notifyCh) break
+    }
     if (!write || !notifyCh) {
+      await wx.closeBLEConnection({ deviceId }).catch(() => {})
+      await new Promise((r) => setTimeout(r, 300))
       _deviceId = null
       throw new Error('服务特征不完整：需要 write + notify 各一个')
     }

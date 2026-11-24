@@ -6,6 +6,7 @@ const GEN = require('../../utils/protocol_gen')
 const { isSimModeEnabled, setSimModeEnabled } = require('../../utils/simMode')
 const { setCurrentBleClient, createBleClient } = require('../../utils/bleClient')
 const { createSimBleClient, SIM_DEVICE_ID } = require('../../utils/mockBleClient')
+const { getErrorLog, clearErrorLog } = require('../../utils/errorHandler')
 
 // 关于/帮助弹层内容（v1 静态文案；后续接 docs/ 链接）。
 const HELP_TEXT =
@@ -22,10 +23,15 @@ Page({
     protocolVersion: GEN.PROTOCOL_VERSION.string,
     // 模拟模式开关当前态（onShow 刷新）。
     simModeEnabled: false,
+    // 本地日志条数（onShow 刷新）。
+    errorLogCount: 0,
   },
 
   onShow() {
-    this.setData({ simModeEnabled: isSimModeEnabled() })
+    this.setData({
+      simModeEnabled: isSimModeEnabled(),
+      errorLogCount: getErrorLog().length,
+    })
   },
 
   // ---- 设置 ------------------------------------------------------------------
@@ -71,13 +77,36 @@ Page({
               wx.removeStorageSync(k)
             }
           }
+          clearErrorLog()
           const app = getApp()
           if (app && app.globalData) app.globalData.currentDeviceId = null
+          this.setData({ errorLogCount: 0 })
           wx.showToast({ title: '已清除', icon: 'success' })
         } catch (err) {
           wx.showToast({ title: `清除失败：${err}`, icon: 'none' })
         }
       },
+    })
+  },
+
+  // ---- 本地日志 --------------------------------------------------------------
+
+  onViewErrorLog() {
+    const log = getErrorLog()
+    if (!log.length) {
+      wx.showModal({ title: '本地日志', content: '暂无错误日志', showCancel: false })
+      return
+    }
+    // 取最近 10 条，格式化为可读文本。
+    const recent = log.slice(-10).reverse()
+    const lines = recent.map((e) => {
+      const ts = new Date(e.ts).toLocaleString()
+      return `[${ts}] ${e.context || ''}\n  code=${e.code} ${e.message}`
+    })
+    wx.showModal({
+      title: `本地日志（最近 ${recent.length}/${log.length} 条）`,
+      content: lines.join('\n\n'),
+      showCancel: false,
     })
   },
 
