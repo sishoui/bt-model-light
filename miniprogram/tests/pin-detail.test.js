@@ -112,11 +112,16 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.dirty).toBe(false)
   })
 
-  test('灯组 Tab：新增到上限 5，超出 Toast；点击切换', () => {
+  // 灯组下拉（#31）：新增到上限 5，超出 Toast；onPickGroup 切换 + 弹层显隐。
+  test('灯组下拉：新增到上限 5，超出 Toast；onPickGroup 切换并关闭弹层', () => {
     const page = load(0)
+    // 点击「当前灯组」行 → 打开弹层。
+    page.onToggleGroupMenu()
+    expect(page.data.groupMenuOpen).toBe(true)
     page.onAddGroup()
     expect(page.data.groups).toHaveLength(2)
     expect(page.data.activeGroup).toBe(1)
+    expect(page.data.groupMenuOpen).toBe(false) // 新增后弹层自动关闭
     page.onAddGroup()
     page.onAddGroup()
     page.onAddGroup() // 共 5
@@ -125,16 +130,50 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.groups).toHaveLength(5)
     expect(wx.showToast).toHaveBeenCalled()
 
-    page.onTapGroup({ currentTarget: { dataset: { index: 0 } } })
+    page.onPickGroup({ currentTarget: { dataset: { index: 0 } } })
     expect(page.data.activeGroup).toBe(0)
+    expect(page.data.groupMenuOpen).toBe(false)
     expect(page.data.dirty).toBe(true)
   })
 
-  test('删除灯组：>1 可删（确认），=1 拒绝', () => {
+  test('灯组弹层：切换 activeGroup 后灯组内容（范围/步骤/图层）正确刷新', () => {
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [
+        {
+          pin: 0,
+          name: '客厅灯带',
+          power: false,
+          configured: true,
+          groups: [
+            { name: '流水', ledStart: 0, ledEnd: 3, steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: EFF.SOLID, params: { color: [1, 1, 1], brightness: 10 } }] }] },
+            { name: '彩虹', ledStart: 4, ledEnd: 9, steps: [{ duration: 9, transition: 2, loopMode: 2, layers: [{ effect: EFF.BREATH, params: { period: 3000 } }] }] },
+          ],
+        },
+      ],
+    })
     const page = load(0)
+    page.onToggleGroupMenu()
+    page.onPickGroup({ currentTarget: { dataset: { index: 1 } } })
+    expect(page.data.activeGroup).toBe(1)
+    expect(page.data.groups[1].name).toBe('彩虹')
+    // 灯珠网格按新灯组范围重建：[4,9] 共 6 颗。
+    expect(litCount(page)).toBe(6)
+    // 步骤/图层属于新灯组（呼吸灯效、周期 3000）。
+    const layer = page.data.groups[1].steps[0].layers[0]
+    expect(layer.effect).toBe(EFF.BREATH)
+    expect(fieldOf(layer, 'period').value).toBe(3000)
+    // groups VM 不受切换影响（未标 dirty）。
+    expect(page.data.dirty).toBe(false)
+  })
+
+  test('灯组删除入口：>1 才显示，删除走 wx.showModal 确认', () => {
+    const page = load(0)
+    // 仅 1 组：无删除入口（WXML 按 groups.length > 1 显隐，这里验证数据源条件）。
     page.onAddGroup() // 2 组
     page.onDeleteGroup({ currentTarget: { dataset: { index: 1 } } })
     expect(page.data.groups).toHaveLength(1) // showModal mock 默认 confirm
+    expect(wx.showModal).toHaveBeenCalled()
 
     page.onDeleteGroup({ currentTarget: { dataset: { index: 0 } } }) // 仅剩 1：拒绝
     expect(page.data.groups).toHaveLength(1)

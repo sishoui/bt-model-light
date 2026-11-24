@@ -20,6 +20,8 @@ page {
   --bt-color-bg-elevated: #ffffff;
   --bt-color-bg-input: #f2f2f7;
   --bt-color-separator: rgba(60, 60, 67, 0.29);
+  --bt-color-bg-mask: rgba(0, 0, 0, 0.35);
+  --bt-color-shadow-sheet: rgba(0, 0, 0, 0.16);
   --bt-color-gray-1: #8e8e93;
   --bt-color-gray-2: #aeaeb2;
   --bt-color-gray-3: #c7c7cc;
@@ -58,6 +60,8 @@ page {
     --bt-color-bg-elevated: #1c1c1e;
     --bt-color-bg-input: #1c1c1e;
     --bt-color-separator: rgba(84, 84, 88, 0.65);
+    --bt-color-bg-mask: rgba(0, 0, 0, 0.5);
+    --bt-color-shadow-sheet: rgba(0, 0, 0, 0.4);
     --bt-color-gray-1: #8e8e93;
     --bt-color-gray-2: #636366;
     --bt-color-gray-3: #48484a;

@@ -174,9 +174,10 @@ Page({
     configured: false,
     // 模拟模式标志（onLoad 设置，用于显示提示）。
     simMode: false,
-    // 灯组 Tab
+    // 灯组下拉（#31）：顶部「当前灯组名 ▾」行 + position:fixed 弹层
     groups: [], // VM 数组
     activeGroup: 0,
+    groupMenuOpen: false, // 灯组弹层显隐
     // 灯珠范围点选：'start' 下一次点设起点，'end' 下一次点设终点
     picking: 'start',
     ledCells: [], // [{ i, on }] 渲染用（避免 WXML 里写表达式）
@@ -226,6 +227,7 @@ Page({
       configured: !!(pinEntry && pinEntry.configured),
       groups,
       activeGroup: 0,
+      groupMenuOpen: false,
       picking: 'start',
       dirty: false,
       ledCells: this._buildLedCells(groups[0], ledCount),
@@ -279,15 +281,27 @@ Page({
     this._markDirty()
   },
 
-  // ---- 灯组 Tab ---------------------------------------------------------------
+  // ---- 灯组下拉（#31：顶部「当前灯组名 ▾」行 + position:fixed 弹层） ----------
 
-  onTapGroup(e) {
-    const index = Number(e.currentTarget.dataset.index)
-    if (!this.data.groups[index]) return
-    this.setData({ activeGroup: index, picking: 'start' })
+  // 切到指定灯组：重置点选态与弹层，灯珠网格按新组范围重建。
+  _switchGroup(index) {
+    this.setData({ activeGroup: index, picking: 'start', groupMenuOpen: false })
     this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount) })
   },
 
+  // 展开/收起灯组弹层。
+  onToggleGroupMenu() {
+    this.setData({ groupMenuOpen: !this.data.groupMenuOpen })
+  },
+
+  // 弹层内点选某灯组 → 切换 activeGroup 并关闭弹层。
+  onPickGroup(e) {
+    const index = Number(e.currentTarget.dataset.index)
+    if (!this.data.groups[index]) return
+    this._switchGroup(index)
+  },
+
+  // 弹层内「＋」新增灯组：达上限 Toast 拒绝；成功后关闭弹层并切到新灯组。
   onAddGroup() {
     const groups = this.data.groups.slice()
     if (groups.length >= LIMITS.groupsPerPinMax) {
@@ -296,8 +310,8 @@ Page({
     }
     const g = defaultGroup(`灯组 ${groups.length + 1}`)
     groups.push(g)
-    this.setData({ groups, activeGroup: groups.length - 1, picking: 'start' })
-    this.setData({ ledCells: this._buildLedCells(g, this.data.ledCount) })
+    this.setData({ groups })
+    this._switchGroup(groups.length - 1)
     this._markDirty()
   },
 
@@ -315,9 +329,8 @@ Page({
         if (!res.confirm) return
         const next = groups.slice()
         next.splice(index, 1)
-        const activeGroup = Math.min(this.data.activeGroup, next.length - 1)
-        this.setData({ groups: next, activeGroup, picking: 'start' })
-        this.setData({ ledCells: this._buildLedCells(next[activeGroup], this.data.ledCount) })
+        this.setData({ groups: next })
+        this._switchGroup(Math.min(this.data.activeGroup, next.length - 1))
         this._markDirty()
       },
     })

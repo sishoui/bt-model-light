@@ -1,5 +1,5 @@
 <!-- 引脚配置详情页（ADR-0027 / #27 / T7）。
-     顶部图片/名称/开关 → 灯组 Tab → 灯珠范围点选 → 步骤/图层/灯效编辑 → 保存。 -->
+     顶部图片/名称/开关 → 灯组下拉（#31）→ 灯珠范围点选 → 步骤/图层/灯效编辑 → 保存。 -->
 <view class="page">
   <sim-banner wx:if="{{simMode}}" />
 
@@ -15,18 +15,34 @@
     </view>
   </view>
 
-  <!-- 灯组 Tab -->
-  <view class="tabs">
-    <view
-      wx:for="{{groups}}"
-      wx:key="gid"
-      class="tab {{activeGroup === index ? 'tab--active' : ''}}"
-      data-index="{{index}}"
-      bindtap="onTapGroup"
-    >{{item.name}}</view>
-    <view wx:if="{{groups.length < groupsPerPinMax}}" class="tab tab--add" bindtap="onAddGroup">＋</view>
-    <view class="tab-bar__spacer"></view>
-    <view wx:if="{{groups.length > 1}}" class="tab tab--danger" data-index="{{activeGroup}}" bindtap="onDeleteGroup">删除灯组</view>
+  <!-- 灯组下拉（#31）：当前灯组名 ▾ + ＋ + 弹层 -->
+  <view wx:if="{{groups.length}}" class="group-bar">
+    <view class="group-bar__pick bt-pressable" bindtap="onToggleGroupMenu">
+      <text class="group-bar__name">{{groups[activeGroup].name}}</text>
+      <text class="group-bar__arrow {{groupMenuOpen ? 'group-bar__arrow--open' : ''}}">▾</text>
+    </view>
+    <view class="group-bar__spacer"></view>
+    <view wx:if="{{groups.length < groupsPerPinMax}}" class="group-bar__add bt-pressable" bindtap="onAddGroup">＋</view>
+  </view>
+
+  <!-- 灯组弹层：点遮罩关闭，点选项切换 -->
+  <view wx:if="{{groupMenuOpen}}" class="group-menu">
+    <view class="group-menu__mask" bindtap="onToggleGroupMenu"></view>
+    <view class="group-menu__sheet">
+      <view
+        wx:for="{{groups}}"
+        wx:key="gid"
+        class="group-menu__item {{activeGroup === index ? 'group-menu__item--active' : ''}} bt-pressable"
+        data-index="{{index}}"
+        bindtap="onPickGroup"
+      >{{item.name}}</view>
+      <view
+        wx:if="{{groups.length > 1}}"
+        class="group-menu__del"
+        data-index="{{activeGroup}}"
+        bindtap="onDeleteGroup"
+      >删除当前灯组</view>
+    </view>
   </view>
 
   <!-- 灯组内容 -->
