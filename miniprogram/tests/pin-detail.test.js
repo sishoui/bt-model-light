@@ -9,6 +9,7 @@ const { loadPage, makeApp } = require('./pageHarness')
 const { createWxMock } = require('./wx-mock')
 const { flush } = require('./bleTestUtils')
 const { saveDevice, saveDeviceConfig, getDeviceConfig, resetDeviceStore } = require('../utils/deviceStore')
+const { getRecentColors, resetRecentColors } = require('../utils/recentColors')
 const { setCurrentBleClient } = require('../utils/bleClient')
 const { decodeConfigBlob } = require('../utils/configCodec')
 const { CMD, EFF } = require('../utils/protocol_gen')
@@ -39,6 +40,7 @@ describe('pin-detail 页（#27）', () => {
     wx = createWxMock()
     global.wx = wx
     resetDeviceStore()
+    resetRecentColors()
     setCurrentBleClient(null)
     dev = saveDevice({ name: 'BTLight_Test', deviceId: 'dev-1' })
     app = makeApp(dev.id)
@@ -224,6 +226,86 @@ describe('pin-detail 页（#27）', () => {
     expect(fieldOf(after, 'brightness').value).toBe(100)
     expect(fieldOf(after, 'color').value).toEqual([255, 99, 255])
     expect(page.data.dirty).toBe(true)
+  })
+
+  // 最近使用色（#30）：选色写入 Storage + 重进页面回填。
+  test('onColorPicked：hex 选中写入 field.value 并持久化最近色', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    page.onColorPicked({
+      currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } },
+      detail: { value: '#FF8800' },
+    })
+    const after = page.data.groups[0].steps[0].layers[0]
+    expect(fieldOf(after, 'color').value).toEqual([255, 136, 0])
+    expect(page.data.dirty).toBe(true)
+    // Storage 落盘：bt_recent_colors 首项为 '#FF8800'。
+    expect(getRecentColors()[0]).toBe('#FF8800')
+  })
+
+  test('最近色去重倒序：重复选色移除后前插', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#FF0000' } })
+    page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#00FF00' } })
+    page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#FF0000' } })
+    expect(getRecentColors()).toEqual(['#FF0000', '#00FF00'])
+  })
+
+  test('最近色跨会话回填：重进页面后 getRecentColors 可读回', () => {
+    const colorFi = load(0).data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    load(0).onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#123456' } })
+    // 重新装载页面（模拟重进）：最近色仍在。
+    resetDeviceStore()
+    const page2 = load(0)
+    expect(page2).toBeTruthy()
+    expect(getRecentColors()).toEqual(['#123456'])
+  })
+
+  test('最近色损坏 Storage：安全降级为空数组', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    // 注入损坏数据后选色，应不抛异常且写为单元素数组。
+    wx.setStorageSync('bt_recent_colors', 'not-json{')
+    page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#ABCDEF' } })
+    expect(getRecentColors()).toEqual(['#ABCDEF'])
+  })
+
+  test('最近色损坏 Storage：纯读取降级为空数组（不 push）', () => {
+    wx.setStorageSync('bt_recent_colors', 'not-json{')
+    expect(getRecentColors()).toEqual([])
+    wx.setStorageSync('bt_recent_colors', '{"a":1}') // 非数组
+    expect(getRecentColors()).toEqual([])
+    wx.setStorageSync('bt_recent_colors', '') // 空
+    expect(getRecentColors()).toEqual([])
+  })
+
+  test('最近色去重大小写不敏感：#ff0000 与 #FF0000 合并', () => {
+    // 模拟旧数据/他源写入小写 hex。
+    wx.setStorageSync('bt_recent_colors', JSON.stringify(['#ff0000', '#00ff00']))
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    // 选大写 #FF0000：应与旧小写 #ff0000 合并，不并存。
+    page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#FF0000' } })
+    const colors = getRecentColors()
+    expect(colors.filter((c) => c.toUpperCase() === '#FF0000')).toHaveLength(1)
+    // 归一为大写 + #。
+    expect(colors[0]).toBe('#FF0000')
+    expect(colors).toEqual(['#FF0000', '#00FF00'])
+  })
+
+  test('最近色截断到上限 10：push 11 个不同色后保留最新 10', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    for (let i = 0; i < 12; i++) {
+      const hex = '#' + i.toString(16).padStart(2, '0').toUpperCase().repeat(3)
+      page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: hex } })
+    }
+    const colors = getRecentColors()
+    expect(colors).toHaveLength(10)
+    // 第一个是最末 push 的（#0B0B0B），不含最早的 #00..。
+    expect(colors[0]).toBe('#0B0B0B')
+    expect(colors.find((c) => c === '#000000')).toBeUndefined()
   })
 
   test('保存：未连接 → 写 Storage + Toast，不发送命令', () => {

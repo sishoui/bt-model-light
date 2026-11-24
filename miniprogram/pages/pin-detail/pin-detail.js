@@ -11,6 +11,7 @@ const { getCurrentBleClient } = require('../../utils/bleClient')
 const { getDeviceConfig, saveDeviceConfig } = require('../../utils/deviceStore')
 const { encodeConfigBlob, validateConfig, effectName, clampInt } = require('../../utils/configCodec')
 const { friendlyMessage, logError } = require('../../utils/errorHandler')
+const { getRecentColors, pushRecentColor, rgbToHex, hexToRgb } = require('../../utils/recentColors')
 const { EFF, EFFECT_PARAMS, LIMITS, CMD } = require('../../utils/protocol_gen')
 
 // ---- 静态选项（下拉 range / 文案） -------------------------------------------
@@ -445,31 +446,91 @@ Page({
     })
   },
 
-  // 参数输入：定位到 steps[si].layers[li].fields[fi]（rgb 再按通道 ch）。
+  // 参数输入：rgb 走 hex（颜色弹层，#33），标量（u8/u16）走数字。
+  // 兼容两种 rgb 入口：
+  //   - 数字通道（data-ch 存在）：旧三通道 input，按通道写入 field.value[ch]。
+  //   - hex（data-ch 不存在）：颜色弹层选中回调，hex → rgb 写入 + 持久化最近色。
   onParamInput(e) {
     const ds = e.currentTarget.dataset
     const si = Number(ds.si)
     const li = Number(ds.li)
     const fi = Number(ds.fi)
-    const ch = ds.ch !== undefined ? Number(ds.ch) : null
+    const field = this._locateField(si, li, fi)
+    if (!field) return
     const raw = e.detail.value
+    if (field.type === 'rgb') {
+      if (ds.ch !== undefined) {
+        // 数字通道写入（旧入口，保留兼容）。
+        const ch = Number(ds.ch)
+        this._editActiveGroup((group, steps) => {
+          const layers = steps[si].layers.slice()
+          const layer = Object.assign({}, layers[li])
+          const fields = layer.fields.slice()
+          const f = Object.assign({}, fields[fi])
+          const arr = f.value.slice()
+          arr[ch] = clamp(raw, 0, 255)
+          f.value = arr
+          fields[fi] = f
+          layer.fields = fields
+          layers[li] = layer
+          steps[si] = Object.assign({}, steps[si], { layers })
+        })
+        return
+      }
+      // hex 入口（颜色弹层，#33 接入）。
+      this._applyColorHex(si, li, fi, raw)
+      return
+    }
+    // 标量（u8/u16）。
     this._editActiveGroup((group, steps) => {
       const layers = steps[si].layers.slice()
       const layer = Object.assign({}, layers[li])
       const fields = layer.fields.slice()
-      const field = Object.assign({}, fields[fi])
-      if (field.type === 'rgb') {
-        const arr = field.value.slice()
-        arr[ch] = clamp(raw, 0, 255)
-        field.value = arr
-      } else {
-        field.value = clamp(raw, field.min, field.max)
-      }
-      fields[fi] = field
+      const f = Object.assign({}, fields[fi])
+      f.value = clamp(raw, f.min, f.max)
+      fields[fi] = f
       layer.fields = fields
       layers[li] = layer
       steps[si] = Object.assign({}, steps[si], { layers })
     })
+  },
+
+  // 颜色弹层选中回调（#33 接入）：hex → rgb 写入 + 最近色持久化。
+  onColorPicked(e) {
+    const ds = e.currentTarget.dataset
+    const si = Number(ds.si)
+    const li = Number(ds.li)
+    const fi = Number(ds.fi)
+    const hex = (e.detail && e.detail.value) || ds.hex || ''
+    this._applyColorHex(si, li, fi, hex)
+  },
+
+  // 单一选色应用点：hex 校验 → rgb 写入 field.value → 持久化最近色。
+  // onParamInput hex 分支与 onColorPicked 共用，避免重复。
+  _applyColorHex(si, li, fi, hex) {
+    const rgb = hexToRgb(String(hex || ''))
+    if (!rgb) return
+    this._editActiveGroup((group, steps) => {
+      const layers = steps[si].layers.slice()
+      const layer = Object.assign({}, layers[li])
+      const fields = layer.fields.slice()
+      const f = Object.assign({}, fields[fi])
+      f.value = rgb
+      fields[fi] = f
+      layer.fields = fields
+      layers[li] = layer
+      steps[si] = Object.assign({}, steps[si], { layers })
+    })
+    const hexStr = rgbToHex(rgb)
+    if (hexStr) pushRecentColor(hexStr)
+  },
+
+  _locateField(si, li, fi) {
+    const step = this.data.groups[this.data.activeGroup] && this.data.groups[this.data.activeGroup].steps[si]
+    if (!step) return null
+    const layer = step.layers[li]
+    if (!layer) return null
+    return layer.fields[fi] || null
   },
 
   // ---- 保存 -------------------------------------------------------------------
