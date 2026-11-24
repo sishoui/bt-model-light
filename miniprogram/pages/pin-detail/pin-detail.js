@@ -431,10 +431,22 @@ Page({
     }
     if (inCancel) return
     const i = indexFromRects(t.clientX, t.clientY, this._cellRects)
-    // 遇占用格停止扩展，保留当前区间。
-    if (this._occupied.has(i)) return
     const a = this._dragAnchor
-    const range = [Math.min(a, i), Math.max(a, i)]
+    // 路径检查：anchor→i 的连续区间内遇到占用格就截断（停在占用格前一格），
+    // 不跳过灰色格继续扩展（手指快速划过灰色格时也能正确停在边界）。
+    let lo = Math.min(a, i)
+    let hi = Math.max(a, i)
+    let blocked = false
+    for (let j = lo; j <= hi; j++) {
+      if (this._occupied.has(j)) {
+        blocked = true
+        if (a < i) hi = j - 1 // 向下拖：停在占用格前一格
+        else lo = j + 1 // 向上拖：停在占用格后一格
+        break
+      }
+    }
+    if (blocked && lo > hi) return // 整个路径都是占用格，不扩展
+    const range = [lo, hi]
     const key = range[0] + '-' + range[1]
     if (key === this._lastRangeKey) return // 区间未变，跳过重渲染
     this._dragRange = range
