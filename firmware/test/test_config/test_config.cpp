@@ -166,6 +166,31 @@ void test_validate_led_end_lt_start(void) {
     TEST_ASSERT_EQUAL_UINT8(ERR_INVALID_PARAMETER, config_validate(&c));
 }
 
+// 255 哨兵：led_start == led_end == 0xFF 表示空组，validate 通过。
+void test_validate_led_sentinel_empty_group(void) {
+    device_config_t c;
+    build_minimal(&c);
+    c.pins[0].groups[0].led_start = 0xFF;
+    c.pins[0].groups[0].led_end = 0xFF;
+    TEST_ASSERT_EQUAL_UINT8(0, config_validate(&c));
+}
+
+// 255 哨兵 round-trip：encode -> decode 保留 0xFF。
+void test_sentinel_roundtrip(void) {
+    device_config_t c;
+    build_minimal(&c);
+    c.pins[0].groups[0].led_start = 0xFF;
+    c.pins[0].groups[0].led_end = 0xFF;
+    uint8_t buf[512];
+    uint8_t err = 0;
+    size_t n = config_encode(&c, buf, sizeof(buf), &err);
+    TEST_ASSERT_TRUE(n > 0);
+    device_config_t d;
+    TEST_ASSERT_EQUAL_UINT8(0, config_decode(buf, n, &d));
+    TEST_ASSERT_EQUAL_UINT8(0xFF, d.pins[0].groups[0].led_start);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, d.pins[0].groups[0].led_end);
+}
+
 void test_validate_unknown_effect(void) {
     device_config_t c;
     build_minimal(&c);
@@ -264,6 +289,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_truncated_blob);
     RUN_TEST(test_empty_blob);
     RUN_TEST(test_validate_led_end_lt_start);
+    RUN_TEST(test_validate_led_sentinel_empty_group);
+    RUN_TEST(test_sentinel_roundtrip);
     RUN_TEST(test_validate_unknown_effect);
     RUN_TEST(test_validate_duration_out_of_range);
     RUN_TEST(test_validate_layer_count_zero);

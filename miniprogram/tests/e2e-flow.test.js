@@ -113,10 +113,13 @@ describe('端到端全流程（#28 / T8）', () => {
     wx.writeBLECharacteristicValue.mockClear() // 只看保存链路的写入
     const pinPage = loadPage(PIN_DETAIL, app)
     pinPage.onLoad({ pin: '0' })
-    // 改个引脚名 + 把灯珠区间点成 [2,4]（先起点 2 再终点 4，编辑置 dirty）。
+    // 改个引脚名 + 把灯珠区间拖选成 [2,4]（touchstart 格 2 → move 格 4 → end）。
     pinPage.onPinNameInput({ detail: { value: '客厅灯带' } })
-    pinPage.onTapLed({ currentTarget: { dataset: { i: 2 } } }) // 起点 → [2,9]
-    pinPage.onTapLed({ currentTarget: { dataset: { i: 4 } } }) // 终点 → [2,4]
+    wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
+    wx.__cancelRect = null
+    pinPage.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] }) // 格 2
+    pinPage.onLedTouchMove({ touches: [{ clientX: 270, clientY: 30 }] }) // 格 4
+    pinPage.onLedTouchEnd({ type: 'touchend' })
     pinPage.onSave()
     await flush()
 

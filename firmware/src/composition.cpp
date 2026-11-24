@@ -158,6 +158,7 @@ void composition_render_pin(uint8_t pin, uint16_t led_cnt,
     for (uint8_t gi = 0; gi < p->group_count; gi++) {
         const config_group_t *g = &p->groups[gi];
         if (pb_pin[gi].step_idx >= g->step_count) continue;
+        if (g->led_start == 0xFF || g->led_end == 0xFF) continue; // 255 哨兵：空组不渲染
         const config_step_t *s = &g->steps[pb_pin[gi].step_idx];
         uint16_t start = g->led_start;
         uint16_t end = g->led_end;

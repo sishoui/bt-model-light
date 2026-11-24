@@ -124,7 +124,44 @@ function defaultStep() {
 }
 
 function defaultGroup(name) {
-  return { gid: uid(), name: name || '灯组 1', ledStart: 0, ledEnd: 9, steps: [defaultStep()] }
+  // 默认空态：ledStart == ledEnd == 255 哨兵（未选灯珠）。镜像 firmware config.cpp。
+  return { gid: uid(), name: name || '灯组 1', ledStart: 0xff, ledEnd: 0xff, steps: [defaultStep()] }
+}
+
+// 网格几何：按容器宽均分 cols 列，每格 cellW = rect.width / cols，行高同理按 ledCount/cols 推算。
+// 真机 touch 时 rect 来自 createSelectorQuery；测试注入 wx.__gridRect。
+const LED_GRID_COLS = 10 // 每行 10 颗（与 .led-grid flex-wrap + 60rpx 格视觉一致）
+const LED_CELL_PITCH_RATIO = 1.2 // margin 8rpx*2 扩热区 → pitch ≈ cell*1.2
+
+// 坐标 → 灯珠格号。纯函数，便于 Jest 单测。
+// rect: {left, top, width, height}; 返回 [0, ledCount) 内格号，越界钳到边缘格。
+function indexFromPoint(clientX, clientY, rect, ledCount) {
+  if (!rect || rect.width <= 0) return 0
+  const cols = LED_GRID_COLS
+  const cellW = rect.width / cols
+  const rows = Math.ceil(ledCount / cols)
+  const cellH = rect.height / rows
+  // 格间距（margin 扩热区）：视觉格 60rpx，pitch 80rpx，比值 1.2。
+  // rect.width 已是整个网格含 margin 的总宽；cellW = rect.width / cols 已是 pitch。
+  const col = Math.floor((clientX - rect.left) / cellW)
+  const row = Math.floor((clientY - rect.top) / cellH)
+  if (col < 0) return 0
+  if (col >= cols) return Math.min(ledCount - 1, (rows - 1) * cols + cols - 1)
+  const idx = row * cols + col
+  if (idx < 0) return 0
+  if (idx >= ledCount) return ledCount - 1
+  return idx
+}
+
+// 取消区命中：clientY 落在 cancelRect 内即视为取消。
+function inCancelZone(clientX, clientY, cancelRect) {
+  if (!cancelRect) return false
+  return (
+    clientX >= cancelRect.left &&
+    clientX <= cancelRect.left + cancelRect.width &&
+    clientY >= cancelRect.top &&
+    clientY <= cancelRect.top + cancelRect.height
+  )
 }
 
 // Storage / wire 模型 → 页面编辑态 VM（补 gid/sid/lid 与 fields）。
@@ -177,9 +214,11 @@ Page({
     // 灯组 Tab（固定 5 个，无新增/删除；tab 上小字显示灯珠区间）
     groups: [], // VM 数组
     activeGroup: 0,
-    // 灯珠范围点选：'start' 下一次点设起点，'end' 下一次点设终点
-    picking: 'start',
-    ledCells: [], // [{ i, on }] 渲染用（避免 WXML 里写表达式）
+    // 灯珠拖选（#31）：dragging 拖拽中，dragRange [min,max] 实时渲染。
+    dragging: false,
+    dragRange: null,
+    inCancelZone: false,
+    ledCells: [], // [{ i, state }] 渲染用（state: empty/selected/occupied/drag-*）
     dirty: false,
     // 静态选项
     effectNames: EFFECT_NAMES,
@@ -228,19 +267,51 @@ Page({
       configured: !!(pinEntry && pinEntry.configured),
       groups,
       activeGroup: 0,
-      picking: 'start',
+      dragging: false,
+      dragRange: null,
+      inCancelZone: false,
       dirty: false,
-      ledCells: this._buildLedCells(groups[0], ledCount),
     })
+    // 初始灯珠网格按 activeGroup=0 渲染，含其他组占用灰显。
+    this.setData({ ledCells: this._buildLedCells(groups[0], ledCount, this._computeOccupied(0), null) })
   },
 
-  // 灯珠网格渲染模型：i 在 [start,end] 内点亮。
-  _buildLedCells(group, ledCount) {
+  // 灯珠网格渲染模型：按 state 渲染（空/选中/占用/拖选起终/拖选中间）。
+  // occupied: 其他组占用的格号集合；dragRange: [min,max] 拖选临时区间。
+  _buildLedCells(group, ledCount, occupied, dragRange) {
     const cells = []
-    const start = group ? group.ledStart : 0
-    const end = group ? group.ledEnd : -1
-    for (let i = 0; i < ledCount; i++) cells.push({ i, on: i >= start && i <= end })
+    const empty = !group || group.ledStart === 0xff || group.ledEnd === 0xff
+    const s = group ? group.ledStart : 0
+    const e = group ? group.ledEnd : -1
+    const hasDrag = dragRange && dragRange[1] >= dragRange[0]
+    const dStart = hasDrag ? dragRange[0] : -1
+    const dEnd = hasDrag ? dragRange[1] : -1
+    for (let i = 0; i < ledCount; i++) {
+      let state = 'empty'
+      if (occupied && occupied.has(i)) state = 'occupied'
+      else if (hasDrag) {
+        if (i === dStart) state = 'drag-start'
+        else if (i === dEnd) state = 'drag-end'
+        else if (i > dStart && i < dEnd) state = 'drag-mid'
+        else state = 'empty'
+      } else if (!empty && i >= s && i <= e) {
+        state = 'selected'
+      }
+      cells.push({ i, state })
+    }
     return cells
+  },
+
+  // 其他 4 组占用的格号集合（空组 255 不计入）。用于拖选时灰显不可选格。
+  _computeOccupied(exceptIndex) {
+    const set = new Set()
+    const ledMax = LIMITS.ledsPerPinMax
+    this.data.groups.forEach((g, idx) => {
+      if (idx === exceptIndex) return
+      if (!g || g.ledStart === 0xff || g.ledEnd === 0xff) return
+      for (let i = g.ledStart; i <= g.ledEnd && i < ledMax; i++) set.add(i)
+    })
+    return set
   },
 
   // 标记编辑态（任何改动调用）；驱动离开拦截。
@@ -286,8 +357,8 @@ Page({
   onTapGroup(e) {
     const index = Number(e.currentTarget.dataset.index)
     if (!this.data.groups[index]) return
-    this.setData({ activeGroup: index, picking: 'start' })
-    this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount) })
+    this.setData({ activeGroup: index, dragging: false, dragRange: null, inCancelZone: false })
+    this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount, this._computeOccupied(index), null) })
   },
 
   onGroupNameInput(e) {
@@ -299,30 +370,84 @@ Page({
     this._markDirty()
   },
 
-  // ---- 灯珠范围点选 -----------------------------------------------------------
+  // ---- 灯珠范围拖选（#31） ---------------------------------------------------
+  // 长按拖动刷选：touchstart 记起点 → touchmove 实时渲染蓝框/浅蓝条 → touchend 写回或取消。
+  // 遇其他组占用格（灰）停止扩展；拖到网格外红色取消区松手则回滚到拖拽前。
 
-  onTapLed(e) {
-    const i = Number(e.currentTarget.dataset.i)
-    const group = Object.assign({}, this.data.groups[this.data.activeGroup])
-    let picking
-    if (this.data.picking === 'start') {
-      group.ledStart = i
-      if (group.ledEnd < i) group.ledEnd = i
-      picking = 'end'
-    } else {
-      group.ledEnd = i
-      if (group.ledEnd < group.ledStart) {
-        // 反向点选：交换起止，保证 [start,end] 合法。
-        const t = group.ledStart
-        group.ledStart = group.ledEnd
-        group.ledEnd = t
+  // 首次触摸：查询网格 + 取消区几何，记录拖拽前快照，进入 dragging。
+  onLedTouchStart(e) {
+    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
+    const query = wx.createSelectorQuery()
+    query.in(this)
+    query.select('.led-grid').boundingClientRect()
+    query.select('.led-cancel').boundingClientRect()
+    query.exec((res) => {
+      this._gridRect = res && res[0]
+      this._cancelRect = res && res[1]
+      const occupied = this._computeOccupied(this.data.activeGroup)
+      const anchor = indexFromPoint(t.clientX, t.clientY, this._gridRect, this.data.ledCount)
+      // 起点即不可选（占用格）→ 不启动拖选。
+      if (occupied.has(anchor)) return
+      this._dragBefore = {
+        ledStart: this.data.groups[this.data.activeGroup].ledStart,
+        ledEnd: this.data.groups[this.data.activeGroup].ledEnd,
       }
-      picking = 'start'
-    }
+      this._dragAnchor = anchor
+      this._occupied = occupied
+      this._dragRange = [anchor, anchor]
+      this.setData({ dragging: true, inCancelZone: false, dragRange: [anchor, anchor] })
+      this.setData({ ledCells: this._buildLedCells(this.data.groups[this.data.activeGroup], this.data.ledCount, occupied, [anchor, anchor]) })
+    })
+  },
+
+  // 拖动中：坐标反查格号，遇占用格停止扩展，更新拖选区间实时渲染。
+  onLedTouchMove(e) {
+    if (!this.data.dragging) return
+    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
+    const inCancel = inCancelZone(t.clientX, t.clientY, this._cancelRect)
+    if (inCancel !== this.data.inCancelZone) this.setData({ inCancelZone: inCancel })
+    if (inCancel) return // 在取消区不更新区间
+    const i = indexFromPoint(t.clientX, t.clientY, this._gridRect, this.data.ledCount)
+    // 遇占用格停止：保留当前已选区间，不扩展。
+    if (this._occupied.has(i)) return
+    const anchor = this._dragAnchor
+    const range = [Math.min(anchor, i), Math.max(anchor, i)]
+    this._dragRange = range
+    this.setData({ dragRange: range })
+    this.setData({ ledCells: this._buildLedCells(this.data.groups[this.data.activeGroup], this.data.ledCount, this._occupied, range) })
+  },
+
+  // 松手：在取消区/touchcancel → 回滚保留上次；否则写回区间 + 标 dirty。
+  onLedTouchEnd(e) {
+    if (!this.data.dragging) return
+    const cancelled = this.data.inCancelZone || (e && e.type === 'touchcancel')
+    const range = this._dragRange
     const groups = this.data.groups.slice()
+    const group = Object.assign({}, groups[this.data.activeGroup])
+    if (cancelled) {
+      // 回滚到拖拽前，保留上次选中。
+      group.ledStart = this._dragBefore.ledStart
+      group.ledEnd = this._dragBefore.ledEnd
+    } else if (range) {
+      group.ledStart = range[0]
+      group.ledEnd = range[1]
+    }
     groups[this.data.activeGroup] = group
-    this.setData({ groups, picking })
-    this.setData({ ledCells: this._buildLedCells(group, this.data.ledCount) })
+    this.setData({ groups, dragging: false, dragRange: null, inCancelZone: false })
+    this.setData({ ledCells: this._buildLedCells(group, this.data.ledCount, this._computeOccupied(this.data.activeGroup), null) })
+    if (!cancelled) this._markDirty()
+    this._dragBefore = null
+    this._dragRange = null
+    this._occupied = null
+  },
+
+  // 一键清除当前组灯珠选择（设 255 空哨兵）。
+  onClearLeds() {
+    const groups = this.data.groups.slice()
+    const group = Object.assign({}, groups[this.data.activeGroup], { ledStart: 0xff, ledEnd: 0xff })
+    groups[this.data.activeGroup] = group
+    this.setData({ groups })
+    this.setData({ ledCells: this._buildLedCells(group, this.data.ledCount, this._computeOccupied(this.data.activeGroup), null) })
     this._markDirty()
   },
 

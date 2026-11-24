@@ -1,5 +1,5 @@
-<!-- 引脚配置详情页（ADR-0027 / #27 / T7）。
-     顶部图片/名称/开关 → 灯组下拉（#31）→ 灯珠范围点选 → 步骤/图层/灯效编辑 → 保存。 -->
+<!-- 引脚配置详情页（ADR-0027 / #27 / T7；灯珠拖选 #31）。
+     顶部图片/名称/开关 → 灯组 Tab → 灯珠范围拖选 → 步骤/图层/灯效编辑 → 保存。 -->
 <view class="page">
   <sim-banner wx:if="{{simMode}}" />
 
@@ -29,42 +29,53 @@
     </view>
   </scroll-view>
 
-  <!-- 灯组内容 -->
+  <!-- 灯珠范围拖选：长按拖动刷选；被其他灯组占用的格灰显不可选；
+       网格外红色渐变取消区仅拖拽时显示。 -->
   <block wx:if="{{groups.length}}">
-    <!-- 灯组名称 -->
     <view class="bt-card">
       <view class="row">
         <text class="row__label">灯组名称</text>
         <input class="row__input" value="{{groups[activeGroup].name}}" data-index="{{activeGroup}}" bindinput="onGroupNameInput" />
       </view>
 
-      <!-- 灯珠范围点选 -->
       <view class="range">
         <view class="bt-row bt-row--between">
-          <text class="range__title">灯珠范围 [{{groups[activeGroup].ledStart}}, {{groups[activeGroup].ledEnd}}]</text>
-          <text class="bt-text--secondary">{{picking === 'start' ? '点起点' : '点终点'}}</text>
+          <text class="range__title">灯珠范围 <text wx:if="{{groups[activeGroup].ledStart !== 255}}">[{{groups[activeGroup].ledStart}}, {{groups[activeGroup].ledEnd}}] ({{groups[activeGroup].ledEnd - groups[activeGroup].ledStart + 1}} 颗)</text><text wx:else>未选 (0 颗)</text></text>
+          <text class="bt-text--secondary">{{dragging ? (inCancelZone ? '松开取消' : '拖动中…') : '长按拖动选择'}}</text>
         </view>
-        <view class="led-grid">
+        <view
+          class="led-grid"
+          bindtouchstart="onLedTouchStart"
+          catchtouchmove="onLedTouchMove"
+          bindtouchend="onLedTouchEnd"
+          bindtouchcancel="onLedTouchEnd"
+        >
           <view
             wx:for="{{ledCells}}"
             wx:key="i"
-            class="led-cell {{item.on ? 'led-cell--on' : ''}}"
-            data-i="{{item.i}}"
-            bindtap="onTapLed"
+            class="led-cell led-cell--{{item.state}}"
           >{{item.i}}</view>
         </view>
-        <text class="bt-text--secondary">先点起点灯珠，再点终点灯珠；再次点选重设</text>
+        <view class="range__hint">长按拖动刷选灯珠；灰色为被其他灯组占用；拖到下方取消区松手可保留上次选择。</view>
+        <view class="range__actions">
+          <view class="range__clear bt-pressable" bindtap="onClearLeds">清除本组</view>
+        </view>
+      </view>
+
+      <!-- 红色渐变取消区：仅拖拽时显示 -->
+      <view wx:if="{{dragging}}" class="led-cancel {{inCancelZone ? 'led-cancel--active' : ''}}">
+        <text class="led-cancel__text">松开取消 · 保留上次选择</text>
       </view>
     </view>
 
-    <!-- 步骤 / 图层 / 灯效 -->
-    <view
-      wx:for="{{groups[activeGroup].steps}}"
-      wx:key="sid"
-      wx:for-item="step"
-      wx:for-index="si"
-      class="bt-card step"
-    >
+  <!-- 步骤 / 图层 / 灯效 -->
+  <view
+    wx:for="{{groups[activeGroup].steps}}"
+    wx:key="sid"
+    wx:for-item="step"
+    wx:for-index="si"
+    class="bt-card step"
+  >
       <view class="bt-row bt-row--between step__head">
         <text class="step__title">步骤 {{si + 1}}</text>
         <text wx:if="{{groups[activeGroup].steps.length > 1}}" class="step__del" data-si="{{si}}" bindtap="onDeleteStep">删除</text>

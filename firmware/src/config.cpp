@@ -85,9 +85,15 @@ uint8_t config_validate(const device_config_t *c) {
         if (p->group_count > GROUPS_PER_PIN_MAX) return ERR_CONFIG_LIMIT_EXCEEDED;
         for (uint8_t gi = 0; gi < p->group_count; gi++) {
             const config_group_t *g = &p->groups[gi];
-            if (g->led_start >= LEDS_PER_PIN_MAX) return ERR_INVALID_PARAMETER;
-            if (g->led_end >= LEDS_PER_PIN_MAX) return ERR_INVALID_PARAMETER;
-            if (g->led_end < g->led_start) return ERR_INVALID_PARAMETER;
+            // 255 哨兵：led_start == led_end == 0xFF 表示该组未选灯珠（空组），
+            // 跳过范围校验；composition 渲染时整组跳过。镜像 configCodec.js。
+            if (g->led_start == 0xFF && g->led_end == 0xFF) {
+                // 空组：仍需校验 step/layer 结构合法性，下方检查继续走。
+            } else {
+                if (g->led_start >= LEDS_PER_PIN_MAX) return ERR_INVALID_PARAMETER;
+                if (g->led_end >= LEDS_PER_PIN_MAX) return ERR_INVALID_PARAMETER;
+                if (g->led_end < g->led_start) return ERR_INVALID_PARAMETER;
+            }
             if (g->step_count < 1 || g->step_count > STEPS_PER_GROUP_MAX) {
                 return ERR_CONFIG_LIMIT_EXCEEDED;
             }

@@ -26,9 +26,9 @@ function fieldOf(layer, name) {
   return layer.fields.find((f) => f.name === name)
 }
 
-// 取 ledCells 中 on 的数量。
+// 取 ledCells 中 state==='selected' 的数量。
 function litCount(page) {
-  return page.data.ledCells.filter((c) => c.on).length
+  return page.data.ledCells.filter((c) => c.state === 'selected').length
 }
 
 describe('pin-detail 页（#27）', () => {
@@ -98,9 +98,11 @@ describe('pin-detail 页（#27）', () => {
     expect(layer.effect).toBe(EFF.SOLID)
     expect(fieldOf(layer, 'color').value).toEqual([1, 2, 3])
     expect(fieldOf(layer, 'brightness').value).toBe(200)
-    // 补齐的默认灯组：灯组 2..5，[0,9]。
+    // 补齐的默认灯组：灯组 2..5 为默认空态（255 哨兵）。
     expect(page.data.groups[1].name).toBe('灯组 2')
     expect(page.data.groups[4].name).toBe('灯组 5')
+    expect(page.data.groups[1].ledStart).toBe(0xff)
+    expect(page.data.groups[1].ledEnd).toBe(0xff)
     expect(page.data.dirty).toBe(false)
   })
 
@@ -113,10 +115,12 @@ describe('pin-detail 页（#27）', () => {
       expect(page.data.groups[i].steps).toHaveLength(1)
       expect(page.data.groups[i].steps[0].layers).toHaveLength(1)
       expect(page.data.groups[i].steps[0].layers[0].effect).toBe(EFF.SOLID)
-      expect(page.data.groups[i].ledStart).toBe(0)
-      expect(page.data.groups[i].ledEnd).toBe(9)
+      // 默认空态：255 哨兵（未选灯珠）。
+      expect(page.data.groups[i].ledStart).toBe(0xff)
+      expect(page.data.groups[i].ledEnd).toBe(0xff)
     }
     expect(page.data.activeGroup).toBe(0)
+    expect(litCount(page)).toBe(0) // 默认全空
     expect(page.data.dirty).toBe(false)
   })
 
@@ -160,26 +164,145 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.dirty).toBe(true)
   })
 
-  test('灯珠范围点选：先点起点再点终点，高亮区间随之更新', () => {
+  test('灯珠拖选：touchstart→move→end 写回区间 + 置 dirty + 蓝框/浅蓝条渲染', () => {
     const page = load(0)
-    // 默认 [0,9]。点起点 3 → [3,9]（终点暂留），picking 转 end。
-    page.onTapLed({ currentTarget: { dataset: { i: 3 } } })
-    expect(page.data.picking).toBe('end')
-    expect(page.data.groups[0].ledStart).toBe(3)
-    // 点终点 7 → [3,7]。
-    page.onTapLed({ currentTarget: { dataset: { i: 7 } } })
-    expect(page.data.groups[0].ledEnd).toBe(7)
-    expect(page.data.groups[0].ledStart).toBe(3)
-    expect(page.data.picking).toBe('start')
-    expect(litCount(page)).toBe(5) // 3,4,5,6,7
-  })
-
-  test('灯珠范围点选：终点反向 → 交换起止保证合法', () => {
-    const page = load(0)
-    page.onTapLed({ currentTarget: { dataset: { i: 5 } } }) // 起点 5 → [5,9]
-    page.onTapLed({ currentTarget: { dataset: { i: 2 } } }) // 终点 2 < 5 → 交换
+    // 注入网格几何：100 颗，10 列，rect 宽 600 高 600 → 每格 60x60。
+    wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
+    wx.__cancelRect = { left: 0, top: 700, width: 600, height: 100 }
+    // touchstart 在格 2（clientX=2*60+30, clientY=30）。
+    page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] })
+    expect(page.data.dragging).toBe(true)
+    expect(page.data.dragRange).toEqual([2, 2])
+    // move 到格 5：区间 [2,5]，起点 drag-start、终点 drag-end、中间 drag-mid。
+    page.onLedTouchMove({ touches: [{ clientX: 330, clientY: 30 }] })
+    expect(page.data.dragRange).toEqual([2, 5])
+    const states = page.data.ledCells.map((c) => c.state)
+    expect(states[2]).toBe('drag-start')
+    expect(states[5]).toBe('drag-end')
+    expect(states[3]).toBe('drag-mid')
+    expect(states[4]).toBe('drag-mid')
+    // 松手：写回 [2,5] + 置 dirty + 拖选态清零。
+    page.onLedTouchEnd({ type: 'touchend' })
+    expect(page.data.dragging).toBe(false)
     expect(page.data.groups[0].ledStart).toBe(2)
     expect(page.data.groups[0].ledEnd).toBe(5)
+    expect(litCount(page)).toBe(4) // [2,5] 共 4 颗 selected
+    expect(page.data.dirty).toBe(true)
+  })
+
+  test('灯珠拖选：反向拖 [5→2] 同样区间 [2,5]', () => {
+    const page = load(0)
+    wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
+    wx.__cancelRect = null
+    page.onLedTouchStart({ touches: [{ clientX: 330, clientY: 30 }] }) // 格 5
+    page.onLedTouchMove({ touches: [{ clientX: 150, clientY: 30 }] }) // 格 2
+    page.onLedTouchEnd({ type: 'touchend' })
+    expect(page.data.groups[0].ledStart).toBe(2)
+    expect(page.data.groups[0].ledEnd).toBe(5)
+  })
+
+  test('灯珠拖选：经过其他组占用格（灰）停止扩展', () => {
+    // 灯组 0 选 [0,3]，灯组 1 选 [4,9] 占用 4..9。
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [
+        {
+          pin: 0,
+          configured: true,
+          name: 'A',
+          groups: [
+            { name: 'g0', ledStart: 0, ledEnd: 3, steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: EFF.SOLID, params: { color: [1, 1, 1], brightness: 10 } }] }] },
+            { name: 'g1', ledStart: 4, ledEnd: 9, steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: EFF.SOLID, params: { color: [2, 2, 2], brightness: 20 } }] }] },
+          ],
+        },
+      ],
+    })
+    const page = load(0) // activeGroup=0
+    expect(page.data.ledCells[4].state).toBe('occupied') // 4 是其他组占用
+    wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
+    wx.__cancelRect = null
+    // 从格 2 拖向格 6（4..6 被占用）→ 遇占用停止，区间保留 [2,3]。
+    page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] }) // 格 2
+    page.onLedTouchMove({ touches: [{ clientX: 210, clientY: 30 }] }) // 格 3（可扩）
+    page.onLedTouchMove({ touches: [{ clientX: 330, clientY: 30 }] }) // 格 5（占用，停止）
+    page.onLedTouchEnd({ type: 'touchend' })
+    expect(page.data.groups[0].ledStart).toBe(2)
+    expect(page.data.groups[0].ledEnd).toBe(3) // 没扩到 5
+  })
+
+  test('灯珠拖选：拖入红色取消区松手回滚保留上次选择', () => {
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [
+        {
+          pin: 0,
+          configured: true,
+          name: 'A',
+          groups: [
+            { name: 'g0', ledStart: 2, ledEnd: 5, steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: EFF.SOLID, params: { color: [1, 1, 1], brightness: 10 } }] }] },
+          ],
+        },
+      ],
+    })
+    const page = load(0) // 上次选中 [2,5]
+    wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
+    wx.__cancelRect = { left: 0, top: 700, width: 600, height: 100 }
+    page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] }) // 格 2 起
+    page.onLedTouchMove({ touches: [{ clientX: 330, clientY: 30 }] }) // 格 5
+    // 拖到取消区（clientY=750 落在 cancelRect 700..800）。
+    page.onLedTouchMove({ touches: [{ clientX: 300, clientY: 750 }] })
+    expect(page.data.inCancelZone).toBe(true)
+    page.onLedTouchEnd({ type: 'touchend' })
+    // 回滚：保留上次 [2,5]，不置 dirty。
+    expect(page.data.groups[0].ledStart).toBe(2)
+    expect(page.data.groups[0].ledEnd).toBe(5)
+    expect(page.data.dirty).toBe(false)
+  })
+
+  test('灯珠拖选：touchstart 落在占用格不启动拖选', () => {
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [
+        {
+          pin: 0,
+          configured: true,
+          name: 'A',
+          groups: [
+            { name: 'g0', ledStart: 0, ledEnd: 1, steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: EFF.SOLID, params: { color: [1, 1, 1], brightness: 10 } }] }] },
+            { name: 'g1', ledStart: 4, ledEnd: 9, steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: EFF.SOLID, params: { color: [2, 2, 2], brightness: 20 } }] }] },
+          ],
+        },
+      ],
+    })
+    const page = load(0)
+    wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
+    wx.__cancelRect = null
+    // 起点落在格 5（被 g1 占用）→ 不进入 dragging。
+    page.onLedTouchStart({ touches: [{ clientX: 330, clientY: 30 }] })
+    expect(page.data.dragging).toBe(false)
+  })
+
+  test('清除本组灯珠：onClearLeds 设 255 空哨兵 + 置 dirty', () => {
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [
+        {
+          pin: 0,
+          configured: true,
+          name: 'A',
+          groups: [
+            { name: 'g0', ledStart: 2, ledEnd: 5, steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: EFF.SOLID, params: { color: [1, 1, 1], brightness: 10 } }] }] },
+          ],
+        },
+      ],
+    })
+    const page = load(0)
+    expect(litCount(page)).toBe(4)
+    page.onClearLeds()
+    expect(page.data.groups[0].ledStart).toBe(0xff)
+    expect(page.data.groups[0].ledEnd).toBe(0xff)
+    expect(litCount(page)).toBe(0)
+    expect(page.data.dirty).toBe(true)
   })
 
   test('步骤：增到上限 5，删到下限 1', () => {

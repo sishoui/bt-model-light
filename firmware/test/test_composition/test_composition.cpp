@@ -152,6 +152,19 @@ void test_render_blacks_uncovered(void) {
     TEST_ASSERT_TRUE(1);
 }
 
+// 255 哨兵：空组 (led_start == led_end == 0xFF) 不渲染、不崩溃。
+void test_render_skips_sentinel_group(void) {
+    device_config_t c;
+    build_group(&c, 1, CONFIG_LOOP_LOOP, 1);
+    c.pins[0].groups[0].led_start = 0xFF;
+    c.pins[0].groups[0].led_end = 0xFF;
+    group_playback_t pb[PIN_COUNT][GROUPS_PER_PIN_MAX];
+    composition_init(&c, pb);
+    uint32_t ticks[GROUPS_PER_PIN_MAX] = {0};
+    composition_render_pin(0, LEDS_PER_PIN_MAX, &c, pb[0], ticks);
+    TEST_ASSERT_TRUE(1);
+}
+
 // ---- layer composition (ADR-0020) ---------------------------------------
 
 void test_two_layer_anim_wins(void) {

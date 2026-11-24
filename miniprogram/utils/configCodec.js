@@ -63,11 +63,17 @@ function validateConfig(config) {
       return { code: ERR.CONFIG_LIMIT_EXCEEDED, message: `灯组数超过上限（≤${LIMITS.groupsPerPinMax}）` }
     }
     for (const g of groups) {
-      if (!(g.ledStart >= 0 && g.ledStart <= LIMITS.ledRangeMax)) {
-        return { code: ERR.INVALID_PARAMETER, message: '灯珠起点越界' }
-      }
-      if (!(g.ledEnd >= 0 && g.ledEnd <= LIMITS.ledRangeMax && g.ledEnd >= g.ledStart)) {
-        return { code: ERR.INVALID_PARAMETER, message: '灯珠终点越界或小于起点' }
+      // 255 哨兵：ledStart == ledEnd == 255 表示空组（未选灯珠），跳过范围校验。
+      // 镜像 firmware config.cpp config_validate。
+      if (g.ledStart === 0xff && g.ledEnd === 0xff) {
+        // 空组：仍需校验 step/layer 结构，下方继续。
+      } else {
+        if (!(g.ledStart >= 0 && g.ledStart <= LIMITS.ledRangeMax)) {
+          return { code: ERR.INVALID_PARAMETER, message: '灯珠起点越界' }
+        }
+        if (!(g.ledEnd >= 0 && g.ledEnd <= LIMITS.ledRangeMax && g.ledEnd >= g.ledStart)) {
+          return { code: ERR.INVALID_PARAMETER, message: '灯珠终点越界或小于起点' }
+        }
       }
       const steps = Array.isArray(g.steps) ? g.steps : []
       if (steps.length < 1 || steps.length > LIMITS.stepsPerGroupMax) {

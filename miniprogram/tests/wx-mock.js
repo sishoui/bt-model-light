@@ -144,6 +144,29 @@ function createWxMock() {
   wx.enableAlertBeforeUnload = j.fn()
   wx.disableAlertBeforeUnload = j.fn()
 
+  // ---- 节点查询（引脚详情拖选网格几何，#31 拖选） ----
+  // 链able 桩：boundingClientRect(cb) 用可注入的 __gridRect/__cancelRect 回调。
+  // 测试里 wx.__gridRect = {left,top,width,height} 控制返回值。
+  wx.__gridRect = null
+  wx.__cancelRect = null
+  wx.createSelectorQuery = j.fn(() => {
+    const q = {
+      _cb: null,
+      in: j.fn(() => q),
+      select: j.fn(() => q),
+      boundingClientRect: j.fn((cb) => {
+        q._cb = cb
+        return q
+      }),
+      exec: j.fn((cb) => {
+        const res = [wx.__gridRect, wx.__cancelRect]
+        if (typeof cb === 'function') cb(res)
+        return res
+      }),
+    }
+    return q
+  })
+
   // ---- 元信息 ----
   wx.__listeners = _listeners
   return wx
