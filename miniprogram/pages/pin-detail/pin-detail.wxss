@@ -138,6 +138,9 @@
   gap: 8rpx;
   margin: 8rpx 0 0;
   touch-action: none;
+  max-height: 50vh;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .led-grid--picker {
@@ -211,39 +214,6 @@
   border-radius: 999rpx;
 }
 
-/* 灯珠拖选取消覆盖层（微信语音取消样式）：全屏 fixed 半透明，
-   下 60% 为红色渐变取消区；拖入时红色加深。 */
-.led-cancel-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  pointer-events: none; /* 不拦截 touch（手势由网格 catch） */
-}
-
-.led-cancel-zone {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 60%;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(180deg, rgba(255, 56, 60, 0) 0%, rgba(255, 56, 60, 0.25) 40%, rgba(255, 56, 60, 0.45) 100%);
-  transition: background 0.2s ease-out;
-}
-
-.led-cancel-zone--active {
-  background: linear-gradient(180deg, rgba(255, 56, 60, 0.1) 0%, rgba(255, 56, 60, 0.45) 40%, rgba(255, 56, 60, 0.7) 100%);
-}
-
-.led-cancel-zone__text {
-  font-size: 28rpx;
-  line-height: 40rpx;
-  color: #ffffff;
-  font-weight: 600;
-  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.25);
-}
 
 /* 步骤卡片 */
 .step {
@@ -379,7 +349,7 @@
 .led-picker-mask {
   position: fixed;
   inset: 0;
-  padding-bottom: 140rpx; /* 为底部取消区留出空间，避免面板被遮挡 */
+  padding-bottom: 200rpx;
   box-sizing: border-box;
   z-index: 100;
   display: flex;
@@ -397,8 +367,7 @@
   position: relative;
   width: 90vw;
   max-width: 720rpx;
-  max-height: 70vh;
-  margin-bottom: 20rpx;
+  max-height: 50vh;
   background: var(--bt-color-bg-elevated);
   border-radius: 28rpx;
   padding: 24rpx;
@@ -439,6 +408,11 @@
   line-height: 32rpx;
   color: var(--bt-color-label-tertiary);
   text-align: center;
+  padding: 12rpx 0;
+  min-height: 80rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .led-picker-open {
