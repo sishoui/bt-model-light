@@ -60,73 +60,86 @@
     wx:for-index="si"
     class="bt-card step"
   >
-      <view class="bt-row bt-row--between step__head">
-        <text class="step__title">步骤 {{si + 1}}</text>
-        <text wx:if="{{groups[activeGroup].steps.length > 1}}" class="step__del" data-si="{{si}}" bindtap="onDeleteStep">删除</text>
+      <!-- 步骤折叠摘要行 -->
+      <view class="bt-row bt-row--between step__head" data-si="{{si}}" bindtap="onToggleStep">
+        <text class="step__title">
+          步骤 {{si + 1}} · {{step.duration}}s · {{step.layers[0].effectName}}
+        </text>
+        <view class="bt-row step__head-actions">
+          <text class="step__arrow">{{expandedSteps[si] ? '▼' : '▶'}}</text>
+          <text wx:if="{{groups[activeGroup].steps.length > 1}}" class="step__del" data-si="{{si}}" catchtap="onDeleteStep">删除</text>
+        </view>
       </view>
 
-      <view class="row">
-        <text class="row__label">时长(秒)</text>
-        <input class="row__input row__input--num" type="number" value="{{step.duration}}" data-si="{{si}}" bindinput="onDurationInput" />
-      </view>
-      <view class="row">
-        <text class="row__label">过渡</text>
-        <picker class="row__picker" mode="selector" range="{{transitionOptions}}" data-si="{{si}}" bindchange="onTransitionChange">
-          <view>{{transitionOptions[step.transition]}}</view>
-        </picker>
-      </view>
-      <view class="row">
-        <text class="row__label">循环</text>
-        <picker class="row__picker" mode="selector" range="{{loopOptions}}" data-si="{{si}}" bindchange="onLoopChange">
-          <view>{{loopOptions[step.loopMode]}}</view>
-        </picker>
-      </view>
-
-      <!-- 图层 -->
-      <view
-        wx:for="{{step.layers}}"
-        wx:key="lid"
-        wx:for-item="layer"
-        wx:for-index="li"
-        class="layer"
-      >
-        <view class="bt-row bt-row--between layer__head">
-          <text class="layer__title">图层 {{li + 1}}{{step.layers.length > 1 ? (li === 0 ? '（背景）' : '（动效）') : ''}}</text>
-          <text wx:if="{{step.layers.length > 1}}" class="step__del" data-si="{{si}}" data-li="{{li}}" bindtap="onDeleteLayer">删除</text>
+      <block wx:if="{{expandedSteps[si]}}">
+        <view class="row">
+          <text class="row__label">时长(秒)</text>
+          <input class="row__input row__input--num" type="number" value="{{step.duration}}" data-si="{{si}}" bindinput="onDurationInput" />
+        </view>
+        <view class="row">
+          <text class="row__label">过渡</text>
+          <picker class="row__picker" mode="selector" range="{{transitionOptions}}" data-si="{{si}}" bindchange="onTransitionChange">
+            <view>{{transitionOptions[step.transition]}}</view>
+          </picker>
+        </view>
+        <view class="row">
+          <text class="row__label">循环</text>
+          <picker class="row__picker" mode="selector" range="{{loopOptions}}" data-si="{{si}}" bindchange="onLoopChange">
+            <view>{{loopOptions[step.loopMode]}}</view>
+          </picker>
         </view>
 
-        <picker class="row__picker layer__effect" mode="selector" range="{{effectNames}}" data-si="{{si}}" data-li="{{li}}" bindchange="onEffectChange">
-          <view>灯效：{{layer.effectName}}</view>
-        </picker>
-
-        <!-- 参数表单：按 effect schema 渲染 -->
+        <!-- 图层 -->
         <view
-          wx:for="{{layer.fields}}"
-          wx:key="name"
-          wx:for-item="fld"
-          wx:for-index="fi"
-          class="row param"
+          wx:for="{{step.layers}}"
+          wx:key="lid"
+          wx:for-item="layer"
+          wx:for-index="li"
+          class="layer"
         >
-          <text class="row__label">{{fld.label}}</text>
-          <!-- rgb：R / G / B 三通道 -->
-          <block wx:if="{{fld.type === 'rgb'}}">
-            <view class="rgb">
-              <text class="rgb__ch">R</text>
-              <input class="rgb__input" type="number" value="{{fld.value[0]}}" data-si="{{si}}" data-li="{{li}}" data-fi="{{fi}}" data-ch="0" bindinput="onParamInput" />
-              <text class="rgb__ch">G</text>
-              <input class="rgb__input" type="number" value="{{fld.value[1]}}" data-si="{{si}}" data-li="{{li}}" data-fi="{{fi}}" data-ch="1" bindinput="onParamInput" />
-              <text class="rgb__ch">B</text>
-              <input class="rgb__input" type="number" value="{{fld.value[2]}}" data-si="{{si}}" data-li="{{li}}" data-fi="{{fi}}" data-ch="2" bindinput="onParamInput" />
+          <view class="bt-row bt-row--between layer__head" data-si="{{si}}" data-li="{{li}}" bindtap="onToggleLayer">
+            <text class="layer__title">图层 {{li + 1}}{{step.layers.length > 1 ? (li === 0 ? '（背景）' : '（动效）') : ''}} · {{layer.effectName}}</text>
+            <view class="bt-row layer__head-actions">
+              <text class="layer__arrow">{{expandedLayers[si + '-' + li] ? '▼' : '▶'}}</text>
+              <text wx:if="{{step.layers.length > 1}}" class="step__del" data-si="{{si}}" data-li="{{li}}" catchtap="onDeleteLayer">删除</text>
+            </view>
+          </view>
+
+          <block wx:if="{{expandedLayers[si + '-' + li]}}">
+            <picker class="row__picker layer__effect" mode="selector" range="{{effectNames}}" data-si="{{si}}" data-li="{{li}}" bindchange="onEffectChange">
+              <view>灯效：{{layer.effectName}}</view>
+            </picker>
+
+            <!-- 参数表单：按 effect schema 渲染 -->
+            <view
+              wx:for="{{layer.fields}}"
+              wx:key="name"
+              wx:for-item="fld"
+              wx:for-index="fi"
+              class="row param"
+            >
+              <text class="row__label">{{fld.label}}</text>
+              <!-- rgb：色块预览 + 弹层 -->
+              <block wx:if="{{fld.type === 'rgb'}}">
+                <view
+                  class="color-swatch"
+                  style="background-color: {{fld.hex}};"
+                  data-si="{{si}}"
+                  data-li="{{li}}"
+                  data-fi="{{fi}}"
+                  bindtap="onOpenColorPicker"
+                ></view>
+              </block>
+              <!-- u8 / u16 -->
+              <block wx:else>
+                <input class="row__input row__input--num" type="number" value="{{fld.value}}" data-si="{{si}}" data-li="{{li}}" data-fi="{{fi}}" bindinput="onParamInput" />
+              </block>
             </view>
           </block>
-          <!-- u8 / u16 -->
-          <block wx:else>
-            <input class="row__input row__input--num" type="number" value="{{fld.value}}" data-si="{{si}}" data-li="{{li}}" data-fi="{{fi}}" bindinput="onParamInput" />
-          </block>
         </view>
-      </view>
 
-      <view wx:if="{{step.layers.length < layersPerStepMax}}" class="add-layer" data-si="{{si}}" bindtap="onAddLayer">＋ 添加图层</view>
+        <view wx:if="{{step.layers.length < layersPerStepMax}}" class="add-layer" data-si="{{si}}" bindtap="onAddLayer">＋ 添加图层</view>
+      </block>
     </view>
 
     <view wx:if="{{groups[activeGroup].steps.length < stepsPerGroupMax}}" class="add-step bt-pressable" bindtap="onAddStep">＋ 添加步骤</view>
@@ -160,6 +173,48 @@
   <!-- 取消区：fixed 屏幕底部，与弹层物理分离，永不遮挡方格 -->
   <view wx:if="{{ledPickerOpen && dragging}}" class="led-cancel-zone {{inCancelZone ? 'led-cancel-zone--active' : ''}}">
     <text class="led-cancel-zone__text">{{inCancelZone ? '松开取消 · 保留上次选择' : '拖到此处取消 · 保留上次选择'}}</text>
+  </view>
+
+  <!-- 颜色弹层：全屏遮罩 + 底部弹板（常用色板 + 最近使用色） -->
+  <view wx:if="{{colorPickerOpen}}" class="color-picker-mask" catchtouchmove="noop">
+    <view class="color-picker-backdrop" bindtap="onCloseColorPicker"></view>
+    <view class="color-picker-panel">
+      <view class="color-picker-head">
+        <text class="color-picker-title">选择颜色</text>
+        <text class="color-picker-close" bindtap="onCloseColorPicker">✕</text>
+      </view>
+      <view class="color-grid">
+        <view
+          wx:for="{{colorPalette}}"
+          wx:key="*this"
+          wx:for-item="c"
+          class="color-cell"
+          style="background-color: {{c}};"
+          data-hex="{{c}}"
+          data-si="{{colorPickerTarget.si}}"
+          data-li="{{colorPickerTarget.li}}"
+          data-fi="{{colorPickerTarget.fi}}"
+          bindtap="onColorSelected"
+        ></view>
+      </view>
+      <view wx:if="{{recentColors.length}}" class="recent-colors">
+        <text class="recent-colors__title">最近使用</text>
+        <view class="recent-colors__row">
+          <view
+            wx:for="{{recentColors}}"
+            wx:key="*this"
+            wx:for-item="c"
+            class="color-cell color-cell--recent"
+            style="background-color: {{c}};"
+            data-hex="{{c}}"
+            data-si="{{colorPickerTarget.si}}"
+            data-li="{{colorPickerTarget.li}}"
+            data-fi="{{colorPickerTarget.fi}}"
+            bindtap="onColorSelected"
+          ></view>
+        </view>
+      </view>
+    </view>
   </view>
 
   <!-- 保存栏（功能层玻璃，.bt-glass 含降级） -->

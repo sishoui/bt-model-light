@@ -446,26 +446,138 @@ describe('pin-detail 页（#27）', () => {
     expect(fieldOf(layer, 'speed')).toBeDefined()
   })
 
-  test('参数输入：标量域与 rgb 通道写入并置 dirty', () => {
+  test('参数输入：标量写入并置 dirty（rgb 不再走通道 input）', () => {
     const page = load(0)
     const layer = page.data.groups[0].steps[0].layers[0]
     const brightFi = layer.fields.findIndex((f) => f.name === 'brightness')
-    const colorFi = layer.fields.findIndex((f) => f.name === 'color')
     // 亮度 100。
     page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '100' } })
-    // 颜色 G 通道 99。
-    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi, ch: 1 } }, detail: { value: '99' } })
     const after = page.data.groups[0].steps[0].layers[0]
     expect(fieldOf(after, 'brightness').value).toBe(100)
-    expect(fieldOf(after, 'color').value).toEqual([255, 99, 255])
+    // rgb 通道写入已废弃：rgb 仅经颜色弹层 onColorSelected 修改。
+    expect(fieldOf(after, 'color').value).toEqual([255, 255, 255])
     expect(page.data.dirty).toBe(true)
+  })
+
+  // 折叠态（#33）。
+  test('步骤折叠默认态：首个步骤展开、其余收起；首个图层展开、其余收起', () => {
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [
+        {
+          pin: 0,
+          configured: true,
+          name: 'A',
+          groups: [
+            {
+              name: 'g0',
+              ledStart: 0,
+              ledEnd: 3,
+              steps: [
+                { duration: 5, transition: 0, loopMode: 1, layers: [
+                  { effect: EFF.SOLID, params: { color: [1, 1, 1], brightness: 10 } },
+                  { effect: EFF.BREATH, params: { period: 3000 } },
+                ] },
+                { duration: 6, transition: 1, loopMode: 2, layers: [{ effect: EFF.BLINK, params: {} }] },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    const page = load(0)
+    expect(page.data.expandedSteps['0']).toBe(true)
+    expect(page.data.expandedSteps['1']).toBe(false)
+    expect(page.data.expandedLayers['0-0']).toBe(true)
+    expect(page.data.expandedLayers['0-1']).toBe(false)
+    expect(page.data.expandedLayers['1-0']).toBe(true)
+  })
+
+  test('onToggleStep 翻转折叠键，不影响 groups VM、不置 dirty', () => {
+    const page = load(0)
+    expect(page.data.expandedSteps['0']).toBe(true)
+    page.onToggleStep({ currentTarget: { dataset: { si: 0 } } })
+    expect(page.data.expandedSteps['0']).toBe(false)
+    expect(page.data.groups[0].steps[0].duration).toBe(5) // VM 不变
+    expect(page.data.dirty).toBe(false) // 纯视图态不脏
+  })
+
+  test('onToggleLayer 翻转折叠键（si-li），不影响 groups VM、不置 dirty', () => {
+    const page = load(0)
+    expect(page.data.expandedLayers['0-0']).toBe(true)
+    page.onToggleLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    expect(page.data.expandedLayers['0-0']).toBe(false)
+    expect(page.data.groups[0].steps[0].layers[0].effect).toBe(EFF.SOLID)
+    expect(page.data.dirty).toBe(false)
+  })
+
+  test('切换灯组：重置为默认折叠态（首步骤+首层展开）', () => {
+    const page = load(0)
+    // 先在灯组 0 把步骤 0 收起。
+    page.onToggleStep({ currentTarget: { dataset: { si: 0 } } })
+    expect(page.data.expandedSteps['0']).toBe(false)
+    // 切到灯组 1：重置为默认。
+    page.onTapGroup({ currentTarget: { dataset: { index: 1 } } })
+    expect(page.data.expandedSteps['0']).toBe(true)
+    expect(page.data.expandedLayers['0-0']).toBe(true)
+  })
+
+  test('新增步骤默认收起；删除步骤重排折叠键', () => {
+    const page = load(0)
+    // 加 3 个步骤，最后新加的索引 2 收起。
+    page.onAddStep()
+    page.onAddStep()
+    expect(page.data.expandedSteps['2']).toBe(false)
+    // 删索引 1：索引 2 → 1，键保持折叠态。
+    page.onDeleteStep({ currentTarget: { dataset: { si: 1 } } })
+    expect(page.data.expandedSteps['0']).toBe(true)
+    expect(page.data.expandedSteps['1']).toBe(false)
+    // 删索引 0：新首个 0 自动展开（兜底）。
+    page.onDeleteStep({ currentTarget: { dataset: { si: 0 } } })
+    expect(page.data.expandedSteps['0']).toBe(true)
+  })
+
+  // 颜色弹层（#33）。
+  test('onOpenColorPicker：打开弹层并带入目标 field 与最近色', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
+    expect(page.data.colorPickerOpen).toBe(true)
+    expect(page._colorPickerTarget).toEqual({ si: 0, li: 0, fi: colorFi })
+    expect(Array.isArray(page.data.recentColors)).toBe(true)
+  })
+
+  test('onColorSelected：hex → rgb 写入 field + 持久化最近色 + 关闭弹层', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
+    page.onColorSelected({ currentTarget: { dataset: { hex: '#FF8800' } } })
+    expect(page.data.colorPickerOpen).toBe(false)
+    expect(page._colorPickerTarget).toBeNull()
+    const after = page.data.groups[0].steps[0].layers[0]
+    expect(fieldOf(after, 'color').value).toEqual([255, 136, 0])
+    expect(fieldOf(after, 'color').hex).toBe('#ff8800')
+    expect(page.data.dirty).toBe(true)
+    expect(getRecentColors()[0]).toBe('#FF8800')
+  })
+
+  test('onCloseColorPicker：关闭弹层但不写回、不持久化', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
+    page.onCloseColorPicker()
+    expect(page.data.colorPickerOpen).toBe(false)
+    expect(page._colorPickerTarget).toBeNull()
+    expect(page.data.groups[0].steps[0].layers[0].fields.find((f) => f.name === 'color').value).toEqual([255, 255, 255])
+    expect(getRecentColors()).toEqual([])
+    expect(page.data.dirty).toBe(false)
   })
 
   // 最近使用色（#30）：选色写入 Storage + 重进页面回填。
   test('onColorPicked：hex 选中写入 field.value 并持久化最近色', () => {
     const page = load(0)
     const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
-    page.onColorPicked({
+    page.onColorSelected({
       currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } },
       detail: { value: '#FF8800' },
     })
@@ -479,15 +591,15 @@ describe('pin-detail 页（#27）', () => {
   test('最近色去重倒序：重复选色移除后前插', () => {
     const page = load(0)
     const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
-    page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#FF0000' } })
-    page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#00FF00' } })
-    page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#FF0000' } })
+    page.onColorSelected({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#FF0000' } })
+    page.onColorSelected({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#00FF00' } })
+    page.onColorSelected({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#FF0000' } })
     expect(getRecentColors()).toEqual(['#FF0000', '#00FF00'])
   })
 
   test('最近色跨会话回填：重进页面后 getRecentColors 可读回', () => {
     const colorFi = load(0).data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
-    load(0).onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#123456' } })
+    load(0).onColorSelected({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#123456' } })
     // 重新装载页面（模拟重进）：最近色仍在。
     resetDeviceStore()
     const page2 = load(0)
@@ -500,7 +612,7 @@ describe('pin-detail 页（#27）', () => {
     const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
     // 注入损坏数据后选色，应不抛异常且写为单元素数组。
     wx.setStorageSync('bt_recent_colors', 'not-json{')
-    page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#ABCDEF' } })
+    page.onColorSelected({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#ABCDEF' } })
     expect(getRecentColors()).toEqual(['#ABCDEF'])
   })
 
@@ -519,7 +631,7 @@ describe('pin-detail 页（#27）', () => {
     const page = load(0)
     const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
     // 选大写 #FF0000：应与旧小写 #ff0000 合并，不并存。
-    page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#FF0000' } })
+    page.onColorSelected({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: '#FF0000' } })
     const colors = getRecentColors()
     expect(colors.filter((c) => c.toUpperCase() === '#FF0000')).toHaveLength(1)
     // 归一为大写 + #。
@@ -532,7 +644,7 @@ describe('pin-detail 页（#27）', () => {
     const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
     for (let i = 0; i < 12; i++) {
       const hex = '#' + i.toString(16).padStart(2, '0').toUpperCase().repeat(3)
-      page.onColorPicked({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: hex } })
+      page.onColorSelected({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } }, detail: { value: hex } })
     }
     const colors = getRecentColors()
     expect(colors).toHaveLength(10)

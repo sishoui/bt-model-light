@@ -264,34 +264,129 @@
   margin-bottom: 8rpx;
 }
 
-/* 参数行（rgb 三通道） */
+/* 参数行（rgb 色块预览） */
 .param {
   margin-top: 12rpx;
 }
 
-.rgb {
+/* rgb 色块预览：点击弹层 */
+.color-swatch {
+  width: 96rpx;
+  height: 64rpx;
+  flex: 0 0 auto;
+  border-radius: 12rpx;
+  box-shadow: inset 0 0 0 2rpx var(--bt-color-bg-input);
+}
+
+/* 颜色弹层（#33） */
+.color-picker-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+}
+
+.color-picker-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.color-picker-panel {
+  position: relative;
+  width: 100%;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bt-color-bg-elevated);
+  border-radius: 28rpx 28rpx 0 0;
+  padding: 24rpx 32rpx 48rpx;
+  box-shadow: 0 -24rpx 64rpx rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.color-picker-head {
   display: flex;
   align-items: center;
-  flex: 1;
+  justify-content: space-between;
 }
 
-.rgb__ch {
-  font-size: 22rpx;
-  line-height: 32rpx;
-  color: var(--bt-color-label-tertiary);
-  margin: 0 6rpx;
+.color-picker-title {
+  font-size: 32rpx;
+  line-height: 44rpx;
+  font-weight: 700;
+  color: var(--bt-color-label);
 }
 
-.rgb__input {
-  width: 80rpx;
-  height: 64rpx;
-  padding: 0 8rpx;
-  background: var(--bt-color-bg-elevated);
+.color-picker-close {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32rpx;
+  line-height: 40rpx;
+  color: var(--bt-color-label-secondary);
+  border-radius: 999rpx;
+  background: var(--bt-color-bg-input);
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16rpx;
+  margin-top: 8rpx;
+}
+
+.color-cell {
+  width: 100%;
+  aspect-ratio: 1;
   border-radius: 12rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
+}
+
+.color-cell--recent {
+  width: 80rpx;
+  height: 80rpx;
+  flex: 0 0 auto;
+}
+
+.recent-colors {
+  margin-top: 16rpx;
+}
+
+.recent-colors__title {
+  font-size: 26rpx;
+  line-height: 36rpx;
+  color: var(--bt-color-label-secondary);
+}
+
+.recent-colors__row {
+  display: flex;
+  gap: 12rpx;
+  flex-wrap: wrap;
+  margin-top: 12rpx;
+}
+
+/* 折叠摘要行 */
+.step__head {
+  margin-bottom: 8rpx;
+}
+
+.step__head-actions,
+.layer__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.step__arrow,
+.layer__arrow {
   font-size: 24rpx;
-  line-height: 64rpx;
-  text-align: center;
-  box-sizing: border-box;
+  line-height: 34rpx;
+  color: var(--bt-color-label-tertiary);
 }
 
 /* 添加按钮（次级虚线按钮） */

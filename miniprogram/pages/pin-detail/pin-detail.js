@@ -82,14 +82,16 @@ function buildParamFields(effectId, params) {
   const src = params || {}
   return spec.map((p) => {
     let value
+    let hex = null
     if (p.type === 'rgb') {
       const v = Array.isArray(src[p.name]) ? src[p.name] : defaultParamValue(p)
       value = [clamp(v[0], 0, 255), clamp(v[1], 0, 255), clamp(v[2], 0, 255)]
+      hex = rgbToHex(value)
     } else {
       const v = src[p.name] === undefined ? defaultParamValue(p) : src[p.name]
       value = clamp(v, p.min, p.max)
     }
-    return { name: p.name, label: PARAM_LABELS[p.name] || p.name, type: p.type, min: p.min, max: p.max, value }
+    return { name: p.name, label: PARAM_LABELS[p.name] || p.name, type: p.type, min: p.min, max: p.max, value, hex }
   })
 }
 
@@ -215,6 +217,19 @@ Page({
     inCancelZone: false,
     ledCells: [], // [{ i, state }] 渲染用（state: empty/selected/occupied/drag-*）
     ledPickerOpen: false, // 灯珠选择弹出层显隐
+    // 步骤/图层折叠状态（独立 data 字段，不污染 groups VM）。
+    // 键：expandedSteps 用步骤索引 si；expandedLayers 用 "si-li"。
+    expandedSteps: {},
+    expandedLayers: {},
+    // 颜色弹层（#33）。
+    colorPickerOpen: false,
+    colorPickerTarget: null, // 目标 field 定位（si/li/fi），随 setData 同步给 WXML
+    recentColors: [],
+    colorPalette: [
+      '#000000', '#FFFFFF', '#808080', '#404040', '#C0C0C0',
+      '#FF0000', '#FF8800', '#FFFF00', '#00FF00', '#00FFFF',
+      '#0000FF', '#8000FF', '#FF69B4', '#FFDAB9', '#FFBF00', '#008080',
+    ],
     dirty: false,
     // 静态选项
     effectNames: EFFECT_NAMES,
@@ -268,8 +283,42 @@ Page({
       inCancelZone: false,
       dirty: false,
     })
+    this._initExpanded(groups, 0)
     // 初始灯珠网格按 activeGroup=0 渲染，含其他组占用灰显。
     this.setData({ ledCells: this._buildLedCells(groups[0], ledCount, this._computeOccupied(0), null) })
+  },
+
+  // 折叠默认态：首个步骤展开、其余收起；每个步骤首层展开、其余收起。
+  // 键 si = 步骤索引；si-li = 步骤 si 内图层 li。
+  _initExpanded(groups, groupIndex = 0) {
+    const expandedSteps = {}
+    const expandedLayers = {}
+    const group = groups && groups[groupIndex]
+    const steps = (group && group.steps) || []
+    for (let si = 0; si < steps.length; si++) {
+      expandedSteps[si] = si === 0
+      const layers = steps[si].layers || []
+      for (let li = 0; li < layers.length; li++) {
+        expandedLayers[`${si}-${li}`] = li === 0
+      }
+    }
+    this.setData({ expandedSteps, expandedLayers })
+  },
+
+  // 翻转折叠：onToggleStep si 键、onToggleLayer si-li 键。不修改 groups VM。
+  onToggleStep(e) {
+    const si = Number(e.currentTarget.dataset.si)
+    const key = String(si)
+    const next = Object.assign({}, this.data.expandedSteps, { [key]: !this.data.expandedSteps[key] })
+    this.setData({ expandedSteps: next })
+  },
+
+  onToggleLayer(e) {
+    const si = Number(e.currentTarget.dataset.si)
+    const li = Number(e.currentTarget.dataset.li)
+    const key = `${si}-${li}`
+    const next = Object.assign({}, this.data.expandedLayers, { [key]: !this.data.expandedLayers[key] })
+    this.setData({ expandedLayers: next })
   },
 
   // 灯珠网格渲染模型：按 state 渲染（空/选中/占用/拖选起终/拖选中间）。
@@ -355,6 +404,12 @@ Page({
     if (!this.data.groups[index]) return
     this.setData({ activeGroup: index, dragging: false, dragRange: null, inCancelZone: false })
     this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount, this._computeOccupied(index), null) })
+    this._resetExpandedForGroup(index)
+  },
+
+  // 切换灯组：该组默认态——首个步骤展开、其余收起；每步首层展开、其余收起。
+  _resetExpandedForGroup(index) {
+    this._initExpanded(this.data.groups, index)
   },
 
   onGroupNameInput(e) {
@@ -524,6 +579,16 @@ Page({
     this._editActiveGroup((group, steps) => {
       steps.push(defaultStep())
     })
+    this._reindexExpandedAfterAddStep(this.data.groups[this.data.activeGroup].steps.length - 1)
+  },
+
+  // 新增步骤后：新步骤默认收起；首层默认展开（键补到 0-0）。
+  _reindexExpandedAfterAddStep(newSi) {
+    const expandedSteps = Object.assign({}, this.data.expandedSteps)
+    const expandedLayers = Object.assign({}, this.data.expandedLayers)
+    expandedSteps[newSi] = false
+    expandedLayers[`${newSi}-0`] = true
+    this.setData({ expandedSteps, expandedLayers })
   },
 
   onDeleteStep(e) {
@@ -535,6 +600,31 @@ Page({
     this._editActiveGroup((group, steps) => {
       steps.splice(si, 1)
     })
+    this._reindexExpandedAfterDeleteStep(si)
+  },
+
+  _reindexExpandedAfterDeleteStep(removedSi) {
+    const oldSteps = this.data.expandedSteps || {}
+    const oldLayers = this.data.expandedLayers || {}
+    const newSteps = {}
+    const newLayers = {}
+    const count = this.data.groups[this.data.activeGroup].steps.length
+    for (let i = 0; i < count; i++) {
+      // 删除前索引 srcSi 的折叠态移到删除后索引 i。
+      const srcSi = i < removedSi ? i : i + 1
+      if (oldSteps[srcSi] !== undefined) newSteps[i] = oldSteps[srcSi]
+      for (const k of Object.keys(oldLayers)) {
+        const prefix = srcSi + '-'
+        if (k.startsWith(prefix)) {
+          const li = k.slice(prefix.length)
+          newLayers[`${i}-${li}`] = oldLayers[k]
+        }
+      }
+    }
+    // 删后首个步骤兜底展开，避免全部收起。
+    newSteps[0] = true
+    newLayers['0-0'] = true
+    this.setData({ expandedSteps: newSteps, expandedLayers: newLayers })
   },
 
   onDurationInput(e) {
@@ -571,6 +661,11 @@ Page({
     this._editActiveGroup((group, steps) => {
       steps[si] = Object.assign({}, steps[si], { layers: steps[si].layers.concat([defaultLayer(EFF.SOLID)]) })
     })
+    // 新增图层默认收起。
+    const expandedLayers = Object.assign({}, this.data.expandedLayers)
+    const newLi = this.data.groups[this.data.activeGroup].steps[si].layers.length - 1
+    expandedLayers[`${si}-${newLi}`] = false
+    this.setData({ expandedLayers })
   },
 
   onDeleteLayer(e) {
@@ -586,6 +681,25 @@ Page({
       layers.splice(li, 1)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
+    // 重建该 step 的 layer 键。
+    const oldLayers = this.data.expandedLayers || {}
+    const newLayers = Object.assign({}, oldLayers)
+    // 移除被删图层键
+    delete newLayers[`${si}-${li}`]
+    // 重新编号后续图层
+    const count = this.data.groups[this.data.activeGroup].steps[si].layers.length
+    const tmp = {}
+    for (let j = 0; j < count; j++) {
+      const srcLi = j < li ? j : j + 1
+      if (oldLayers[`${si}-${srcLi}`] !== undefined) tmp[`${si}-${j}`] = oldLayers[`${si}-${srcLi}`]
+    }
+    // 清理该 step 所有旧层键后写入新键
+    for (const k of Object.keys(newLayers)) {
+      if (k.startsWith(`${si}-`)) delete newLayers[k]
+    }
+    Object.assign(newLayers, tmp)
+    if (newLayers[`${si}-0`] === undefined) newLayers[`${si}-0`] = true
+    this.setData({ expandedLayers: newLayers })
   },
 
   // 切换灯效：重建该图层参数表单（schema 联动，ADR-0018）。
@@ -601,10 +715,7 @@ Page({
     })
   },
 
-  // 参数输入：rgb 走 hex（颜色弹层，#33），标量（u8/u16）走数字。
-  // 兼容两种 rgb 入口：
-  //   - 数字通道（data-ch 存在）：旧三通道 input，按通道写入 field.value[ch]。
-  //   - hex（data-ch 不存在）：颜色弹层选中回调，hex → rgb 写入 + 持久化最近色。
+  // 参数输入：标量（u8/u16）走数字。rgb 不再有逐通道 input（色块 + 弹层，#33）。
   onParamInput(e) {
     const ds = e.currentTarget.dataset
     const si = Number(ds.si)
@@ -612,31 +723,12 @@ Page({
     const fi = Number(ds.fi)
     const field = this._locateField(si, li, fi)
     if (!field) return
-    const raw = e.detail.value
     if (field.type === 'rgb') {
-      if (ds.ch !== undefined) {
-        // 数字通道写入（旧入口，保留兼容）。
-        const ch = Number(ds.ch)
-        this._editActiveGroup((group, steps) => {
-          const layers = steps[si].layers.slice()
-          const layer = Object.assign({}, layers[li])
-          const fields = layer.fields.slice()
-          const f = Object.assign({}, fields[fi])
-          const arr = f.value.slice()
-          arr[ch] = clamp(raw, 0, 255)
-          f.value = arr
-          fields[fi] = f
-          layer.fields = fields
-          layers[li] = layer
-          steps[si] = Object.assign({}, steps[si], { layers })
-        })
-        return
-      }
-      // hex 入口（颜色弹层，#33 接入）。
-      this._applyColorHex(si, li, fi, raw)
+      // rgb 已由 onOpenColorPicker + onColorSelected 处理；旧 data-ch 入口不再绑定。
       return
     }
     // 标量（u8/u16）。
+    const raw = e.detail.value
     this._editActiveGroup((group, steps) => {
       const layers = steps[si].layers.slice()
       const layer = Object.assign({}, layers[li])
@@ -650,18 +742,39 @@ Page({
     })
   },
 
-  // 颜色弹层选中回调（#33 接入）：hex → rgb 写入 + 最近色持久化。
-  onColorPicked(e) {
+  // ---- 颜色弹层（#33） ---------------------------------------------------------
+  // rgb 色块点击：打开弹层，定位到目标 field，把最近色带入弹层。
+  onOpenColorPicker(e) {
     const ds = e.currentTarget.dataset
     const si = Number(ds.si)
     const li = Number(ds.li)
     const fi = Number(ds.fi)
-    const hex = (e.detail && e.detail.value) || ds.hex || ''
-    this._applyColorHex(si, li, fi, hex)
+    this._locateField(si, li, fi)
+    this._colorPickerTarget = { si, li, fi }
+    this.setData({ colorPickerOpen: true, colorPickerTarget: { si, li, fi }, recentColors: getRecentColors() })
   },
 
-  // 单一选色应用点：hex 校验 → rgb 写入 field.value → 持久化最近色。
-  // onParamInput hex 分支与 onColorPicked 共用，避免重复。
+  // 弹层选色：hex → rgb 写入 target field → 持久化最近色 → 关闭弹层。
+  onColorSelected(e) {
+    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    const target = this._colorPickerTarget || {}
+    const si = Number(ds.si !== undefined ? ds.si : target.si)
+    const li = Number(ds.li !== undefined ? ds.li : target.li)
+    const fi = Number(ds.fi !== undefined ? ds.fi : target.fi)
+    const hex = (e && e.detail && e.detail.value) || ds.hex || ''
+    if (!Number.isFinite(si) || !Number.isFinite(li) || !Number.isFinite(fi)) return
+    this._applyColorHex(si, li, fi, hex)
+    this._colorPickerTarget = null
+    this.setData({ colorPickerOpen: false, colorPickerTarget: null })
+  },
+
+  // 关闭弹层：不写回、不持久化（仅取消）。
+  onCloseColorPicker() {
+    this._colorPickerTarget = null
+    this.setData({ colorPickerOpen: false, colorPickerTarget: null })
+  },
+
+  // 单一选色应用点：hex 校验 → rgb 写入 field.value（及派生 fld.hex） → 持久化最近色。
   _applyColorHex(si, li, fi, hex) {
     const rgb = hexToRgb(String(hex || ''))
     if (!rgb) return
@@ -671,6 +784,7 @@ Page({
       const fields = layer.fields.slice()
       const f = Object.assign({}, fields[fi])
       f.value = rgb
+      f.hex = rgbToHex(rgb)
       fields[fi] = f
       layer.fields = fields
       layers[li] = layer
