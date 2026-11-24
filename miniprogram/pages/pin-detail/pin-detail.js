@@ -169,6 +169,8 @@ Page({
     img: '',
     pinName: '引脚',
     power: false,
+    // 模拟模式标志（onLoad 设置，用于显示提示）。
+    simMode: false,
     // 灯组 Tab
     groups: [], // VM 数组
     activeGroup: 0,
@@ -193,6 +195,7 @@ Page({
     this._deviceId = (app && app.globalData && app.globalData.currentDeviceId) || null
     _uidSeq = 1
     this._loadFromStore(Number.isFinite(pin) ? pin : 0)
+    this.setData({ simMode: !!(app && app.globalData && app.globalData.simMode) })
     this._syncUnloadGuard()
   },
 
@@ -509,6 +512,7 @@ Page({
     const client = getCurrentBleClient()
     if (!client || !client.connected) {
       // Storage 是真相源已落盘；固件需连接后重新保存才会同步（无自动补发）。
+      wx.vibrateShort({ type: 'light' })
       wx.showToast({ title: '已保存到本机（设备未连接，连接后请重新保存以同步）', icon: 'none' })
       return
     }
@@ -522,6 +526,7 @@ Page({
       await client.sendCmd(CMD.WRITE_CONFIG, Array.from(blob))
       await client.sendCmd(CMD.APPLY, [])
       wx.hideLoading()
+      wx.vibrateShort({ type: 'light' })
       wx.showToast({ title: '已保存并应用', icon: 'success' })
     } catch (err) {
       wx.hideLoading()

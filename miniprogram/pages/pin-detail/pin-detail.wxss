@@ -1,7 +1,7 @@
-/* 引脚配置详情页样式（ADR-0027 / #27 / T7）。 */
+/* 引脚配置详情页样式（ADR-0027 / #27 / T7；范式 B 工具页，design.md §7.3）。 */
 
 .page {
-  padding: 0 0 160rpx; /* 底部给固定保存栏留位 */
+  padding: 0 0 176rpx; /* 底部给固定玻璃保存栏留位 */
 }
 
 /* 顶部：图片 / 名称 / 开关 */
@@ -13,8 +13,8 @@
 .pin-head__img {
   width: 120rpx;
   height: 120rpx;
-  border-radius: 12rpx;
-  background: #eeeeee;
+  border-radius: 16rpx;
+  background: var(--bt-color-bg-input);
   margin-right: 24rpx;
 }
 
@@ -24,40 +24,43 @@
 
 .pin-head__name {
   font-size: 34rpx;
+  line-height: 44rpx;
   font-weight: 600;
-  height: 56rpx;
+  height: 64rpx;
 }
 
-/* 灯组 Tab */
+/* 灯组 Tab（胶囊） */
 .tabs {
   display: flex;
   align-items: center;
-  padding: 8rpx 16rpx;
+  padding: 8rpx 32rpx;
   white-space: nowrap;
 }
 
 .tab {
-  padding: 12rpx 24rpx;
-  margin-right: 12rpx;
-  border-radius: 24rpx;
-  background: #ffffff;
-  font-size: 26rpx;
-  color: #666666;
+  padding: 10rpx 20rpx;
+  margin-right: 10rpx;
+  border-radius: 999rpx;
+  background: var(--bt-color-bg-elevated);
+  font-size: 28rpx;
+  line-height: 36rpx;
+  color: var(--bt-color-label-secondary);
+  transition: background-color 0.25s ease-out, color 0.25s ease-out;
 }
 
 .tab--active {
-  background: #07c160;
+  background: var(--bt-color-accent);
   color: #ffffff;
 }
 
 .tab--add {
-  color: #07c160;
+  color: var(--bt-color-accent);
   font-size: 32rpx;
-  line-height: 1;
+  line-height: 36rpx;
 }
 
 .tab--danger {
-  color: #e64340;
+  color: var(--bt-color-danger);
   background: transparent;
 }
 
@@ -74,17 +77,21 @@
 
 .row__label {
   width: 160rpx;
-  font-size: 26rpx;
-  color: #666666;
+  font-size: 28rpx;
+  line-height: 38rpx;
+  color: var(--bt-color-label-secondary);
 }
 
 .row__input {
   flex: 1;
   height: 64rpx;
   padding: 0 16rpx;
-  background: #f5f5f5;
-  border-radius: 8rpx;
+  background: var(--bt-color-bg-input);
+  border-radius: 12rpx;
   font-size: 28rpx;
+  line-height: 64rpx;
+  text-align: center;
+  box-sizing: border-box;
 }
 
 .row__input--num {
@@ -95,43 +102,51 @@
   flex: 1;
   padding: 0 16rpx;
   height: 64rpx;
-  line-height: 64rpx;
-  background: #f5f5f5;
-  border-radius: 8rpx;
+  background: var(--bt-color-bg-input);
+  border-radius: 12rpx;
   font-size: 28rpx;
+  line-height: 64rpx;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
-/* 灯珠范围 */
+/* 灯珠范围（视觉 60rpx 方格，点击热区经 margin 扩至 ~88rpx，design.md §5.4） */
 .range {
   margin-top: 24rpx;
 }
 
 .range__title {
-  font-size: 26rpx;
+  font-size: 28rpx;
+  line-height: 38rpx;
   font-weight: 600;
 }
 
 .led-grid {
   display: flex;
   flex-wrap: wrap;
-  margin: 16rpx 0 8rpx;
+  margin: 8rpx -10rpx 0;
 }
 
 .led-cell {
   width: 60rpx;
   height: 60rpx;
-  margin: 4rpx;
-  border-radius: 8rpx;
-  background: #eeeeee;
-  color: #999999;
-  font-size: 20rpx;
+  margin: 10rpx;
+  border-radius: 12rpx;
+  background: var(--bt-color-bg-input);
+  color: var(--bt-color-label-tertiary);
+  font-size: 22rpx;
+  line-height: 32rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background-color 0.25s ease-out, color 0.25s ease-out;
 }
 
 .led-cell--on {
-  background: #07c160;
+  background: var(--bt-color-accent);
   color: #ffffff;
 }
 
@@ -145,20 +160,22 @@
 }
 
 .step__title {
-  font-size: 30rpx;
+  font-size: 28rpx;
+  line-height: 38rpx;
   font-weight: 600;
 }
 
 .step__del {
   font-size: 24rpx;
-  color: #e64340;
+  line-height: 34rpx;
+  color: var(--bt-color-danger);
 }
 
-/* 图层 */
+/* 图层（卡内嵌块：elevated 卡内用 grouped 底，同心圆角） */
 .layer {
   margin-top: 16rpx;
   padding: 16rpx;
-  background: #fafafa;
+  background: var(--bt-color-bg-input);
   border-radius: 12rpx;
 }
 
@@ -167,8 +184,9 @@
 }
 
 .layer__title {
-  font-size: 26rpx;
-  font-weight: 500;
+  font-size: 28rpx;
+  line-height: 38rpx;
+  font-weight: 600;
 }
 
 .layer__effect {
@@ -188,53 +206,63 @@
 
 .rgb__ch {
   font-size: 22rpx;
-  color: #999999;
+  line-height: 32rpx;
+  color: var(--bt-color-label-tertiary);
   margin: 0 6rpx;
 }
 
 .rgb__input {
-  width: 88rpx;
-  height: 56rpx;
+  width: 80rpx;
+  height: 64rpx;
   padding: 0 8rpx;
-  background: #ffffff;
-  border-radius: 8rpx;
+  background: var(--bt-color-bg-elevated);
+  border-radius: 12rpx;
   font-size: 24rpx;
+  line-height: 64rpx;
   text-align: center;
+  box-sizing: border-box;
 }
 
-/* 添加按钮 */
+/* 添加按钮（次级虚线按钮） */
 .add-layer {
   margin-top: 16rpx;
   padding: 12rpx;
   text-align: center;
-  font-size: 26rpx;
-  color: #07c160;
-  border: 2rpx dashed #07c160;
+  font-size: 28rpx;
+  line-height: 38rpx;
+  color: var(--bt-color-accent);
+  border: 2rpx dashed var(--bt-color-accent);
   border-radius: 12rpx;
+  transition: background-color 0.25s ease-out;
+}
+
+.add-layer:active {
+  background-color: rgba(0, 136, 255, 0.08);
 }
 
 .add-step {
-  margin: 16rpx;
-  padding: 20rpx;
+  margin: 16rpx 32rpx;
+  padding: 16rpx;
   text-align: center;
   font-size: 28rpx;
-  color: #07c160;
+  line-height: 38rpx;
+  font-weight: 600;
+  color: var(--bt-color-accent);
 }
 
-/* 固定保存栏 */
+/* 固定保存栏：玻璃材质走 .bt-glass 工具类（含降级），此处只管布局 */
 .save-bar {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
+  z-index: 10;
   padding: 16rpx 32rpx;
-  background: #ffffff;
-  box-shadow: 0 -2rpx 8rpx rgba(0, 0, 0, 0.05);
 }
 
-.save-btn {
-  background: #07c160;
-  color: #ffffff;
-  border-radius: 12rpx;
-  font-size: 30rpx;
+.save-bar .bt-btn {
+  text-align: center;
+  font-size: 28rpx;
+  height: 64rpx;
+  line-height: 64rpx;
 }

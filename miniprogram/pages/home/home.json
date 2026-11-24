@@ -1,4 +1,6 @@
 {
   "navigationBarTitleText": "设备",
-  "usingComponents": {}
+  "usingComponents": {
+    "sim-banner": "../../components/sim-banner/sim-banner"
+  }
 }

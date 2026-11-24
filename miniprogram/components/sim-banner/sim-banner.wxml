@@ -1,0 +1,5 @@
+<!-- 模拟模式提示浮层（design.md §7.1）。
+     纯提示组件：无交互、无属性。引用处 wx:if="{{simMode}}" 控制显示。 -->
+<view class="sim-banner bt-glass">
+  <text class="sim-banner__text">模拟模式 · 无硬件环境测试用</text>
+</view>

@@ -1,6 +1,8 @@
 <!-- 引脚配置详情页（ADR-0027 / #27 / T7）。
      顶部图片/名称/开关 → 灯组 Tab → 灯珠范围点选 → 步骤/图层/灯效编辑 → 保存。 -->
 <view class="page">
+  <sim-banner wx:if="{{simMode}}" />
+
   <!-- 顶部：图片 / 名称 / 开关 -->
   <view class="bt-card pin-head">
     <image class="pin-head__img" src="{{img}}" mode="aspectFill" />
@@ -8,7 +10,7 @@
       <input class="pin-head__name" value="{{pinName}}" placeholder="引脚名称" bindinput="onPinNameInput" />
       <view class="bt-row bt-row--between">
         <text class="bt-text--secondary">引脚 {{pin + 1}}</text>
-        <switch checked="{{power}}" color="#07c160" bindchange="onPowerChange" />
+        <switch checked="{{power}}" color="#0088FF" bindchange="onPowerChange" />
       </view>
     </view>
   </view>
@@ -132,11 +134,11 @@
       <view wx:if="{{step.layers.length < layersPerStepMax}}" class="add-layer" data-si="{{si}}" bindtap="onAddLayer">＋ 添加图层</view>
     </view>
 
-    <view wx:if="{{groups[activeGroup].steps.length < stepsPerGroupMax}}" class="add-step" bindtap="onAddStep">＋ 添加步骤</view>
+    <view wx:if="{{groups[activeGroup].steps.length < stepsPerGroupMax}}" class="add-step bt-pressable" bindtap="onAddStep">＋ 添加步骤</view>
   </block>
 
-  <!-- 保存栏 -->
-  <view class="save-bar">
-    <button class="save-btn" bindtap="onSave">保存</button>
+  <!-- 保存栏（功能层玻璃，.bt-glass 含降级） -->
+  <view class="save-bar bt-glass">
+    <button class="bt-btn bt-btn--primary bt-pressable" bindtap="onSave">保存</button>
   </view>
 </view>

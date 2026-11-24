@@ -8,9 +8,56 @@ const {
   removeDevice,
   getCurrentDeviceId,
   setCurrentDeviceId,
+  getDeviceConfig,
+  saveDeviceConfig,
 } = require('../../utils/deviceStore')
 const { createBleClient, getCurrentBleClient, setCurrentBleClient } = require('../../utils/bleClient')
+const { SIM_DEVICE_ID } = require('../../utils/mockBleClient')
 const { friendlyMessage, logError } = require('../../utils/errorHandler')
+
+// 模拟设备默认引脚配置：8 引脚，第 1 引脚已启用（灯组 1，9 灯珠常亮白光）。
+// 真实设备由固件/用户在引脚详情页配置；模拟设备无固件，连接后自动落盘以便首页展示。
+function ensureSimDefaultConfig(savedDevice) {
+  // 参数：savedDevice 是 saveDevice 返回的对象（含本地 id），或 null（切换已存在设备）。
+  // 判断是否为模拟设备：deviceId 含 'sim-' 前缀。
+  if (!savedDevice || !savedDevice.deviceId || savedDevice.deviceId.indexOf('sim-') !== 0) return
+  const deviceId = savedDevice.id // 配置键是本地 id（与 deviceStore 一致）。
+  const existing = getDeviceConfig(deviceId)
+  if (existing && Array.isArray(existing.pins) && existing.pins.length) return // 已有配置不覆盖
+  const config = {
+    version: 1,
+    pins: [
+      {
+        pin: 0,
+        configured: true,
+        name: '引脚 1',
+        power: true,
+        img: '',
+        groups: [
+          {
+            name: '灯组 1',
+            ledStart: 0,
+            ledEnd: 9,
+            steps: [
+              {
+                duration: 5,
+                transition: 0,
+                loopMode: 1,
+                layers: [
+                  {
+                    effect: 1, // EFF.SOLID
+                    params: { color: [255, 255, 255], brightness: 128 },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+  saveDeviceConfig(deviceId, config)
+}
 
 Page({
   data: {
@@ -18,6 +65,8 @@ Page({
     currentId: '', // 当前选中设备 id
     scanning: false, // 是否正在扫描
     found: [], // 扫描到的设备（未保存，按 deviceId 去重）
+    // 模拟模式标志（onShow 刷新，用于显示提示）。
+    simMode: false,
   },
 
   onLoad() {
@@ -25,6 +74,8 @@ Page({
   },
 
   onShow() {
+    const app = getApp()
+    this.setData({ simMode: !!(app && app.globalData && app.globalData.simMode) })
     this._loadDevices()
   },
 
@@ -93,6 +144,9 @@ Page({
       const app = getApp()
       if (app && app.globalData) app.globalData.currentDeviceId = nextId
       this._stopScan() // 连接成功：停止扫描（stop 不再关适配器，保连接）
+      // 模拟设备首次连接：自动落盘默认引脚配置，使首页能展示引脚卡片。
+      // 参数：savedDevice（含本地 id）或 null（切换已存在设备）。
+      ensureSimDefaultConfig(saved)
       wx.hideLoading()
       wx.showToast({ title: newDevice ? '已添加' : '已切换', icon: 'success' })
       setTimeout(() => wx.navigateBack(), 500)

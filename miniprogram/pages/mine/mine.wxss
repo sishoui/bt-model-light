@@ -1,17 +1,47 @@
-/* 我的页样式（ADR-0027 / #25）。 */
+/* 我的页（ADR-0027 / #25；范式 A 展示页，design.md §7.2）。 */
 
-.page {
-  padding: 0 0 32rpx;
+/* 设置行：标题 + 说明（两行紧凑布局） */
+.settings-row {
+  padding: 12rpx 0;
 }
 
-.section-title {
-  padding: 24rpx 32rpx 8rpx;
-  font-size: 26rpx;
-  color: #888888;
+.settings-row + .settings-row {
+  margin-top: 8rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid var(--bt-color-separator);
 }
 
-.row__arrow {
-  color: #cccccc;
-  font-size: 32rpx;
+.settings-row__title {
+  display: block;
+  font-size: 30rpx;
+  line-height: 40rpx;
+  font-weight: 600;
+}
+
+.settings-row__hint {
+  display: block;
+  margin-top: 2rpx;
+  font-size: 24rpx;
+  line-height: 34rpx;
+  color: var(--bt-color-label-tertiary);
+}
+
+.settings-row__arrow {
+  color: var(--bt-color-label-quaternary);
+  font-size: 36rpx;
+  line-height: 44rpx;
   margin-left: 16rpx;
+}
+
+.settings-row__value {
+  font-size: 30rpx;
+  line-height: 40rpx;
+  color: var(--bt-color-label-secondary);
+  margin-left: 16rpx;
+}
+
+/* 关于行内两段信息（版本 + 箭头） */
+.settings-row__meta {
+  display: flex;
+  align-items: center;
 }

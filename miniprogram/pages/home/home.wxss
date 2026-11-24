@@ -1,25 +1,23 @@
-/* 首页（设备详情页）样式（ADR-0027 / #25）。 */
+/* 首页 = 设备详情页（ADR-0027 / #25；范式 A 展示页，design.md §7.2）。 */
 
-.page {
-  padding: 0 0 32rpx;
-}
-
-/* 左上设备名称栏：点击进设备列表 */
+/* 左上设备名称栏（大标题 + 玻璃功能层信息条）：点击进设备列表 */
 .device-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24rpx 32rpx 8rpx;
+  padding: 24rpx 32rpx 16rpx;
 }
 
 .device-header__title {
-  font-size: 36rpx;
-  font-weight: 600;
+  font-size: 44rpx;
+  line-height: 56rpx;
+  font-weight: 700;
 }
 
 .device-header__action {
-  font-size: 26rpx;
-  color: #07c160;
+  font-size: 30rpx;
+  line-height: 40rpx;
+  color: var(--bt-color-accent);
 }
 
 /* 设备卡片 */
@@ -31,8 +29,8 @@
 .device-card__img {
   width: 120rpx;
   height: 120rpx;
-  border-radius: 12rpx;
-  background: #eeeeee; /* 占位图底色（真机图片后续） */
+  border-radius: 16rpx;
+  background: var(--bt-color-bg-input); /* 占位图底色（真机图片后续） */
   margin-right: 24rpx;
 }
 
@@ -42,27 +40,32 @@
 
 .device-card__name {
   display: block;
-  font-size: 32rpx;
+  font-size: 34rpx;
+  line-height: 44rpx;
   font-weight: 600;
 }
 
 .device-card__status {
   display: block;
-  margin-top: 8rpx;
-  font-size: 24rpx;
-  color: #999999;
+  margin-top: 4rpx;
+  font-size: 30rpx;
+  line-height: 40rpx;
+  color: var(--bt-color-label-secondary);
 }
 
 .device-card__status--on {
-  color: #07c160;
+  color: var(--bt-color-success);
 }
 
 .device-card__brightness {
   display: flex;
   align-items: center;
-  margin-top: 24rpx;
-  font-size: 26rpx;
-  color: #666666;
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid var(--bt-color-separator);
+  font-size: 30rpx;
+  line-height: 40rpx;
+  color: var(--bt-color-label-secondary);
 }
 
 .device-card__brightness slider {
@@ -83,8 +86,8 @@
 .pin-card__img {
   width: 96rpx;
   height: 96rpx;
-  border-radius: 12rpx;
-  background: #eeeeee;
+  border-radius: 16rpx;
+  background: var(--bt-color-bg-input);
   margin-right: 24rpx;
 }
 
@@ -93,11 +96,12 @@
 }
 
 .pin-card__name {
-  font-size: 30rpx;
-  font-weight: 500;
+  font-size: 34rpx;
+  line-height: 44rpx;
+  font-weight: 600;
 }
 
 .pin-empty {
-  padding: 64rpx 0;
+  padding: 96rpx 32rpx;
   text-align: center;
 }

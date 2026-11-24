@@ -12,6 +12,8 @@ Page({
   data: {
     // 协议版本（版本不兼容提示用，ADR-0009 / ADR-0011）
     protocolVersion: GEN.PROTOCOL_VERSION.string,
+    // 模拟模式标志（onShow 刷新，用于显示提示）。
+    simMode: false,
     // 设备卡片
     deviceName: '', // 左上标题；空串显示"未连接设备"
     connected: false, // BLE 连接状态
@@ -23,6 +25,8 @@ Page({
   },
 
   onShow() {
+    const app = getApp()
+    this.setData({ simMode: !!(app && app.globalData && app.globalData.simMode) })
     this._refresh()
     this._subscribeBle()
   },

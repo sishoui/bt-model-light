@@ -4,11 +4,9 @@
 
 const { loadPage, makeApp } = require('./pageHarness')
 const { createWxMock } = require('./wx-mock')
-const {
-  saveDevice,
-  resetDeviceStore,
-} = require('../utils/deviceStore')
+const { saveDevice, resetDeviceStore, getDeviceConfig } = require('../utils/deviceStore')
 const { createBleClient, getCurrentBleClient, setCurrentBleClient } = require('../utils/bleClient')
+const { createSimBleClient, SIM_DEVICE_ID } = require('../utils/mockBleClient')
 const { setupBle, flush } = require('./bleTestUtils')
 
 const DEVICE_LIST = '../pages/device-list/device-list'
@@ -135,5 +133,35 @@ describe('device-list 页（#25）', () => {
     await flush()
     page.onTapAdd() // toggle off (stop)
     expect(wx.closeBluetoothAdapter).toHaveBeenCalled()
+  })
+
+  test('模拟模式：连接模拟设备后自动落盘默认引脚配置', async () => {
+    setCurrentBleClient(createSimBleClient())
+    const page = loadPage(DEVICE_LIST, app)
+    page.onShow()
+    await flush()
+
+    // 模拟设备：直接调用 onTapFound。
+    const promise = page.onTapFound({
+      currentTarget: {
+        dataset: {
+          deviceId: SIM_DEVICE_ID,
+          name: 'BTLight_Simulator_01',
+        },
+      },
+    })
+    await new Promise((r) => setTimeout(r, 200))
+    await flush()
+
+    // 验证：设备已保存、默认配置已落盘。
+    const rawDevices = wx.getStorageSync('bt_devices')
+    const devices = typeof rawDevices === 'string' && rawDevices ? JSON.parse(rawDevices) : []
+    expect(devices).toHaveLength(1)
+    expect(devices[0].deviceId).toBe(SIM_DEVICE_ID)
+    const cfg = getDeviceConfig(devices[0].id)
+    expect(cfg).not.toBeNull()
+    expect(cfg.pins).toHaveLength(1)
+    expect(cfg.pins[0].pin).toBe(0)
+    expect(cfg.pins[0].configured).toBe(true)
   })
 })

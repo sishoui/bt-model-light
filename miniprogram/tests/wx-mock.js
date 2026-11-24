@@ -131,6 +131,7 @@ function createWxMock() {
   wx.showLoading = j.fn()
   wx.hideLoading = j.fn()
   wx.showActionSheet = j.fn()
+  wx.vibrateShort = j.fn()
 
   // ---- 导航 ----
   wx.navigateTo = j.fn()

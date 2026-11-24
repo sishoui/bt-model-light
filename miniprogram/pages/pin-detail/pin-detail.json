@@ -1,4 +1,6 @@
 {
   "navigationBarTitleText": "引脚配置",
-  "usingComponents": {}
+  "usingComponents": {
+    "sim-banner": "../../components/sim-banner/sim-banner"
+  }
 }

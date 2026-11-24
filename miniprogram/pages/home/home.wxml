@@ -2,6 +2,8 @@
      左上：设备名称 → 设备列表页；设备卡片：图片/状态/整体开关/整体亮度；
      引脚卡片列表：仅已配置引脚，点击进入引脚配置详情（T7）。 -->
 <view class="page">
+  <sim-banner wx:if="{{simMode}}" />
+
   <view class="device-header" bindtap="onTapDeviceName">
     <text class="device-header__title">{{deviceName || '未连接设备'}}</text>
     <text class="device-header__action">切换 ›</text>
@@ -16,11 +18,11 @@
           {{connected ? '已连接' : '未连接'}}
         </text>
       </view>
-      <switch checked="{{power}}" color="#07c160" bindchange="onPowerChange" />
+      <switch checked="{{power}}" color="#0088FF" bindchange="onPowerChange" />
     </view>
     <view class="device-card__brightness">
       <text>整体亮度</text>
-      <slider min="0" max="255" value="{{brightness}}" activeColor="#07c160"
+      <slider min="0" max="255" value="{{brightness}}" activeColor="#0088FF"
         block-size="20" bindchange="onBrightnessChange" />
       <text>{{brightness}}</text>
     </view>
@@ -28,14 +30,14 @@
 
   <!-- 引脚卡片列表：仅已配置引脚（未配置不显示） -->
   <view wx:if="{{pins.length}}" class="pin-list">
-    <view wx:for="{{pins}}" wx:key="pin" class="bt-card pin-card"
+    <view wx:for="{{pins}}" wx:key="pin" class="bt-card pin-card bt-pressable"
       data-pin="{{item.pin}}" bindtap="onTapPin">
       <image class="pin-card__img" src="{{item.img}}" mode="aspectFill" />
       <view class="pin-card__info">
         <view class="bt-row bt-row--between">
           <text class="pin-card__name">{{item.name}}</text>
           <!-- catchtap：阻止 switch 点击冒泡触发卡片跳转 -->
-          <switch checked="{{item.power}}" color="#07c160" catchtap="noop" />
+          <switch checked="{{item.power}}" color="#0088FF" catchtap="noop" />
         </view>
         <text class="bt-text--secondary">{{item.info}}</text>
       </view>

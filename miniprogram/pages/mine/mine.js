@@ -1,7 +1,11 @@
 // 我的页（底部导航第二 Tab）：设置/关于/帮助（ADR-0027 / #25）。
 // 版本信息从 codegen 产物取（ADR-0011），避免手写漂移。
+// 模拟模式开关：开启后注入模拟 BLE client，便于无硬件环境下测试布局。
 
 const GEN = require('../../utils/protocol_gen')
+const { isSimModeEnabled, setSimModeEnabled } = require('../../utils/simMode')
+const { setCurrentBleClient, createBleClient } = require('../../utils/bleClient')
+const { createSimBleClient, SIM_DEVICE_ID } = require('../../utils/mockBleClient')
 
 // 关于/帮助弹层内容（v1 静态文案；后续接 docs/ 链接）。
 const HELP_TEXT =
@@ -9,15 +13,45 @@ const HELP_TEXT =
   '1. 打开设备电源，在设备列表页点"新增设备"扫描周边 BTLight_ 设备\n' +
   '2. 点选设备完成连接，返回首页即可控制\n' +
   '3. 首页展示设备状态与已配置引脚\n' +
-  '4. 遇到问题长按设备删除后重新连接'
+  '4. 遇到问题长按设备删除后重新连接\n' +
+  '5. 无硬件环境可在「设置」中开启模拟模式'
 
 Page({
   data: {
     version: GEN.APP_VERSION.string,
     protocolVersion: GEN.PROTOCOL_VERSION.string,
+    // 模拟模式开关当前态（onShow 刷新）。
+    simModeEnabled: false,
+  },
+
+  onShow() {
+    this.setData({ simModeEnabled: isSimModeEnabled() })
   },
 
   // ---- 设置 ------------------------------------------------------------------
+
+  onToggleSimMode(e) {
+    const next = !!e.detail.value
+    setSimModeEnabled(next)
+    this.setData({ simModeEnabled: next })
+    const app = getApp()
+    if (app && app.globalData) {
+      app.globalData.simMode = next
+      // 切换模拟模式时，若当前连接的是模拟设备则重置当前设备 id，
+      // 避免下次启动时 home 页试图重连一个已不存在的模拟设备。
+      if (!next && app.globalData.currentDeviceId) {
+        const { listDevices, setCurrentDeviceId } = require('../../utils/deviceStore')
+        const dev = listDevices().find((d) => d.id === app.globalData.currentDeviceId)
+        if (dev && dev.deviceId === SIM_DEVICE_ID) {
+          setCurrentDeviceId(null)
+          app.globalData.currentDeviceId = null
+        }
+      }
+    }
+    // 立即替换全局 client 单例，使切换在当前会话生效（无需重启小程序）。
+    setCurrentBleClient(next ? createSimBleClient() : createBleClient())
+    wx.showToast({ title: next ? '已开启模拟模式（模拟）' : '已关闭模拟模式', icon: 'none' })
+  },
 
   onClearStorage() {
     wx.showModal({

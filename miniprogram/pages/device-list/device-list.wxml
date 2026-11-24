@@ -1,9 +1,11 @@
 <!-- 设备列表页（ADR-0025 / 0027 / #25）：已保存设备 + 扫描新增。 -->
 <view class="page">
-  <view class="section-title">已保存设备</view>
+  <sim-banner wx:if="{{simMode}}" />
+
+  <view class="bt-section-title">已保存设备</view>
 
   <view wx:if="{{devices.length}}">
-    <view wx:for="{{devices}}" wx:key="id" class="bt-card device-row"
+    <view wx:for="{{devices}}" wx:key="id" class="bt-card device-row bt-pressable"
       data-id="{{item.id}}" bindtap="onTapDevice" bindlongpress="onLongPressDevice">
       <view class="device-row__info">
         <text class="device-row__name">{{item.name || item.deviceId}}</text>
@@ -17,15 +19,15 @@
   </view>
 
   <view class="add-section">
-    <button class="add-btn" bindtap="onTapAdd">
+    <button class="bt-btn bt-btn--primary bt-pressable" bindtap="onTapAdd">
       {{scanning ? '停止扫描' : '+ 新增设备'}}
     </button>
   </view>
 
   <block wx:if="{{scanning}}">
-    <view class="section-title">扫描结果（点选连接）</view>
+    <view class="bt-section-title">扫描结果（点选连接）</view>
     <view wx:if="{{found.length}}">
-      <view wx:for="{{found}}" wx:key="deviceId" class="bt-card found-row"
+      <view wx:for="{{found}}" wx:key="deviceId" class="bt-card found-row bt-pressable"
         data-device-id="{{item.deviceId}}" data-name="{{item.name}}" bindtap="onTapFound">
         <view class="found-row__info">
           <text class="found-row__name">{{item.name}}</text>

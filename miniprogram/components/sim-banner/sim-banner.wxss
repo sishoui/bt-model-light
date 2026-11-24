@@ -1,0 +1,39 @@
+/* 模拟模式提示浮层（design.md §7.1）：warning 色系 + 玻璃底 + 降级。 */
+.sim-banner {
+  position: relative;
+  z-index: 10;
+  margin: 16rpx 32rpx 0;
+  padding: 12rpx 24rpx;
+  border-radius: 16rpx;
+  color: #b25000;
+  font-size: 26rpx;
+  line-height: 36rpx;
+  text-align: center;
+  /* 玻璃底：低不透明度让模糊/穿透效果更明显，内阴影模拟玻璃高光 */
+  background-color: rgba(255, 141, 40, 0.15);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1rpx solid rgba(255, 141, 40, 0.3);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.4);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .sim-banner {
+    background-color: rgba(255, 244, 230, 0.95);
+    box-shadow: none;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .sim-banner {
+    color: #ffb340;
+    background-color: rgba(255, 146, 72, 0.18);
+    border-color: rgba(255, 146, 72, 0.3);
+  }
+
+  @supports not (backdrop-filter: blur(1px)) {
+    .sim-banner {
+      background-color: rgba(58, 40, 24, 0.95);
+    }
+  }
+}

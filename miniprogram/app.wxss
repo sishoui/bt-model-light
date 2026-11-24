@@ -1,24 +1,135 @@
-/* 全局样式。具体页面样式见各 pages/ 下 WXSS。 */
+/* 全局样式 + 设计 token（design.md §3/§4/§5/§7）。
+ * 颜色一律走 --bt-color-* 语义 token，禁止页面内硬编码 hex。
+ * 深浅双表：浅色为默认，深色经 prefers-color-scheme 覆盖（本轮只验收浅色）。 */
 page {
-  --bt-color-primary: #07c160;
-  --bt-color-bg: #f5f5f5;
-  --bt-color-card: #ffffff;
-  --bt-color-text: #1a1a1a;
-  --bt-color-text-secondary: #888888;
+  /* 品牌与功能色（Apple systemBlue 系，官方色卡） */
+  --bt-color-accent: #0088ff;
+  --bt-color-accent-pressed: #0066cc;
+  --bt-color-danger: #ff383c;
+  --bt-color-success: #34c759;
+  --bt-color-warning: #ff8d28;
+
+  /* 中性色：文字四档（UIKit label 系） */
+  --bt-color-label: #000000;
+  --bt-color-label-secondary: rgba(60, 60, 67, 0.6);
+  --bt-color-label-tertiary: rgba(60, 60, 67, 0.3);
+  --bt-color-label-quaternary: rgba(60, 60, 67, 0.18);
+
+  /* 中性色：背景/分隔符（UIKit background/separator 系） */
+  --bt-color-bg: #f2f2f7;
+  --bt-color-bg-elevated: #ffffff;
+  --bt-color-bg-input: #f2f2f7;
+  --bt-color-separator: rgba(60, 60, 67, 0.29);
+  --bt-color-gray-1: #8e8e93;
+  --bt-color-gray-2: #aeaeb2;
+  --bt-color-gray-3: #c7c7cc;
+  --bt-color-gray-4: #d1d1d6;
+  --bt-color-gray-5: #e5e5ea;
+  --bt-color-gray-6: #f2f2f7;
+
+  /* 材质：毛玻璃（功能层） */
+  --bt-glass-bg: rgba(255, 255, 255, 0.72);
+  --bt-glass-blur: blur(20px);
+  --bt-glass-border: rgba(255, 255, 255, 0.45);
+  --bt-glass-fallback: rgba(255, 255, 255, 0.92);
+  --bt-hero-glow: radial-gradient(120rpx at 20% 0%, rgba(0, 136, 255, 0.1), transparent 60%);
+
   background-color: var(--bt-color-bg);
-  color: var(--bt-color-text);
+  color: var(--bt-color-label);
   font-size: 28rpx;
-  line-height: 1.5;
+  line-height: 40rpx;
 }
 
+/* 深色 token 覆盖（design.md §3；本轮只验收浅色，见 §9 后续事项） */
+@media (prefers-color-scheme: dark) {
+  page {
+    --bt-color-accent: #0091ff;
+    --bt-color-accent-pressed: #3395ff;
+    --bt-color-danger: #ff4245;
+    --bt-color-success: #30d158;
+    --bt-color-warning: #ff9230;
+
+    --bt-color-label: #ffffff;
+    --bt-color-label-secondary: rgba(235, 235, 245, 0.6);
+    --bt-color-label-tertiary: rgba(235, 235, 245, 0.3);
+    --bt-color-label-quaternary: rgba(235, 235, 245, 0.16);
+
+    --bt-color-bg: #000000;
+    --bt-color-bg-elevated: #1c1c1e;
+    --bt-color-bg-input: #1c1c1e;
+    --bt-color-separator: rgba(84, 84, 88, 0.65);
+    --bt-color-gray-1: #8e8e93;
+    --bt-color-gray-2: #636366;
+    --bt-color-gray-3: #48484a;
+    --bt-color-gray-4: #3a3a3c;
+    --bt-color-gray-5: #2c2c2e;
+    --bt-color-gray-6: #1c1c1e;
+
+    --bt-glass-bg: rgba(30, 30, 30, 0.72);
+    --bt-glass-border: rgba(255, 255, 255, 0.12);
+    --bt-glass-fallback: rgba(30, 30, 30, 0.92);
+    --bt-hero-glow: radial-gradient(120rpx at 20% 0%, rgba(0, 145, 255, 0.16), transparent 60%);
+  }
+}
+
+/* ===== 页面容器：宽屏钳制（design.md §2） ===== */
+.page {
+  max-width: 750rpx;
+  margin: 0 auto;
+  padding: 0 0 32rpx;
+}
+
+/* ===== 排版阶梯（design.md §4，手机端偏紧凑） ===== */
+.bt-type-large-title {
+  font-size: 44rpx;
+  line-height: 56rpx;
+  font-weight: 700;
+}
+.bt-type-title1 {
+  font-size: 40rpx;
+  line-height: 52rpx;
+  font-weight: 600;
+}
+.bt-type-title3 {
+  font-size: 34rpx;
+  line-height: 44rpx;
+  font-weight: 600;
+}
+.bt-type-headline {
+  font-size: 30rpx;
+  line-height: 40rpx;
+  font-weight: 600;
+}
+.bt-type-body {
+  font-size: 30rpx;
+  line-height: 40rpx;
+  font-weight: 400;
+}
+.bt-type-subhead {
+  font-size: 28rpx;
+  line-height: 38rpx;
+  font-weight: 400;
+}
+.bt-type-footnote {
+  font-size: 24rpx;
+  line-height: 34rpx;
+  font-weight: 400;
+}
+.bt-type-caption {
+  font-size: 22rpx;
+  line-height: 32rpx;
+  font-weight: 400;
+}
+
+/* ===== 分组卡片（design.md §5.2/§7.4：elevated 底、24rpx 圆角、无阴影） ===== */
 .bt-card {
-  background-color: var(--bt-color-card);
-  border-radius: 16rpx;
+  background-color: var(--bt-color-bg-elevated);
+  border-radius: 24rpx;
   padding: 24rpx;
-  margin: 16rpx;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
+  margin: 16rpx 32rpx;
 }
 
+/* ===== 行与文本 ===== */
 .bt-row {
   display: flex;
   align-items: center;
@@ -29,6 +140,99 @@ page {
 }
 
 .bt-text--secondary {
-  color: var(--bt-color-text-secondary);
-  font-size: 24rpx;
+  color: var(--bt-color-label-secondary);
+  font-size: 30rpx;
+  line-height: 40rpx;
+}
+
+.bt-section-title {
+  padding: 24rpx 32rpx 8rpx;
+  color: var(--bt-color-label-tertiary);
+  font-size: 26rpx;
+  line-height: 36rpx;
+}
+
+.bt-divider {
+  height: 1rpx;
+  background-color: var(--bt-color-separator);
+  margin-left: 24rpx;
+}
+
+/* ===== 功能层毛玻璃 + 降级（design.md §5.3） ===== */
+/* 微信小程序 backdrop-filter 支持不稳定，叠加渐变模拟玻璃质感；
+ * 即使 blur 不生效，渐变 + 高光边框也能呈现玻璃观感。 */
+.bt-glass {
+  background-color: rgba(255, 255, 255, 0.4);
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0.15) 100%);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  transform: translateZ(0);
+  border-top: 1rpx solid rgba(255, 255, 255, 0.6);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.5), 0 -1rpx 12rpx rgba(0, 0, 0, 0.04);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .bt-glass {
+    background-color: rgba(255, 255, 255, 0.92);
+    background-image: none;
+    box-shadow: 0 -1rpx 12rpx rgba(0, 0, 0, 0.06);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .bt-glass {
+    background-color: rgba(30, 30, 30, 0.4);
+    background-image: linear-gradient(135deg, rgba(60, 60, 60, 0.25) 0%, rgba(30, 30, 30, 0.1) 100%);
+    border-top-color: rgba(255, 255, 255, 0.12);
+    box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
+  }
+
+  @supports not (backdrop-filter: blur(1px)) {
+    .bt-glass {
+      background-color: rgba(30, 30, 30, 0.92);
+      background-image: none;
+    }
+  }
+}
+
+/* ===== 按钮（design.md §5.2/§7.3：胶囊主按钮） ===== */
+.bt-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 64rpx;
+  border-radius: 999rpx;
+  font-size: 28rpx;
+  line-height: 64rpx;
+  font-weight: 600;
+  box-sizing: border-box;
+  transition: background-color 0.25s ease-out, transform 0.25s ease-out, opacity 0.25s ease-out;
+}
+
+.bt-btn::after {
+  border: none;
+}
+
+.bt-btn--primary {
+  background-color: var(--bt-color-accent);
+  color: #ffffff;
+}
+
+.bt-btn--primary:active {
+  background-color: var(--bt-color-accent-pressed);
+}
+
+.bt-btn--danger {
+  background-color: var(--bt-color-danger);
+  color: #ffffff;
+}
+
+/* ===== 按压反馈（design.md §5.4） ===== */
+.bt-pressable {
+  transition: transform 0.25s ease-out, opacity 0.25s ease-out;
+}
+
+.bt-pressable:active {
+  transform: scale(0.97);
+  opacity: 0.8;
 }
