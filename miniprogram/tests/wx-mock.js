@@ -145,21 +145,44 @@ function createWxMock() {
   wx.disableAlertBeforeUnload = j.fn()
 
   // ---- 节点查询（引脚详情拖选网格几何，#31 拖选） ----
-  // 链able 桩：boundingClientRect(cb) 用可注入的 __gridRect/__cancelRect 回调。
-  // 测试里 wx.__gridRect = {left,top,width,height} 控制返回值。
+  // 链able 桩：select() 单节点查询返回 __gridRect；selectAll() 返回 __cellRects
+  // （未注入时由 __gridRect 均分 10 列派生 100 格）。
   wx.__gridRect = null
   wx.__cancelRect = null
+  wx.__cellRects = null
+  // 由网格 rect 派生 10×10 格 rects（测试默认路径）。
+  function _deriveCellRects(rect, count) {
+    const cols = 10
+    const rows = Math.ceil(count / cols)
+    const w = rect.width / cols
+    const h = rect.height / rows
+    const out = []
+    for (let i = 0; i < count; i++) {
+      const c = i % cols
+      const r = Math.floor(i / cols)
+      out.push({ left: rect.left + c * w, top: rect.top + r * h, width: w, height: h })
+    }
+    return out
+  }
   wx.createSelectorQuery = j.fn(() => {
     const q = {
-      _cb: null,
+      _calls: [],
       in: j.fn(() => q),
-      select: j.fn(() => q),
-      boundingClientRect: j.fn((cb) => {
-        q._cb = cb
+      select: j.fn((sel) => {
+        q._calls.push({ sel, all: false })
         return q
       }),
+      selectAll: j.fn((sel) => {
+        q._calls.push({ sel, all: true })
+        return q
+      }),
+      boundingClientRect: j.fn(() => q),
       exec: j.fn((cb) => {
-        const res = [wx.__gridRect, wx.__cancelRect]
+        const res = q._calls.map((c) => {
+          if (!c.all) return wx.__gridRect
+          if (wx.__cellRects) return wx.__cellRects
+          return wx.__gridRect ? _deriveCellRects(wx.__gridRect, 100) : []
+        })
         if (typeof cb === 'function') cb(res)
         return res
       }),

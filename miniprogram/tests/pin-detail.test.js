@@ -166,15 +166,14 @@ describe('pin-detail 页（#27）', () => {
 
   test('灯珠拖选：touchstart→move→end 写回区间 + 置 dirty + 蓝框/浅蓝条渲染', () => {
     const page = load(0)
-    // 注入网格几何：100 颗，10 列，rect 宽 600 高 600 → 每格 60x60。
+    // 注入网格几何：rect 600x600，10 列派生 100 格 rects（每格 60x60）。
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
-    wx.__cancelRect = { left: 0, top: 700, width: 600, height: 100 }
-    // touchstart 在格 2（clientX=2*60+30, clientY=30）。
+    // touchstart 在格 2（clientX=150, clientY=30）：仅记录起点，不激活（防误触）。
     page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] })
-    expect(page.data.dragging).toBe(true)
-    expect(page.data.dragRange).toEqual([2, 2])
-    // move 到格 5：区间 [2,5]，起点 drag-start、终点 drag-end、中间 drag-mid。
+    expect(page.data.dragging).toBe(false)
+    // move 到格 5（dx=180 > 8px 阈值）：激活并更新区间 [2,5]。
     page.onLedTouchMove({ touches: [{ clientX: 330, clientY: 30 }] })
+    expect(page.data.dragging).toBe(true)
     expect(page.data.dragRange).toEqual([2, 5])
     const states = page.data.ledCells.map((c) => c.state)
     expect(states[2]).toBe('drag-start')
@@ -188,6 +187,87 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.groups[0].ledEnd).toBe(5)
     expect(litCount(page)).toBe(4) // [2,5] 共 4 颗 selected
     expect(page.data.dirty).toBe(true)
+  })
+
+  test('灯珠拖选：短触（无移动松手）不触发拖选、不改配置', () => {
+    const page = load(0)
+    wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
+    page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] })
+    // 立即松手（无 move、无长按）：dragActive 一直 false，配置不变。
+    page.onLedTouchEnd({ type: 'touchend' })
+    expect(page.data.dragging).toBe(false)
+    expect(page.data.groups[0].ledStart).toBe(0xff) // 仍是空态
+    expect(page.data.groups[0].ledEnd).toBe(0xff)
+    expect(page.data.dirty).toBe(false)
+  })
+
+  test('灯珠拖选：长按 300ms 激活（即使没移动）', () => {
+    jest.useFakeTimers()
+    const page = load(0)
+    wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
+    page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] })
+    expect(page.data.dragging).toBe(false) // 长按前不激活
+    jest.advanceTimersByTime(300) // 长按计时器触发
+    expect(page.data.dragging).toBe(true)
+    expect(page.data.groups[0].ledStart).toBe(0xff) // 未写回
+    page.onLedTouchEnd({ type: 'touchend' })
+    jest.useRealTimers()
+  })
+
+  test('灯珠拖选：长按后松手（不移动）→ 选中单颗', () => {
+    jest.useFakeTimers()
+    const page = load(0)
+    wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
+    page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] }) // 格 2
+    jest.advanceTimersByTime(300) // 长按激活
+    page.onLedTouchEnd({ type: 'touchend' })
+    expect(page.data.groups[0].ledStart).toBe(2)
+    expect(page.data.groups[0].ledEnd).toBe(2) // 单颗
+    expect(litCount(page)).toBe(1)
+    jest.useRealTimers()
+  })
+
+  test('灯珠拖选：未长按但拖动超阈值 8px 激活', () => {
+    const page = load(0)
+    wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
+    page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] })
+    expect(page.data.dragging).toBe(false) // 长按未到
+    // 轻微抖动 5px：不激活。
+    page.onLedTouchMove({ touches: [{ clientX: 155, clientY: 30 }] })
+    expect(page.data.dragging).toBe(false)
+    // 拖到格 4（dx=120 > 8px 阈值）：激活 + 区间更新。
+    page.onLedTouchMove({ touches: [{ clientX: 270, clientY: 30 }] })
+    expect(page.data.dragging).toBe(true)
+    expect(page.data.dragRange).toEqual([2, 4])
+    page.onLedTouchEnd({ type: 'touchend' })
+    expect(page.data.groups[0].ledStart).toBe(2)
+    expect(page.data.groups[0].ledEnd).toBe(4)
+  })
+
+  test('灯珠拖选：按每格真实 rect 反查（无列数假设，不偏移）', () => {
+    const page = load(0)
+    // 非对称 rect：格宽 50、高 80，起点 x=100（格 2 中心 225）。
+    const rects = []
+    for (let i = 0; i < 100; i++) {
+      const c = i % 10
+      const r = Math.floor(i / 10)
+      rects.push({ left: 100 + c * 50, top: r * 80, width: 50, height: 80 })
+    }
+    wx.__cellRects = rects
+    wx.__gridRect = { left: 100, top: 0, width: 500, height: 800 }
+    // touchstart 格 2 中心 (225, 40)：仅记录起点（长按激活路径见上方专门用例）。
+    page.onLedTouchStart({ touches: [{ clientX: 225, clientY: 40 }] })
+    page._longPressTimer && clearTimeout(page._longPressTimer)
+    // 直接调内部激活（确定性验证纯几何反查，不依赖计时器）。
+    page._activateDrag(225, 40)
+    expect(page.data.dragging).toBe(true)
+    expect(page.data.dragRange).toEqual([2, 2]) // 精确锚定格 2
+    // 拖到格 7 中心 (475, 40)。
+    page.onLedTouchMove({ touches: [{ clientX: 475, clientY: 40 }] })
+    expect(page.data.dragRange).toEqual([2, 7]) // 精确命中，不偏移
+    page.onLedTouchEnd({ type: 'touchend' })
+    expect(page.data.groups[0].ledStart).toBe(2)
+    expect(page.data.groups[0].ledEnd).toBe(7)
   })
 
   test('灯珠拖选：反向拖 [5→2] 同样区间 [2,5]', () => {
@@ -220,8 +300,7 @@ describe('pin-detail 页（#27）', () => {
     const page = load(0) // activeGroup=0
     expect(page.data.ledCells[4].state).toBe('occupied') // 4 是其他组占用
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
-    wx.__cancelRect = null
-    // 从格 2 拖向格 6（4..6 被占用）→ 遇占用停止，区间保留 [2,3]。
+    // 从格 2 拖向格 5（4..5 被占用）→ 遇占用停止，区间保留 [2,3]。
     page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] }) // 格 2
     page.onLedTouchMove({ touches: [{ clientX: 210, clientY: 30 }] }) // 格 3（可扩）
     page.onLedTouchMove({ touches: [{ clientX: 330, clientY: 30 }] }) // 格 5（占用，停止）
