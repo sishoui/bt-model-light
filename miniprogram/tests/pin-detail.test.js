@@ -83,7 +83,8 @@ describe('pin-detail 页（#27）', () => {
     const page = load(0)
     expect(page.data.pinName).toBe('客厅灯带')
     expect(page.data.power).toBe(true)
-    expect(page.data.groups).toHaveLength(1)
+    // 已存 1 个灯组：原样保留为第 1 个，其余补默认灯组，共 5 个。
+    expect(page.data.groups).toHaveLength(5)
     const g = page.data.groups[0]
     expect(g.name).toBe('流水')
     expect(g.ledStart).toBe(2)
@@ -97,6 +98,9 @@ describe('pin-detail 页（#27）', () => {
     expect(layer.effect).toBe(EFF.SOLID)
     expect(fieldOf(layer, 'color').value).toEqual([1, 2, 3])
     expect(fieldOf(layer, 'brightness').value).toBe(200)
+    // 补齐的默认灯组：灯组 2..5，[0,9]。
+    expect(page.data.groups[1].name).toBe('灯组 2')
+    expect(page.data.groups[4].name).toBe('灯组 5')
     expect(page.data.dirty).toBe(false)
   })
 

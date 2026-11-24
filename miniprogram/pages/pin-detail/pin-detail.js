@@ -211,11 +211,12 @@ Page({
       const pins = (cfg && Array.isArray(cfg.pins) ? cfg.pins : []).filter((p) => p && p.pin === pin)
       pinEntry = pins.length ? pins[0] : null
     }
-    // 灯组固定 5 个（默认全建，无新增/删除入口）。
-    const groups =
-      pinEntry && Array.isArray(pinEntry.groups) && pinEntry.groups.length
-        ? pinEntry.groups.map((g, i) => groupToVM(g, i))
-        : Array.from({ length: LIMITS.groupsPerPinMax }, (_, i) => defaultGroup(`灯组 ${i + 1}`))
+    // 灯组固定 5 个：已存配置原样保留，不足用默认灯组补齐（旧配置只存了 1 组也能显示 5 tab）。
+    const saved = pinEntry && Array.isArray(pinEntry.groups) ? pinEntry.groups : []
+    const groups = []
+    for (let i = 0; i < LIMITS.groupsPerPinMax; i++) {
+      groups.push(saved[i] ? groupToVM(saved[i], i) : defaultGroup(`灯组 ${i + 1}`))
+    }
 
     this.setData({
       deviceId: this._deviceId,
