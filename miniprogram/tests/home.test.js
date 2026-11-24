@@ -170,4 +170,31 @@ describe('home 页（#25）', () => {
     expect(page.data.pins[0].power).toBe(true)
     expect(page.data.pins[0].img).toBe('x.png')
   })
+
+  test('新增引脚：availablePins 为未配置引脚，onAddPin 跳转对应 pin', () => {
+    const page = loadPage(HOME, app)
+    page.onShow()
+    // 未选中设备：无可新增引脚。
+    expect(page.data.availablePins).toEqual([])
+
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    saveDeviceConfig(dev.id, {
+      pins: [
+        { pin: 0, configured: true, groups: [{}, {}] },
+        { pin: 3, configured: true, groups: [{}] },
+        { pin: 5, configured: false, groups: [] }, // 未配置：仍可新增
+      ],
+    })
+    app.globalData.currentDeviceId = dev.id
+
+    const page2 = loadPage(HOME, app)
+    page2.onShow()
+    // 8 引脚去掉已配置的 0/3 → 可选 1,2,4,5,6,7。
+    expect(page2.data.availablePins).toEqual([1, 2, 4, 5, 6, 7])
+    expect(page2.data.pinOptions[0]).toBe('引脚 2') // availablePins[0]=1 → 展示 N=2
+
+    // 选择器第 0 项 → 进入引脚 1 的配置详情页。
+    page2.onAddPin({ detail: { value: '0' } })
+    expect(wx.navigateTo).toHaveBeenCalledWith({ url: '/pages/pin-detail/pin-detail?pin=1' })
+  })
 })

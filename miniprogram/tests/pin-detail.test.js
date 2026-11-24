@@ -290,4 +290,71 @@ describe('pin-detail 页（#27）', () => {
     page.onSave() // 未连接也能落盘 → clean
     expect(wx.disableAlertBeforeUnload).toHaveBeenCalled()
   })
+
+  // ---- 删除引脚 ---------------------------------------------------------------
+
+  // 造一个含两个已配置引脚（0/2）的配置，便于断言删除 pin 0 后保留 pin 2。
+  function seedTwoPins() {
+    const mk = (pin, name, bright) => ({
+      pin,
+      configured: true,
+      name,
+      groups: [
+        {
+          name: `g${pin}`,
+          ledStart: 0,
+          ledEnd: 3,
+          steps: [
+            {
+              duration: 5,
+              transition: 0,
+              loopMode: 1,
+              layers: [{ effect: EFF.SOLID, params: { color: [1, 1, 1], brightness: bright } }],
+            },
+          ],
+        },
+      ],
+    })
+    saveDeviceConfig(dev.id, { version: 1, pins: [mk(0, 'A', 10), mk(2, 'B', 20)] })
+  }
+
+  test('删除引脚：已配置引脚 data.configured=true，未配置的新引脚为 false', () => {
+    seedTwoPins()
+    expect(load(0).data.configured).toBe(true)
+    // pin 1 未配置：从"新增引脚"进入时不应展示删除入口。
+    expect(load(1).data.configured).toBe(false)
+  })
+
+  test('删除引脚：确认后从 Storage 移除该引脚、保留其它，并返回', () => {
+    jest.useFakeTimers()
+    seedTwoPins()
+    const page = load(0)
+    setCurrentBleClient(null) // 未连接：只落盘 + 返回
+    page.onDeletePin() // showModal mock 默认 confirm
+    jest.runAllTimers()
+
+    const pins = getDeviceConfig(dev.id).pins
+    expect(pins.map((p) => p.pin)).toEqual([2]) // pin 0 已删，pin 2 原样保留
+    expect(wx.navigateBack).toHaveBeenCalled()
+    jest.useRealTimers()
+  })
+
+  test('删除引脚：已连接 → WRITE_CONFIG + APPLY 下发移除后的配置', async () => {
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+    seedTwoPins()
+    const page = load(0)
+    page.onDeletePin()
+    await flush()
+
+    expect(client.sendCmd).toHaveBeenCalledTimes(2)
+    expect(client.sendCmd.mock.calls[0][0]).toBe(CMD.WRITE_CONFIG)
+    expect(client.sendCmd.mock.calls[1][0]).toBe(CMD.APPLY)
+    // 下发的 blob 解回后 pin 0 已移除、pin 2 保留。
+    const decoded = decodeConfigBlob(Uint8Array.from(client.sendCmd.mock.calls[0][1]))
+    expect(decoded.pins.find((p) => p.pin === 0)).toBeUndefined()
+    expect(decoded.pins.find((p) => p.pin === 2)).toBeDefined()
+    // Storage 同步落盘。
+    expect(getDeviceConfig(dev.id).pins.map((p) => p.pin)).toEqual([2])
+  })
 })

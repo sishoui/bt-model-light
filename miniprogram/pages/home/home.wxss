@@ -1,107 +1,334 @@
-/* 首页 = 设备详情页（ADR-0027 / #25；范式 A 展示页，design.md §7.2）。 */
+/* 首页 = 设备详情页（ADR-0027 / #25；范式 A 展示页，design.md §7.2）。
+   布局：1:1 大图卡（左上标题 + 右下开机按钮）→ 亮度进度条 → 灯组列表。 */
 
-/* 左上设备名称栏（大标题 + 玻璃功能层信息条）：点击进设备列表 */
-.device-header {
+/* ===== 1:1 大图卡：左上标题 + 大图 + 右下开机按钮 + 底部亮度条 ===== */
+.hero-card {
+  position: relative;
+  width: calc(100% - 64rpx);
+  height: auto;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bt-color-bg-elevated);
+}
+
+.hero-card__img {
+  width: 100%;
+  height: 100%;
+}
+
+/* 默认占位图（无 img 时显示） */
+.hero-card__placeholder {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  padding: 24rpx 32rpx 16rpx;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--bt-color-bg-input);
 }
 
-.device-header__title {
-  font-size: 44rpx;
-  line-height: 56rpx;
-  font-weight: 700;
-}
-
-.device-header__action {
-  font-size: 30rpx;
-  line-height: 40rpx;
-  color: var(--bt-color-accent);
-}
-
-/* 设备卡片 */
-.device-card__row {
-  display: flex;
-  align-items: center;
-}
-
-.device-card__img {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 16rpx;
-  background: var(--bt-color-bg-input); /* 占位图底色（真机图片后续） */
-  margin-right: 24rpx;
-}
-
-.device-card__info {
-  flex: 1;
-}
-
-.device-card__name {
-  display: block;
+.hero-card__placeholder-text {
   font-size: 34rpx;
   line-height: 44rpx;
   font-weight: 600;
+  color: var(--bt-color-label-tertiary);
 }
 
-.device-card__status {
-  display: block;
-  margin-top: 4rpx;
-  font-size: 30rpx;
-  line-height: 40rpx;
-  color: var(--bt-color-label-secondary);
+.hero-card__placeholder-hint {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  line-height: 34rpx;
+  color: var(--bt-color-label-quaternary);
 }
 
-.device-card__status--on {
-  color: var(--bt-color-success);
-}
-
-.device-card__brightness {
+/* 左上设备名（点击进设备列表） */
+.hero-card__title {
+  position: absolute;
+  top: 24rpx;
+  left: 24rpx;
   display: flex;
   align-items: center;
-  margin-top: 16rpx;
-  padding-top: 16rpx;
-  border-top: 1rpx solid var(--bt-color-separator);
+  max-width: 70%;
+  padding: 8rpx 24rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.hero-card__title-text {
+  overflow: hidden;
+  color: #ffffff;
   font-size: 30rpx;
   line-height: 40rpx;
-  color: var(--bt-color-label-secondary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.device-card__brightness slider {
+.hero-card__title-action {
+  flex-shrink: 0;
+  margin-left: 8rpx;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 24rpx;
+  line-height: 40rpx;
+}
+
+/* 右下开机按钮（accent 圆钮） */
+.hero-card__power {
+  position: absolute;
+  right: 24rpx;
+  bottom: 96rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 50%;
+  background: var(--bt-color-accent);
+  color: #ffffff;
+  font-size: 30rpx;
+  line-height: 40rpx;
+  font-weight: 600;
+  transition: background-color 0.25s ease-out, transform 0.25s ease-out;
+}
+
+.hero-card__power:active {
+  transform: scale(0.95);
+  background: var(--bt-color-accent-pressed);
+}
+
+.hero-card__power--on {
+  background: var(--bt-color-danger);
+}
+
+/* 底部亮度条（hero 卡内，白色系覆盖在图上） */
+.hero-card__brightness {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: 16rpx 24rpx;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.hero-card__brightness-label {
+  flex-shrink: 0;
+  color: #ffffff;
+  font-size: 26rpx;
+  line-height: 36rpx;
+  font-weight: 600;
+}
+
+.hero-card__brightness-slider {
   flex: 1;
-  margin: 0 24rpx;
+  margin: 0 16rpx;
 }
 
-/* 引脚卡片列表 */
-.pin-list {
+.hero-card__brightness-value {
+  flex-shrink: 0;
+  min-width: 48rpx;
+  color: #ffffff;
+  font-size: 26rpx;
+  line-height: 36rpx;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* ===== 灯组卡片列表：4 列网格小卡（同设备卡片范式，信息浮层在图上） ===== */
+.section {
   margin-top: 8rpx;
 }
 
-.pin-card {
+/* 4 列网格：flex-wrap + 每个卡片 width: calc((100% - 3*gap)/4)，gap 16rpx */
+.pin-grid {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  padding: 0 32rpx;
+}
+
+.pin-card {
+  width: calc((100% - 48rpx) / 4);
+  margin-right: 16rpx;
+  margin-bottom: 16rpx;
+  border-radius: 20rpx;
+  overflow: hidden;
+  background: var(--bt-color-bg-elevated);
+}
+
+.pin-card:nth-child(4n) {
+  margin-right: 0;
+}
+
+/* 1:1 方形媒体区 */
+.pin-card__media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--bt-color-bg-input);
 }
 
 .pin-card__img {
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: 16rpx;
-  background: var(--bt-color-bg-input);
-  margin-right: 24rpx;
+  width: 100%;
+  height: 100%;
 }
 
-.pin-card__info {
-  flex: 1;
+.pin-card__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--bt-color-bg-input);
+  color: var(--bt-color-label-tertiary);
+  font-size: 40rpx;
+  font-weight: 700;
+}
+
+/* 右上 开关（小卡缩到 0.6，贴顶右） */
+.pin-card__switch {
+  position: absolute;
+  top: 4rpx;
+  right: 4rpx;
+  transform: scale(0.6);
+  transform-origin: top right;
+}
+
+/* 底部名称条（渐变黑底，压在图上） */
+.pin-card__name-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 28rpx 10rpx 8rpx;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.65), transparent);
 }
 
 .pin-card__name {
-  font-size: 34rpx;
-  line-height: 44rpx;
+  display: block;
+  color: #ffffff;
+  font-size: 20rpx;
+  line-height: 26rpx;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-card__info {
+  display: block;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 18rpx;
+  line-height: 24rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pin-empty {
   padding: 96rpx 32rpx;
   text-align: center;
+}
+
+/* ===== 新增引脚按钮（design.md §5.2 胶囊主按钮） ===== */
+.add-pin {
+  margin-top: 16rpx;
+}
+
+.add-pin__btn {
+  width: 100%;
+}
+
+/* ===== 编辑设备弹窗（长按大图卡触发） ===== */
+.edit-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.edit-dialog {
+  width: 640rpx;
+  padding: 32rpx;
+  border-radius: 24rpx;
+  background: var(--bt-color-bg-elevated);
+}
+
+.edit-dialog__title {
+  font-size: 34rpx;
+  line-height: 44rpx;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 24rpx;
+}
+
+.edit-dialog__field {
+  margin-bottom: 16rpx;
+}
+
+.edit-dialog__label {
+  display: block;
+  font-size: 26rpx;
+  line-height: 36rpx;
+  color: var(--bt-color-label-secondary);
+  margin-bottom: 8rpx;
+}
+
+.edit-dialog__img-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.edit-dialog__img-preview {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 16rpx;
+  background: var(--bt-color-bg-input);
+  flex-shrink: 0;
+}
+
+.edit-dialog__img-preview--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-dialog__img-empty-text {
+  font-size: 22rpx;
+  line-height: 32rpx;
+  color: var(--bt-color-label-tertiary);
+}
+
+.edit-dialog__img-btn {
+  flex: 1;
+  height: 72rpx;
+  border-radius: 12rpx;
+  background: var(--bt-color-bg-input);
+  color: var(--bt-color-label);
+  font-size: 28rpx;
+  line-height: 72rpx;
+  font-weight: 600;
+}
+
+.edit-dialog__actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 24rpx;
+}
+
+.edit-dialog__btn {
+  flex: 1;
+}
+
+.edit-dialog__btn--cancel {
+  background: var(--bt-color-bg-input);
+  color: var(--bt-color-label);
 }

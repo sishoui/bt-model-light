@@ -258,6 +258,8 @@
   bottom: 0;
   z-index: 10;
   padding: 16rpx 32rpx;
+  display: flex;
+  gap: 16rpx;
 }
 
 .save-bar .bt-btn {
@@ -265,4 +267,16 @@
   font-size: 28rpx;
   height: 64rpx;
   line-height: 64rpx;
+}
+
+/* 删除引脚：次级危险按钮（固定宽），保存按钮占满剩余空间 */
+.save-bar__del {
+  flex: 0 0 auto;
+  padding: 0 28rpx;
+  background-color: transparent;
+  color: var(--bt-color-danger);
+}
+
+.save-bar__save {
+  flex: 1;
 }

@@ -15,6 +15,17 @@
   - CI 三层：push 后到 GitHub Actions 看 workflow 是否全绿（可 `gh run` 查询）
 - **只有真机 / 物理硬件才能验证的才展示清单交给用户**，按 `docs/smoke-test.md`（iOS + Android，权限路径、空口 MTU/分包、灯珠实动等）。对这类项，明确说清"需人工真机测试"及其原因，不要用自动测试的结论替代。
 
+### 小程序变更：自动触发真机预览（免扫码）
+
+只要本次改动落在 `miniprogram/`（`pages/**`、`utils/**`、`app.js`/`app.json`/`app.wxss`、`project.config.json` 等），在跑完 `cd miniprogram && npm test` 后**自动**追加一步真机预览，不要等用户开口。用户明确要求**不要生成二维码让用户扫**，用自动预览：
+
+- 首选 CLI：`cli auto-preview --project <miniprogram 绝对路径>`（手机同账号微信自动打开，无需扫码）。
+- GUI 等价路径：开发者工具顶部「预览」→「自动预览」Tab → 勾选「启动手机端自动预览」→「编译并预览」（Shift+Ctrl+P）。
+- CLI 路径：`C:\Program Files (x86)\Tencent\微信web开发者工具\cli.bat`（已在 PATH 之外，需全路径调用；Git Bash 下用反斜杠路径）。
+- 前置条件：手机微信在前台运行且登录与开发者工具同一账号（当前为"死守i"）。不满足时手机端不会自动打开，需提示用户检查账号/前台状态。
+- 成功标准：输出 `✔ auto-preview`（或面板正常关闭）且无 error；编译失败时**不要**继续，直接把错误贴出来让用户先修。
+- 手机端查看与物理层验证（空口 MTU/分包、灯珠实动等）仍属人工项，不替代 `docs/smoke-test.md`。
+
 ## Agent skills
 
 ### Issue tracker

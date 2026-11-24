@@ -1,17 +1,38 @@
-<!-- 设备列表页（ADR-0025 / 0027 / #25）：已保存设备 + 扫描新增。 -->
+<!-- 设备列表页（ADR-0025 / 0027 / #25）：已保存设备（单列方形卡片）+ 扫描新增。
+     每张卡片 = 1:1 方形大图，所有信息（名称/状态/设备ID/解绑）均浮层在图上。 -->
 <view class="page">
   <sim-banner wx:if="{{simMode}}" />
 
   <view class="bt-section-title">已保存设备</view>
 
-  <view wx:if="{{devices.length}}">
-    <view wx:for="{{devices}}" wx:key="id" class="bt-card device-row bt-pressable"
+  <!-- 单列方形卡片列表 -->
+  <view wx:if="{{devices.length}}" class="device-list">
+    <view wx:for="{{devices}}" wx:key="id" class="bt-card device-card bt-pressable"
       data-id="{{item.id}}" bindtap="onTapDevice" bindlongpress="onLongPressDevice">
-      <view class="device-row__info">
-        <text class="device-row__name">{{item.name || item.deviceId}}</text>
-        <text wx:if="{{item.id === currentId}}" class="device-row__tag">当前</text>
+      <!-- 1:1 方形大图 -->
+      <view class="device-card__media">
+        <image wx:if="{{item.img}}" class="device-card__img" src="{{item.img}}" mode="aspectFill" />
+        <view wx:else class="device-card__placeholder">
+          <text class="device-card__placeholder-text">暂无图片</text>
+        </view>
+        <!-- 浮层：左上 使用中 -->
+        <text wx:if="{{item.id === currentId}}" class="device-card__tag">使用中</text>
+        <!-- 浮层：右上 在线/离线 -->
+        <text class="device-card__badge {{item.id === currentId ? 'device-card__badge--online' : ''}}">
+          {{item.id === currentId ? '在线' : '离线'}}
+        </text>
+        <!-- 浮层：底部名称条 -->
+        <view class="device-card__name-bar">
+          <text class="device-card__name">{{item.name || item.deviceId}}</text>
+        </view>
+        <!-- 浮层：左下 设备ID -->
+        <button class="device-card__info" catchtap="noop">
+          设备ID {{item.deviceId}}
+        </button>
+        <!-- 浮层：右下 解绑 -->
+        <button class="device-card__btn device-card__btn--danger" catchtap="onLongPressDevice"
+          data-id="{{item.id}}">解绑</button>
       </view>
-      <text class="device-row__arrow">›</text>
     </view>
   </view>
   <view wx:else class="empty-tip">

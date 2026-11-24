@@ -4,7 +4,7 @@
 // 当前弹提示占位）。
 
 const { getCurrentBleClient } = require('../../utils/bleClient')
-const { listDevices, getDeviceConfig } = require('../../utils/deviceStore')
+const { listDevices, getDeviceConfig, saveDevice } = require('../../utils/deviceStore')
 const { friendlyMessage, logError } = require('../../utils/errorHandler')
 const GEN = require('../../utils/protocol_gen')
 
@@ -19,9 +19,16 @@ Page({
     connected: false, // BLE 连接状态
     power: false, // 整体开关（本地态；固件联动随 T7 保存链路接入）
     brightness: 128, // 整体亮度 0-255（本地态，同上）
-    img: '', // 设备图片（v1 占位，真机图片后续）
+    img: '', // 设备图片（空串显示"暂无图片"占位）
     // 引脚卡片列表（仅已配置引脚，SPEC 用户故事 8）
     pins: [],
+    // 可新增引脚：0..pinCount-1 中尚未配置的引脚索引（"新增引脚"选择器数据源）。
+    availablePins: [],
+    pinOptions: [], // 选择器展示文案（"引脚 N"，N 从 1 起）
+    // 长按大图卡编辑弹窗
+    editing: false, // 弹窗是否显示
+    draftName: '', // 弹窗内编辑的设备名草稿
+    draftImg: '', // 弹窗内编辑的占位图路径草稿
   },
 
   onShow() {
@@ -77,10 +84,13 @@ Page({
     const connected = !!(client && client.connected)
 
     let deviceName = ''
+    let img = ''
     let pins = []
+    let availablePins = []
     if (currentId) {
       const dev = listDevices().find((d) => d.id === currentId)
       deviceName = dev ? dev.name : ''
+      img = (dev && dev.img) || ''
       // 只展示已配置引脚：未配置（getDeviceConfig 为 null / pins 为空）时列表为空。
       const cfg = getDeviceConfig(currentId)
       const cfgPins = (cfg && Array.isArray(cfg.pins) ? cfg.pins : []).filter(
@@ -93,8 +103,15 @@ Page({
         img: p.img || '',
         info: `${p.groups.length} 个灯组`,
       }))
+      // 可新增引脚：硬件 8 引脚中尚未配置的（含配置里标 configured:false 的）。
+      const configuredSet = new Set(pins.map((p) => p.pin))
+      const pinCount = GEN.LIMITS.pinCount
+      for (let i = 0; i < pinCount; i++) {
+        if (!configuredSet.has(i)) availablePins.push(i)
+      }
     }
-    this.setData({ deviceName, connected, pins })
+    const pinOptions = availablePins.map((i) => `引脚 ${i + 1}`)
+    this.setData({ deviceName, img, connected, pins, availablePins, pinOptions })
   },
 
   // 左上设备名称 → 设备列表页（新增/切换）。
@@ -108,12 +125,90 @@ Page({
     wx.navigateTo({ url: `/pages/pin-detail/pin-detail?pin=${pin}` })
   },
 
+  // "新增引脚"选择器：选中一个未配置引脚 → 进入引脚配置详情页（保存后才出现在首页）。
+  onAddPin(e) {
+    const index = Number(e.detail.value)
+    const pin = this.data.availablePins[index]
+    if (pin === undefined) return
+    wx.navigateTo({ url: `/pages/pin-detail/pin-detail?pin=${pin}` })
+  },
+
   onPowerChange(e) {
     this.setData({ power: e.detail.value })
   },
 
   onBrightnessChange(e) {
     this.setData({ brightness: e.detail.value })
+  },
+
+  // 拖动过程中实时更新（slider bindchanging）。
+  onBrightnessChanging(e) {
+    this.setData({ brightness: e.detail.value })
+  },
+
+  // 控制按钮“开关”：切换整体电源（复用 onPowerChange 写 data）。
+  onTogglePower() {
+    this.onPowerChange({ detail: { value: !this.data.power } })
+  },
+
+  // ---- 长按大图卡 → 编辑设备名 / 占位图 ------------------------------------
+  onHeroLongPress() {
+    this.setData({
+      editing: true,
+      draftName: this.data.deviceName,
+      draftImg: this.data.img,
+    })
+  },
+
+  onDraftNameInput(e) {
+    this.setData({ draftName: e.detail.value })
+  },
+
+  // 从相册选图：chooseImage → saveFile 持久化到本地（临时路径冷启动会失效）。
+  onChooseImg() {
+    wx.chooseImage({
+      count: 1,
+      sizeType: ['compressed'],
+      sourceType: ['album', 'camera'],
+      success: (res) => {
+        const tempPath = res.tempFilePaths && res.tempFilePaths[0]
+        if (!tempPath) return
+        wx.saveFile({
+          tempFilePath: tempPath,
+          success: (saveRes) => {
+            if (saveRes.savedFilePath) {
+              this.setData({ draftImg: saveRes.savedFilePath })
+            }
+          },
+          fail: () => {
+            // saveFile 失败时退回临时路径（当前会话内仍可用）。
+            this.setData({ draftImg: tempPath })
+          },
+        })
+      },
+    })
+  },
+
+  onEditCancel() {
+    this.setData({ editing: false })
+  },
+
+  // 保存：写回 deviceStore（device.name / device.img），并刷新页面展示。
+  onEditSave() {
+    const app = getApp()
+    const currentId = (app && app.globalData && app.globalData.currentDeviceId) || null
+    if (currentId) {
+      saveDevice({
+        id: currentId,
+        name: this.data.draftName,
+        img: this.data.draftImg,
+      })
+    }
+    this.setData({
+      deviceName: this.data.draftName,
+      img: this.data.draftImg,
+      editing: false,
+    })
   },
 
   // 引脚卡片内 switch 的 catchtap 占位：阻止点击冒泡到卡片（不触发跳转）。

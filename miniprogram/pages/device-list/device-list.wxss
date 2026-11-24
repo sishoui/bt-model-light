@@ -1,36 +1,135 @@
-/* 设备列表页（ADR-0025 / 0027 / #25；范式 B 工具页，design.md §7.3）。 */
+/* 设备列表页（ADR-0025 / 0027 / #25；范式 B 工具页，design.md §7.3）。
+   布局：单列 1:1 方形卡片，所有信息浮层在图上（名称/状态/设备ID/解绑）。 */
 
-/* 已保存设备行 */
-.device-row {
+/* ===== 单列方形卡片 ===== */
+.device-list {
+  padding: 0 32rpx;
+}
+
+.device-card {
+  padding: 0;
+  overflow: hidden;
+  margin-bottom: 24rpx;
+}
+
+/* 1:1 方形媒体区 */
+.device-card__media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--bt-color-bg-input);
+}
+
+.device-card__img {
+  width: 100%;
+  height: 100%;
+}
+
+.device-card__placeholder {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--bt-color-bg-input);
 }
 
-.device-row__info {
-  flex: 1;
+.device-card__placeholder-text {
+  font-size: 26rpx;
+  line-height: 36rpx;
+  color: var(--bt-color-label-tertiary);
 }
 
-.device-row__name {
-  font-size: 30rpx;
-  line-height: 40rpx;
-  font-weight: 600;
-}
-
-.device-row__tag {
-  display: inline-block;
-  margin-left: 16rpx;
-  padding: 2rpx 12rpx;
-  border-radius: 8rpx;
-  background: rgba(0, 136, 255, 0.1);
-  color: var(--bt-color-accent);
+/* 浮层：左上 使用中 */
+.device-card__tag {
+  position: absolute;
+  top: 16rpx;
+  left: 16rpx;
+  padding: 4rpx 18rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 136, 255, 0.85);
+  color: #ffffff;
   font-size: 22rpx;
   line-height: 32rpx;
 }
 
-.device-row__arrow {
-  color: var(--bt-color-gray-3);
-  font-size: 36rpx;
+/* 浮层：右上 在线/离线 */
+.device-card__badge {
+  position: absolute;
+  top: 16rpx;
+  right: 16rpx;
+  padding: 4rpx 18rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 0, 0, 0.5);
+  color: #ffffff;
+  font-size: 22rpx;
+  line-height: 32rpx;
+}
+
+.device-card__badge--online {
+  background: rgba(52, 199, 89, 0.85);
+}
+
+/* 浮层：底部名称条（渐变黑底，压在图上） */
+.device-card__name-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 48rpx 20rpx 16rpx;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
+}
+
+.device-card__name {
+  display: block;
+  color: #ffffff;
+  font-size: 34rpx;
+  line-height: 44rpx;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 浮层：左下 设备ID */
+.device-card__info {
+  position: absolute;
+  left: 16rpx;
+  bottom: 64rpx;
+  max-width: 60%;
+  padding: 6rpx 20rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 0, 0, 0.5);
+  color: #ffffff;
+  font-size: 22rpx;
+  line-height: 32rpx;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-card__info::after {
+  border: none;
+}
+
+/* 浮层：右下 解绑 */
+.device-card__btn {
+  position: absolute;
+  right: 16rpx;
+  bottom: 16rpx;
+  width: 140rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
+  font-size: 28rpx;
+  line-height: 64rpx;
+  font-weight: 600;
+  text-align: center;
+}
+
+.device-card__btn--danger {
+  background: var(--bt-color-danger);
+  color: #ffffff;
 }
 
 /* 扫描结果行 */
