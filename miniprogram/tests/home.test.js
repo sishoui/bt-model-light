@@ -32,12 +32,12 @@ describe('home 页（#25）', () => {
     expect(page.data.pins).toEqual([])
   })
 
-  test('已保存设备 + 已配置引脚：只展示 configured 引脚', () => {
+  test('已保存设备：固定展示 8 个引脚卡片（含未配置占位）', () => {
     const dev = saveDevice({ name: 'BTLight_A1B2', deviceId: 'dev-1' })
     saveDeviceConfig(dev.id, {
       pins: [
         { pin: 0, configured: true, groups: [{}, {}] },
-        { pin: 3, configured: false, groups: [] }, // 未配置：不展示
+        { pin: 3, configured: false, groups: [] }, // 未配置：占位卡
         { pin: 5, configured: true, groups: [{}] },
       ],
     })
@@ -46,10 +46,27 @@ describe('home 页（#25）', () => {
     const page = loadPage(HOME, app)
     page.onShow()
     expect(page.data.deviceName).toBe('BTLight_A1B2')
-    expect(page.data.pins).toHaveLength(2)
-    expect(page.data.pins.map((p) => p.pin)).toEqual([0, 5])
+    // 8 个引脚一个不少，按 0..7 排列。
+    expect(page.data.pins).toHaveLength(8)
+    expect(page.data.pins.map((p) => p.pin)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    // 已配置：名称/灯组数；未配置：占位文案。
+    expect(page.data.pins[0].configured).toBe(true)
     expect(page.data.pins[0].info).toBe('2 个灯组')
     expect(page.data.pins[0].name).toBe('引脚 1') // 默认名：pin + 1
+    expect(page.data.pins[1].configured).toBe(false)
+    expect(page.data.pins[1].info).toBe('未配置')
+    expect(page.data.pins[5].configured).toBe(true)
+    expect(page.data.pins[7].configured).toBe(false)
+  })
+
+  test('无设备配置：8 个引脚全部为未配置占位', () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    expect(page.data.pins).toHaveLength(8)
+    expect(page.data.pins.every((p) => !p.configured)).toBe(true)
   })
 
   test('引脚卡片数据带上自定义名称', () => {
@@ -159,6 +176,18 @@ describe('home 页（#25）', () => {
     expect(wx.navigateTo).toHaveBeenCalledWith({ url: '/pages/pin-detail/pin-detail?pin=2' })
   })
 
+  test('未配置引脚卡片点击同样进入配置详情页（固定 8 引脚，无新增入口）', () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+    const page = loadPage(HOME, app)
+    page.onShow()
+    // 未配置引脚（如 pin 7）点击 → 直接进配置页。
+    page.onTapPin({ currentTarget: { dataset: { pin: 7 } } })
+    expect(wx.navigateTo).toHaveBeenCalledWith({ url: '/pages/pin-detail/pin-detail?pin=7' })
+    // 不再有"新增引脚"选择器入口。
+    expect(page.onAddPin).toBeUndefined()
+  })
+
   test('引脚卡片带出 power/img（#27 接入）', () => {
     const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
     saveDeviceConfig(dev.id, {
@@ -169,32 +198,5 @@ describe('home 页（#25）', () => {
     page.onShow()
     expect(page.data.pins[0].power).toBe(true)
     expect(page.data.pins[0].img).toBe('x.png')
-  })
-
-  test('新增引脚：availablePins 为未配置引脚，onAddPin 跳转对应 pin', () => {
-    const page = loadPage(HOME, app)
-    page.onShow()
-    // 未选中设备：无可新增引脚。
-    expect(page.data.availablePins).toEqual([])
-
-    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
-    saveDeviceConfig(dev.id, {
-      pins: [
-        { pin: 0, configured: true, groups: [{}, {}] },
-        { pin: 3, configured: true, groups: [{}] },
-        { pin: 5, configured: false, groups: [] }, // 未配置：仍可新增
-      ],
-    })
-    app.globalData.currentDeviceId = dev.id
-
-    const page2 = loadPage(HOME, app)
-    page2.onShow()
-    // 8 引脚去掉已配置的 0/3 → 可选 1,2,4,5,6,7。
-    expect(page2.data.availablePins).toEqual([1, 2, 4, 5, 6, 7])
-    expect(page2.data.pinOptions[0]).toBe('引脚 2') // availablePins[0]=1 → 展示 N=2
-
-    // 选择器第 0 项 → 进入引脚 1 的配置详情页。
-    page2.onAddPin({ detail: { value: '0' } })
-    expect(wx.navigateTo).toHaveBeenCalledWith({ url: '/pages/pin-detail/pin-detail?pin=1' })
   })
 })

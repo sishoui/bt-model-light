@@ -1,7 +1,7 @@
 // 首页 = 设备 Tab 默认页（ADR-0027 / #25）。
 // 结构：左上设备名称（→ 设备列表页）+ 设备卡片（图片/状态/整体开关/整体亮度）
-// + 引脚卡片列表（仅已配置引脚）。引脚卡片点击进入引脚配置详情页（T7 实现，
-// 当前弹提示占位）。
+// + 引脚卡片列表（固定 8 个，硬件引脚不可增删；未配置引脚显示占位，点击进入配置）。
+// 引脚卡片点击进入引脚配置详情页。
 
 const { getCurrentBleClient } = require('../../utils/bleClient')
 const { listDevices, getDeviceConfig, saveDevice } = require('../../utils/deviceStore')
@@ -20,11 +20,8 @@ Page({
     power: false, // 整体开关（本地态；固件联动随 T7 保存链路接入）
     brightness: 128, // 整体亮度 0-255（本地态，同上）
     img: '', // 设备图片（空串显示"暂无图片"占位）
-    // 引脚卡片列表（仅已配置引脚，SPEC 用户故事 8）
+    // 引脚卡片列表（固定 8 个硬件引脚，不可增删；未配置引脚为占位卡）。
     pins: [],
-    // 可新增引脚：0..pinCount-1 中尚未配置的引脚索引（"新增引脚"选择器数据源）。
-    availablePins: [],
-    pinOptions: [], // 选择器展示文案（"引脚 N"，N 从 1 起）
     // 长按大图卡编辑弹窗
     editing: false, // 弹窗是否显示
     draftName: '', // 弹窗内编辑的设备名草稿
@@ -109,32 +106,29 @@ Page({
     let deviceName = ''
     let img = ''
     let pins = []
-    let availablePins = []
     if (currentId) {
       const dev = listDevices().find((d) => d.id === currentId)
       deviceName = dev ? dev.name : ''
       img = (dev && dev.img) || ''
-      // 只展示已配置引脚：未配置（getDeviceConfig 为 null / pins 为空）时列表为空。
+      // 固定 8 个引脚：硬件引脚不可增删，未配置的显示占位卡（点击进入配置）。
       const cfg = getDeviceConfig(currentId)
       const cfgPins = (cfg && Array.isArray(cfg.pins) ? cfg.pins : []).filter(
         (p) => p && p.configured
       )
-      pins = cfgPins.map((p) => ({
-        pin: p.pin,
-        name: p.name || `引脚 ${p.pin + 1}`,
-        power: !!p.power,
-        img: p.img || '',
-        info: `${p.groups.length} 个灯组`,
-      }))
-      // 可新增引脚：硬件 8 引脚中尚未配置的（含配置里标 configured:false 的）。
-      const configuredSet = new Set(pins.map((p) => p.pin))
       const pinCount = GEN.LIMITS.pinCount
       for (let i = 0; i < pinCount; i++) {
-        if (!configuredSet.has(i)) availablePins.push(i)
+        const p = cfgPins.find((e) => e.pin === i)
+        pins.push({
+          pin: i,
+          configured: !!p,
+          name: (p && p.name) || `引脚 ${i + 1}`,
+          power: !!(p && p.power),
+          img: (p && p.img) || '',
+          info: p ? `${p.groups.length} 个灯组` : '未配置',
+        })
       }
     }
-    const pinOptions = availablePins.map((i) => `引脚 ${i + 1}`)
-    this.setData({ deviceName, img, connected, pins, availablePins, pinOptions })
+    this.setData({ deviceName, img, connected, pins })
   },
 
   // 左上设备名称 → 设备列表页（新增/切换）。
@@ -142,17 +136,9 @@ Page({
     wx.navigateTo({ url: '/pages/device-list/device-list' })
   },
 
-  // 引脚卡片 → 引脚配置详情页（#27 / T7）。
+  // 引脚卡片 → 引脚配置详情页（#27 / T7）。未配置引脚同样进入（首次配置）。
   onTapPin(e) {
     const pin = e.currentTarget.dataset.pin
-    wx.navigateTo({ url: `/pages/pin-detail/pin-detail?pin=${pin}` })
-  },
-
-  // "新增引脚"选择器：选中一个未配置引脚 → 进入引脚配置详情页（保存后才出现在首页）。
-  onAddPin(e) {
-    const index = Number(e.detail.value)
-    const pin = this.data.availablePins[index]
-    if (pin === undefined) return
     wx.navigateTo({ url: `/pages/pin-detail/pin-detail?pin=${pin}` })
   },
 

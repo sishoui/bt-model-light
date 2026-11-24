@@ -227,11 +227,6 @@
 
   <!-- 保存栏（功能层玻璃，.bt-glass 含降级） -->
   <view class="save-bar bt-glass">
-    <button
-      wx:if="{{configured}}"
-      class="bt-btn bt-btn--danger save-bar__del bt-pressable"
-      bindtap="onDeletePin"
-    >删除引脚</button>
     <button class="bt-btn bt-btn--primary bt-pressable save-bar__save" bindtap="onSave">保存</button>
   </view>
 </view>

@@ -1,6 +1,6 @@
 <!-- 首页 = 设备详情页（ADR-0027 / #25）。
-     布局：1:1 大图卡（左上标题 + 大图 + 右下开机按钮 + 底部亮度条）→ 灯组列表。
-     左上标题 → 设备列表页；长按大图卡 → 编辑设备名/占位图；灯组卡片点击进引脚配置详情（T7）。 -->
+     布局：1:1 大图卡（左上标题 + 大图 + 右下开机按钮 + 底部亮度条）→ 引脚卡片列表（固定 8 个）。
+     左上标题 → 设备列表页；长按大图卡 → 编辑设备名/占位图；引脚卡片点击进引脚配置详情。 -->
 <view class="page">
   <sim-banner wx:if="{{simMode}}" />
 
@@ -32,11 +32,11 @@
     </view>
   </view>
 
-  <!-- 灯组卡片列表：4 列网格小卡（仅已配置引脚，未配置不显示） -->
+  <!-- 引脚卡片列表：固定 8 个硬件引脚（4 列网格小卡；未配置显示占位，点击进入配置） -->
   <view wx:if="{{pins.length}}" class="section">
-    <view class="bt-section-title">灯组</view>
+    <view class="bt-section-title">引脚</view>
     <view class="pin-grid">
-      <view wx:for="{{pins}}" wx:key="pin" class="pin-card bt-pressable"
+      <view wx:for="{{pins}}" wx:key="pin" class="pin-card {{item.configured ? '' : 'pin-card--empty'}} bt-pressable"
         data-pin="{{item.pin}}" bindtap="onTapPin">
         <!-- 1:1 方形媒体区：图铺满，引脚号/名称/开关浮层在图上 -->
         <view class="pin-card__media">
@@ -44,26 +44,19 @@
           <view wx:else class="pin-card__placeholder">
             <text class="pin-card__placeholder-text">{{item.pin + 1}}</text>
           </view>
-          <!-- 右上 开关（catchtap 阻止冒泡触发卡片跳转；小卡缩到 0.6） -->
-          <switch class="pin-card__switch" checked="{{item.power}}" color="#0088FF" catchtap="noop" />
+          <!-- 右上 开关（仅已配置引脚展示；catchtap 阻止冒泡触发卡片跳转） -->
+          <switch wx:if="{{item.configured}}" class="pin-card__switch" checked="{{item.power}}" color="#0088FF" catchtap="noop" />
           <!-- 底部名称条（引脚号 + 名称） -->
           <view class="pin-card__name-bar">
             <text class="pin-card__name">{{item.name}}</text>
-            <text class="pin-card__info">引脚 {{item.pin + 1}}</text>
+            <text class="pin-card__info">{{item.info}}</text>
           </view>
         </view>
       </view>
     </view>
   </view>
   <view wx:else class="pin-empty">
-    <text class="bt-text--secondary">暂无已配置引脚</text>
-  </view>
-
-  <!-- 新增引脚：从硬件 8 引脚中选一个未配置的进入配置（保存后才出现在上方列表） -->
-  <view wx:if="{{availablePins.length}}" class="add-pin">
-    <picker mode="selector" range="{{pinOptions}}" bindchange="onAddPin">
-      <view class="bt-btn bt-btn--primary bt-pressable add-pin__btn">＋ 新增引脚</view>
-    </picker>
+    <text class="bt-text--secondary">未连接设备</text>
   </view>
 </view>
 

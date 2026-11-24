@@ -178,6 +178,8 @@
 }
 
 .pin-card {
+  /* border-box：占位卡虚线边框计入宽度，保证一行 4 个不换行 */
+  box-sizing: border-box;
   width: calc((100% - 48rpx) / 4);
   margin-right: 16rpx;
   margin-bottom: 16rpx;
@@ -188,6 +190,25 @@
 
 .pin-card:nth-child(4n) {
   margin-right: 0;
+}
+
+/* 未配置引脚：虚线边框占位卡（点击进入配置） */
+.pin-card--empty {
+  background: transparent;
+  border: 2rpx dashed var(--bt-color-separator);
+}
+
+.pin-card--empty .pin-card__media {
+  background: transparent;
+}
+
+.pin-card--empty .pin-card__placeholder {
+  background: transparent;
+  color: var(--bt-color-label-tertiary);
+}
+
+.pin-card--empty .pin-card__name-bar {
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.35), transparent);
 }
 
 /* 1:1 方形媒体区 */
@@ -258,15 +279,6 @@
 .pin-empty {
   padding: 96rpx 32rpx;
   text-align: center;
-}
-
-/* ===== 新增引脚按钮（design.md §5.2 胶囊主按钮） ===== */
-.add-pin {
-  margin-top: 16rpx;
-}
-
-.add-pin__btn {
-  width: 100%;
 }
 
 /* ===== 编辑设备弹窗（长按大图卡触发） ===== */

@@ -2,6 +2,7 @@
 //
 // 结构：顶部（图片/名称/开关）+ 灯组 Tab + 灯珠范围点选 + 步骤/图层编辑器
 // + 灯效下拉 + 参数表单联动（同页）。保存同时写 Storage + 下发固件 + APPLY。
+// 引脚固定 8 个（硬件不可增删），本页无删除引脚入口。
 //
 // 编辑态用页面 data（ADR-0023），与已保存态分离，dirty 标志驱动离开拦截。
 // 灯效参数 schema 直接消费 protocol_gen 的 EFFECT_PARAMS（与固件 ADR-0018 同源），
@@ -204,8 +205,6 @@ Page({
     img: '',
     pinName: '引脚',
     power: false,
-    // 该引脚是否已配置（决定是否展示"删除引脚"；新建未保存的引脚不可删）。
-    configured: false,
     // 模拟模式标志（onLoad 设置，用于显示提示）。
     simMode: false,
     // 灯组 Tab（固定 5 个，无新增/删除；tab 上小字显示灯珠区间）
@@ -277,7 +276,6 @@ Page({
       img: (pinEntry && pinEntry.img) || '',
       pinName: (pinEntry && pinEntry.name) || `引脚 ${pin + 1}`,
       power: !!(pinEntry && pinEntry.power),
-      configured: !!(pinEntry && pinEntry.configured),
       groups,
       activeGroup: 0,
       view: 'steps',
@@ -841,75 +839,6 @@ Page({
       wx.hideLoading()
       logError(err, '下发配置')
       wx.showToast({ title: `已保存到本地，下发失败：${friendlyMessage(err)}`, icon: 'none' })
-    }
-  },
-
-  // ---- 删除引脚 ---------------------------------------------------------------
-
-  // 删除整个引脚：从本机配置移除 → 落盘（真相源）→ 已连接则下发固件同步 → 返回。
-  // 仅对已配置引脚开放（WXML 按 configured 显隐），未保存的新引脚无需删除。
-  onDeletePin() {
-    if (!this._deviceId) {
-      wx.showToast({ title: '未选择设备', icon: 'none' })
-      return
-    }
-    const pin = this.data.pin
-    wx.showModal({
-      title: '删除引脚',
-      content: `确定删除「${this.data.pinName}」？该引脚下的灯组配置将一并清除。`,
-      success: (res) => {
-        if (!res.confirm) return
-        const base = getDeviceConfig(this._deviceId)
-        const pins = (base && Array.isArray(base.pins) ? base.pins : []).filter(
-          (p) => p && p.pin !== pin
-        )
-        const config = { version: 1, pins }
-
-        const verr = validateConfig(config)
-        if (verr) {
-          wx.showToast({ title: verr.message, icon: 'none' })
-          return
-        }
-        let blob
-        try {
-          blob = encodeConfigBlob(config)
-        } catch (err) {
-          wx.showToast({ title: (err && err.message) || '配置编码失败', icon: 'none' })
-          return
-        }
-
-        // Storage 为真相源：先落盘并解除离开拦截（返回时不再弹未保存确认）。
-        saveDeviceConfig(this._deviceId, config)
-        this.setData({ dirty: false })
-        this._syncUnloadGuard()
-
-        const client = getCurrentBleClient()
-        if (!client || !client.connected) {
-          wx.showToast({ title: '已删除（本机）', icon: 'success' })
-          setTimeout(() => wx.navigateBack(), 500)
-          return
-        }
-        this._pushDeleteToFirmware(client, blob)
-      },
-    })
-  },
-
-  // 删除后的下发链路：WRITE_CONFIG（移除该引脚）→ APPLY → 返回首页。
-  // 本机已删除；下发失败不阻塞返回（连接后重新保存其它引脚即可同步）。
-  async _pushDeleteToFirmware(client, blob) {
-    wx.showLoading({ title: '下发中' })
-    try {
-      await client.sendCmd(CMD.WRITE_CONFIG, Array.from(blob))
-      await client.sendCmd(CMD.APPLY, [])
-      wx.hideLoading()
-      wx.vibrateShort({ type: 'light' })
-      wx.showToast({ title: '已删除并应用', icon: 'success' })
-      setTimeout(() => wx.navigateBack(), 500)
-    } catch (err) {
-      wx.hideLoading()
-      logError(err, '删除引脚')
-      wx.showToast({ title: `已删除本机，下发失败：${friendlyMessage(err)}`, icon: 'none' })
-      setTimeout(() => wx.navigateBack(), 500)
     }
   },
 })
