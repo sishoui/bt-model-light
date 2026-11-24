@@ -459,8 +459,8 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.dirty).toBe(true)
   })
 
-  // 折叠态（#33）。
-  test('步骤折叠默认态：首个步骤展开、其余收起；首个图层展开、其余收起', () => {
+  // 视图导航 + 图层折叠（#33 / #34）。
+  test('默认视图为步骤列表；进入步骤详情初始化图层折叠默认态', () => {
     saveDeviceConfig(dev.id, {
       version: 1,
       pins: [
@@ -486,24 +486,64 @@ describe('pin-detail 页（#27）', () => {
       ],
     })
     const page = load(0)
-    expect(page.data.expandedSteps['0']).toBe(true)
-    expect(page.data.expandedSteps['1']).toBe(false)
+    expect(page.data.view).toBe('steps')
+    // 进入步骤 0 详情：2 个图层 ≤2 全展开。
+    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
+    expect(page.data.view).toBe('detail')
+    expect(page.data.activeStepSi).toBe(0)
     expect(page.data.expandedLayers['0-0']).toBe(true)
-    expect(page.data.expandedLayers['0-1']).toBe(false)
+    expect(page.data.expandedLayers['0-1']).toBe(true)
+    // 返回列表。
+    page.onBackToSteps()
+    expect(page.data.view).toBe('steps')
+    // 进入步骤 1 详情：1 个图层全展开。
+    page.onOpenStep({ currentTarget: { dataset: { si: 1 } } })
+    expect(page.data.activeStepSi).toBe(1)
     expect(page.data.expandedLayers['1-0']).toBe(true)
   })
 
-  test('onToggleStep 翻转折叠键，不影响 groups VM、不置 dirty', () => {
+  test('图层数 >2 时：首层展开、其余收起', () => {
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [
+        {
+          pin: 0,
+          configured: true,
+          name: 'A',
+          groups: [
+            {
+              name: 'g0',
+              ledStart: 0,
+              ledEnd: 3,
+              steps: [
+                { duration: 5, transition: 0, loopMode: 1, layers: [
+                  { effect: EFF.SOLID, params: { color: [1, 1, 1] } },
+                  { effect: EFF.BREATH, params: { period: 3000 } },
+                  { effect: EFF.BLINK, params: {} },
+                ] },
+              ],
+            },
+          ],
+        },
+      ],
+    })
     const page = load(0)
-    expect(page.data.expandedSteps['0']).toBe(true)
-    page.onToggleStep({ currentTarget: { dataset: { si: 0 } } })
-    expect(page.data.expandedSteps['0']).toBe(false)
+    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
+    expect(page.data.expandedLayers['0-0']).toBe(true)
+    expect(page.data.expandedLayers['0-1']).toBe(false)
+    expect(page.data.expandedLayers['0-2']).toBe(false)
+  })
+
+  test('onOpenStep 不改变 groups VM、不置 dirty', () => {
+    const page = load(0)
+    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
     expect(page.data.groups[0].steps[0].duration).toBe(5) // VM 不变
     expect(page.data.dirty).toBe(false) // 纯视图态不脏
   })
 
   test('onToggleLayer 翻转折叠键（si-li），不影响 groups VM、不置 dirty', () => {
     const page = load(0)
+    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
     expect(page.data.expandedLayers['0-0']).toBe(true)
     page.onToggleLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
     expect(page.data.expandedLayers['0-0']).toBe(false)
@@ -511,30 +551,35 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.dirty).toBe(false)
   })
 
-  test('切换灯组：重置为默认折叠态（首步骤+首层展开）', () => {
+  test('切换灯组：回步骤列表并重置 activeStepSi/图层折叠', () => {
     const page = load(0)
-    // 先在灯组 0 把步骤 0 收起。
-    page.onToggleStep({ currentTarget: { dataset: { si: 0 } } })
-    expect(page.data.expandedSteps['0']).toBe(false)
-    // 切到灯组 1：重置为默认。
+    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
+    page.onToggleLayer({ currentTarget: { dataset: { si: 0, li: 0 } } }) // 收起首层
+    expect(page.data.expandedLayers['0-0']).toBe(false)
+    // 切到灯组 1：回列表、清折叠。
     page.onTapGroup({ currentTarget: { dataset: { index: 1 } } })
-    expect(page.data.expandedSteps['0']).toBe(true)
-    expect(page.data.expandedLayers['0-0']).toBe(true)
+    expect(page.data.activeGroup).toBe(1)
+    expect(page.data.view).toBe('steps')
+    expect(page.data.activeStepSi).toBe(0)
+    expect(page.data.expandedLayers).toEqual({})
+    // 点当前组 Tab：详情视图下回列表。
+    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
+    page.onTapGroup({ currentTarget: { dataset: { index: 1 } } })
+    expect(page.data.view).toBe('steps')
   })
 
-  test('新增步骤默认收起；删除步骤重排折叠键', () => {
+  test('新增步骤留在列表；详情内删除当前步骤回列表', () => {
     const page = load(0)
-    // 加 3 个步骤，最后新加的索引 2 收起。
     page.onAddStep()
     page.onAddStep()
-    expect(page.data.expandedSteps['2']).toBe(false)
-    // 删索引 1：索引 2 → 1，键保持折叠态。
-    page.onDeleteStep({ currentTarget: { dataset: { si: 1 } } })
-    expect(page.data.expandedSteps['0']).toBe(true)
-    expect(page.data.expandedSteps['1']).toBe(false)
-    // 删索引 0：新首个 0 自动展开（兜底）。
+    expect(page.data.groups[0].steps).toHaveLength(3)
+    expect(page.data.view).toBe('steps') // 列表页添加不跳详情
+    // 进详情删当前步骤：回列表。
+    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
     page.onDeleteStep({ currentTarget: { dataset: { si: 0 } } })
-    expect(page.data.expandedSteps['0']).toBe(true)
+    expect(page.data.groups[0].steps).toHaveLength(2)
+    expect(page.data.view).toBe('steps')
+    expect(page.data.expandedLayers).toEqual({})
   })
 
   // 颜色弹层（#33）。

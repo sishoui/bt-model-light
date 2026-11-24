@@ -221,19 +221,84 @@
 }
 
 
-/* 步骤卡片 */
-.step {
+/* 步骤列表（#34：主从切换的列表层） */
+.step-list {
   margin-top: 16rpx;
 }
 
-.step__head {
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-top: 12rpx;
+  padding: 20rpx 24rpx;
+  background: var(--bt-color-bg-elevated);
+  border-radius: 16rpx;
+}
+
+.step-row__swatch {
+  width: 56rpx;
+  height: 56rpx;
+  flex: 0 0 auto;
+  border-radius: 12rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.08);
+}
+
+.step-row__title {
+  flex: 1;
+  font-size: 28rpx;
+  line-height: 38rpx;
+  color: var(--bt-color-label);
+}
+
+.step-row__arrow {
+  font-size: 32rpx;
+  line-height: 44rpx;
+  color: var(--bt-color-label-tertiary);
+}
+
+/* 步骤详情（#34：主从切换的详情层） */
+.step-detail {
+  margin-top: 16rpx;
+}
+
+.step-detail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 8rpx;
 }
 
-.step__title {
+.step-detail__back {
+  font-size: 26rpx;
+  line-height: 38rpx;
+  color: var(--bt-color-accent);
+}
+
+.step-detail__title {
+  flex: 1;
+  text-align: center;
   font-size: 28rpx;
   line-height: 38rpx;
   font-weight: 600;
+  color: var(--bt-color-label);
+}
+
+/* 时长行独占；过渡/循环并排一行 */
+.row--two {
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.row__half {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 40%;
+}
+
+.row__half .row__label {
+  width: 100rpx;
 }
 
 .step__del {
@@ -370,19 +435,13 @@
   margin-top: 12rpx;
 }
 
-/* 折叠摘要行 */
-.step__head {
-  margin-bottom: 8rpx;
-}
-
-.step__head-actions,
+/* 图层头（摘要行 + 箭头 + 删除） */
 .layer__head-actions {
   display: flex;
   align-items: center;
   gap: 16rpx;
 }
 
-.step__arrow,
 .layer__arrow {
   font-size: 24rpx;
   line-height: 34rpx;

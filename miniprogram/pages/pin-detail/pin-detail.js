@@ -217,9 +217,11 @@ Page({
     inCancelZone: false,
     ledCells: [], // [{ i, state }] 渲染用（state: empty/selected/occupied/drag-*）
     ledPickerOpen: false, // 灯珠选择弹出层显隐
-    // 步骤/图层折叠状态（独立 data 字段，不污染 groups VM）。
-    // 键：expandedSteps 用步骤索引 si；expandedLayers 用 "si-li"。
-    expandedSteps: {},
+    // 视图层级（#34）：steps = 步骤列表；detail = 某步详情。
+    view: 'steps',
+    activeStepSi: 0,
+    // 图层折叠状态（独立 data 字段，不污染 groups VM）。
+    // 键 "si-li"：仅在 detail 视图下使用；默认按图层数决定。
     expandedLayers: {},
     // 颜色弹层（#33）。
     colorPickerOpen: false,
@@ -278,39 +280,46 @@ Page({
       configured: !!(pinEntry && pinEntry.configured),
       groups,
       activeGroup: 0,
+      view: 'steps',
+      activeStepSi: 0,
       dragging: false,
       dragRange: null,
       inCancelZone: false,
       dirty: false,
     })
-    this._initExpanded(groups, 0)
     // 初始灯珠网格按 activeGroup=0 渲染，含其他组占用灰显。
     this.setData({ ledCells: this._buildLedCells(groups[0], ledCount, this._computeOccupied(0), null) })
   },
 
-  // 折叠默认态：首个步骤展开、其余收起；每个步骤首层展开、其余收起。
-  // 键 si = 步骤索引；si-li = 步骤 si 内图层 li。
-  _initExpanded(groups, groupIndex = 0) {
-    const expandedSteps = {}
-    const expandedLayers = {}
-    const group = groups && groups[groupIndex]
-    const steps = (group && group.steps) || []
-    for (let si = 0; si < steps.length; si++) {
-      expandedSteps[si] = si === 0
-      const layers = steps[si].layers || []
-      for (let li = 0; li < layers.length; li++) {
-        expandedLayers[`${si}-${li}`] = li === 0
-      }
+  // 图层折叠默认策略：图层数 ≤2 全展开；>2 首层展开、其余收起。
+  // 键 si-li（si = activeStepSi）。进入步骤详情时调用。
+  _defaultExpandedLayers(group, si) {
+    const step = group && group.steps && group.steps[si]
+    const count = step ? step.layers.length : 0
+    const map = {}
+    for (let li = 0; li < count; li++) {
+      map[`${si}-${li}`] = count <= 2 || li === 0
     }
-    this.setData({ expandedSteps, expandedLayers })
+    return map
   },
 
-  // 翻转折叠：onToggleStep si 键、onToggleLayer si-li 键。不修改 groups VM。
-  onToggleStep(e) {
+  // ---- 视图导航 --------------------------------------------------------------
+
+  // 步骤列表 → 步骤详情：记录 activeStepSi，初始化该步图层折叠默认态。
+  onOpenStep(e) {
     const si = Number(e.currentTarget.dataset.si)
-    const key = String(si)
-    const next = Object.assign({}, this.data.expandedSteps, { [key]: !this.data.expandedSteps[key] })
-    this.setData({ expandedSteps: next })
+    const group = this.data.groups[this.data.activeGroup]
+    if (!group || !group.steps[si]) return
+    this.setData({
+      view: 'detail',
+      activeStepSi: si,
+      expandedLayers: this._defaultExpandedLayers(group, si),
+    })
+  },
+
+  // 步骤详情 → 步骤列表（返回箭头或点当前 Tab）。
+  onBackToSteps() {
+    this.setData({ view: 'steps' })
   },
 
   onToggleLayer(e) {
@@ -402,14 +411,13 @@ Page({
   onTapGroup(e) {
     const index = Number(e.currentTarget.dataset.index)
     if (!this.data.groups[index]) return
-    this.setData({ activeGroup: index, dragging: false, dragRange: null, inCancelZone: false })
+    // 点当前组 Tab：详情视图下回步骤列表（不重置其他状态）。
+    if (index === this.data.activeGroup) {
+      if (this.data.view !== 'steps') this.onBackToSteps()
+      return
+    }
+    this.setData({ activeGroup: index, view: 'steps', activeStepSi: 0, expandedLayers: {}, dragging: false, dragRange: null, inCancelZone: false })
     this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount, this._computeOccupied(index), null) })
-    this._resetExpandedForGroup(index)
-  },
-
-  // 切换灯组：该组默认态——首个步骤展开、其余收起；每步首层展开、其余收起。
-  _resetExpandedForGroup(index) {
-    this._initExpanded(this.data.groups, index)
   },
 
   onGroupNameInput(e) {
@@ -579,16 +587,7 @@ Page({
     this._editActiveGroup((group, steps) => {
       steps.push(defaultStep())
     })
-    this._reindexExpandedAfterAddStep(this.data.groups[this.data.activeGroup].steps.length - 1)
-  },
-
-  // 新增步骤后：新步骤默认收起；首层默认展开（键补到 0-0）。
-  _reindexExpandedAfterAddStep(newSi) {
-    const expandedSteps = Object.assign({}, this.data.expandedSteps)
-    const expandedLayers = Object.assign({}, this.data.expandedLayers)
-    expandedSteps[newSi] = false
-    expandedLayers[`${newSi}-0`] = true
-    this.setData({ expandedSteps, expandedLayers })
+    // 列表页添加：留在列表，无图层键需要维护。
   },
 
   onDeleteStep(e) {
@@ -600,31 +599,8 @@ Page({
     this._editActiveGroup((group, steps) => {
       steps.splice(si, 1)
     })
-    this._reindexExpandedAfterDeleteStep(si)
-  },
-
-  _reindexExpandedAfterDeleteStep(removedSi) {
-    const oldSteps = this.data.expandedSteps || {}
-    const oldLayers = this.data.expandedLayers || {}
-    const newSteps = {}
-    const newLayers = {}
-    const count = this.data.groups[this.data.activeGroup].steps.length
-    for (let i = 0; i < count; i++) {
-      // 删除前索引 srcSi 的折叠态移到删除后索引 i。
-      const srcSi = i < removedSi ? i : i + 1
-      if (oldSteps[srcSi] !== undefined) newSteps[i] = oldSteps[srcSi]
-      for (const k of Object.keys(oldLayers)) {
-        const prefix = srcSi + '-'
-        if (k.startsWith(prefix)) {
-          const li = k.slice(prefix.length)
-          newLayers[`${i}-${li}`] = oldLayers[k]
-        }
-      }
-    }
-    // 删后首个步骤兜底展开，避免全部收起。
-    newSteps[0] = true
-    newLayers['0-0'] = true
-    this.setData({ expandedSteps: newSteps, expandedLayers: newLayers })
+    // 详情页删除当前步骤后回列表；expandedLayers 按剩余步骤重置默认。
+    this.setData({ view: 'steps', activeStepSi: 0, expandedLayers: {} })
   },
 
   onDurationInput(e) {
@@ -661,10 +637,10 @@ Page({
     this._editActiveGroup((group, steps) => {
       steps[si] = Object.assign({}, steps[si], { layers: steps[si].layers.concat([defaultLayer(EFF.SOLID)]) })
     })
-    // 新增图层默认收起。
+    // 新图层折叠态：总数 ≤2 展开（与默认策略一致），>2 收起。
+    const newCount = this.data.groups[this.data.activeGroup].steps[si].layers.length
     const expandedLayers = Object.assign({}, this.data.expandedLayers)
-    const newLi = this.data.groups[this.data.activeGroup].steps[si].layers.length - 1
-    expandedLayers[`${si}-${newLi}`] = false
+    expandedLayers[`${si}-${newCount - 1}`] = newCount <= 2
     this.setData({ expandedLayers })
   },
 
