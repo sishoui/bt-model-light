@@ -153,10 +153,10 @@ function indexFromRects(clientX, clientY, rects) {
 }
 
 // 取消区命中：拖到屏幕下方半透明覆盖层（微信语音取消样式）。
-// 覆盖层 fixed 定在屏幕底部 15% 以下；clientY 超过阈值即视为进入取消区。
+// 覆盖层 fixed 定在屏幕底部约 80rpx（≈40px）；clientY 超过阈值即视为进入取消区。
 function inCancelZone(clientY, winH) {
   if (!winH) return false
-  return clientY > winH * 0.85
+  return clientY > winH - 40
 }
 
 // Storage / wire 模型 → 页面编辑态 VM（补 gid/sid/lid 与 fields）。

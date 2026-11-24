@@ -396,6 +396,7 @@
   width: 90vw;
   max-width: 720rpx;
   max-height: 80vh;
+  margin-bottom: 100rpx;
   background: var(--bt-color-bg-elevated);
   border-radius: 28rpx;
   padding: 24rpx;
@@ -458,7 +459,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: 15vh;
+  height: 80rpx;
   z-index: 101;
   display: flex;
   align-items: center;

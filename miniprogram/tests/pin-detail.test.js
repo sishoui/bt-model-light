@@ -335,15 +335,15 @@ describe('pin-detail 页（#27）', () => {
       ],
     })
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
-    // 模拟窗口高度 700（覆盖层取消区 = y > 700*0.85 = 595）。
+    // 模拟窗口高度 700（覆盖层取消区 = y > 700 - 40 = 660）。
     wx.getSystemInfoSync = jest.fn(() => ({ windowHeight: 700 }))
     const page = load(0) // 上次选中 [2,5]
     jest.useFakeTimers()
     page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] }) // 格 2 起
     jest.advanceTimersByTime(1000) // 长按激活
     page.onLedTouchMove({ touches: [{ clientX: 330, clientY: 30 }] }) // 格 5
-    // 拖到取消区（clientY=600 > 595）。
-    page.onLedTouchMove({ touches: [{ clientX: 300, clientY: 600 }] })
+    // 拖到取消区（clientY=680 > 660）。
+    page.onLedTouchMove({ touches: [{ clientX: 300, clientY: 680 }] })
     expect(page.data.inCancelZone).toBe(true)
     page.onLedTouchEnd({ type: 'touchend' })
     // 回滚：保留上次 [2,5]，不置 dirty。
