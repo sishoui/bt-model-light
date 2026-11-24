@@ -130,9 +130,7 @@ function defaultGroup(name) {
 
 // ---- 灯珠拖选几何（#31） ----------------------------------------------------
 // 长按激活阈值：ms。短触（点击）不触发拖选，避免误改配置。
-const LONG_PRESS_MS = 300
-// 移动激活阈值：px²（8px）。长按未触发时，拖动超此位移才激活。
-const MOVE_ACTIVATE_DIST2 = 64
+const LONG_PRESS_MS = 1000
 
 // 坐标 → 灯珠格号：按每格真实渲染 rect 找最近中心。
 // 不用"列数均分 rect"假设（实际列数随屏宽变化，是旧版偏移的根因）。
@@ -154,10 +152,11 @@ function indexFromRects(clientX, clientY, rects) {
   return best
 }
 
-// 取消区命中：拖出网格底部（红色渐变区显示在网格正下方，命中即回滚）。
-function inCancelZone(clientY, gridRect) {
-  if (!gridRect) return false
-  return clientY > gridRect.top + gridRect.height
+// 取消区命中：拖到屏幕下方半透明覆盖层（微信语音取消样式）。
+// 覆盖层 fixed 定在屏幕下 60% 以下；clientY 超过阈值即视为进入取消区。
+function inCancelZone(clientY, winH) {
+  if (!winH) return false
+  return clientY > winH * 0.6
 }
 
 // Storage / wire 模型 → 页面编辑态 VM（补 gid/sid/lid 与 fields）。
@@ -215,6 +214,7 @@ Page({
     dragRange: null,
     inCancelZone: false,
     ledCells: [], // [{ i, state }] 渲染用（state: empty/selected/occupied/drag-*）
+    ledPickerOpen: false, // 灯珠选择弹出层显隐
     dirty: false,
     // 静态选项
     effectNames: EFFECT_NAMES,
@@ -387,7 +387,14 @@ Page({
       this._cellRects = (res && res[1]) || []
       this._rectsReady = true
     })
-    // 长按计时：300ms 未松手未移动则激活。
+    // 窗口高度（取消区几何用）。
+    try {
+      const si = wx.getSystemInfoSync()
+      this._winH = (si && si.windowHeight) || 667
+    } catch (e) {
+      this._winH = 667
+    }
+    // 长按计时：1s 未松手则激活（唯一激活路径）。
     this._clearLongPress()
     this._longPressTimer = setTimeout(() => {
       if (this._dragActive) return
@@ -396,13 +403,8 @@ Page({
   },
 
   // 激活拖选：占用检查 → 快照 → 进入 dragging。起点即占用格则不激活。
-  // 位置参数缺省时用上次记录的按下点（move 阈值激活路径）。
   _activateDrag(clientX, clientY) {
     if (this._dragActive || !this._rectsReady) return
-    if (clientX === undefined && this._pressStart) {
-      clientX = this._pressStart.x
-      clientY = this._pressStart.y
-    }
     const occupied = this._computeOccupied(this.data.activeGroup)
     const anchor = indexFromRects(clientX, clientY, this._cellRects)
     if (occupied.has(anchor)) return
@@ -419,18 +421,10 @@ Page({
   },
 
   onLedTouchMove(e) {
+    if (!this._dragActive) return // 未激活（未长按 1s）：移动不触发，杜绝误拖
     const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
-    if (!this._dragActive) {
-      // 未激活：位移超阈值才激活（长按未到时的快速拖动）；否则视为轻触/抖动忽略。
-      const dx = t.clientX - this._pressStart.x
-      const dy = t.clientY - this._pressStart.y
-      if (dx * dx + dy * dy <= MOVE_ACTIVATE_DIST2) return
-      this._activateDrag(this._pressStart.x, this._pressStart.y)
-      if (!this._dragActive) return // 起点即占用格：不激活，本次拖动作废
-      // 激活后继续处理当前 move，更新区间（不丢掉这一帧）。
-    }
-    // 取消区：拖出网格底部。
-    const inCancel = inCancelZone(t.clientY, this._gridRect)
+    // 取消区：拖到屏幕下方半透明覆盖层。
+    const inCancel = inCancelZone(t.clientY, this._winH)
     if (inCancel !== this._inCancel) {
       this._inCancel = inCancel
       this.setData({ inCancelZone: inCancel })
@@ -496,6 +490,17 @@ Page({
     this.setData({ ledCells: this._buildLedCells(group, this.data.ledCount, this._computeOccupied(this.data.activeGroup), null) })
     this._markDirty()
   },
+
+  onOpenLedPicker() {
+    this.setData({ ledPickerOpen: true })
+  },
+
+  onCloseLedPicker() {
+    if (this.data.dragging) return // 拖选进行中不允许关闭，避免丢失
+    this.setData({ ledPickerOpen: false })
+  },
+
+  noop() {},
 
   // ---- 步骤/图层编辑 ----------------------------------------------------------
 

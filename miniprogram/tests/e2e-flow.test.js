@@ -117,7 +117,9 @@ describe('端到端全流程（#28 / T8）', () => {
     pinPage.onPinNameInput({ detail: { value: '客厅灯带' } })
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
     wx.__cancelRect = null
+    wx.getSystemInfoSync = jest.fn(() => ({ windowHeight: 700 }))
     pinPage.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] }) // 格 2
+    pinPage._activateDrag(150, 30) // 模拟长按 1s 后激活
     pinPage.onLedTouchMove({ touches: [{ clientX: 270, clientY: 30 }] }) // 格 4
     pinPage.onLedTouchEnd({ type: 'touchend' })
     pinPage.onSave()

@@ -29,8 +29,8 @@
     </view>
   </scroll-view>
 
-  <!-- 灯珠范围拖选：长按拖动刷选；被其他灯组占用的格灰显不可选；
-       网格外红色渐变取消区仅拖拽时显示。 -->
+  <!-- 灯珠范围拖选：长按 1s 激活刷选；被其他灯组占用的格灰显不可选；
+       拖选时全屏半透明覆盖层 fixed 屏幕下方（微信语音取消样式），拖入松手回滚。 -->
   <block wx:if="{{groups.length}}">
     <view class="bt-card">
       <view class="row">
@@ -41,30 +41,14 @@
       <view class="range">
         <view class="bt-row bt-row--between">
           <text class="range__title">灯珠范围 <text wx:if="{{groups[activeGroup].ledStart !== 255}}">[{{groups[activeGroup].ledStart}}, {{groups[activeGroup].ledEnd}}] ({{groups[activeGroup].ledEnd - groups[activeGroup].ledStart + 1}} 颗)</text><text wx:else>未选 (0 颗)</text></text>
-          <text class="bt-text--secondary">{{dragging ? (inCancelZone ? '松开取消' : '拖动中…') : '长按拖动选择'}}</text>
+          <text class="bt-text--secondary">点此选择灯珠 ›</text>
         </view>
-        <view
-          class="led-grid"
-          bindtouchstart="onLedTouchStart"
-          catchtouchmove="onLedTouchMove"
-          bindtouchend="onLedTouchEnd"
-          bindtouchcancel="onLedTouchEnd"
-        >
-          <view
-            wx:for="{{ledCells}}"
-            wx:key="i"
-            class="led-cell led-cell--{{item.state}}"
-          >{{item.i}}</view>
+        <view class="range__open bt-pressable" bindtap="onOpenLedPicker">
+          <text>选择灯珠（长按拖动）</text>
         </view>
-        <view class="range__hint">长按拖动刷选灯珠；灰色为被其他灯组占用；拖到下方取消区松手可保留上次选择。</view>
         <view class="range__actions">
           <view class="range__clear bt-pressable" bindtap="onClearLeds">清除本组</view>
         </view>
-      </view>
-
-      <!-- 红色渐变取消区：仅拖拽时显示 -->
-      <view wx:if="{{dragging}}" class="led-cancel {{inCancelZone ? 'led-cancel--active' : ''}}">
-        <text class="led-cancel__text">松开取消 · 保留上次选择</text>
       </view>
     </view>
 
@@ -147,6 +131,37 @@
 
     <view wx:if="{{groups[activeGroup].steps.length < stepsPerGroupMax}}" class="add-step bt-pressable" bindtap="onAddStep">＋ 添加步骤</view>
   </block>
+
+  <!-- 灯珠选择弹出层：全屏半透明遮罩 + 居中面板；取消区固定在面板下方，不遮挡方格 -->
+  <view wx:if="{{ledPickerOpen}}" class="led-picker-mask" catchtouchmove="noop">
+    <!-- 遮罩：点击关闭（拖选进行中不关闭） -->
+    <view class="led-picker-backdrop" bindtap="onCloseLedPicker"></view>
+    <!-- 居中面板：标题 + 方格列表（手势层） -->
+    <view class="led-picker-panel">
+      <view class="led-picker-head">
+        <text class="led-picker-title">选择灯珠</text>
+        <text class="led-picker-close" bindtap="onCloseLedPicker">✕</text>
+      </view>
+      <view
+        class="led-grid led-grid--picker"
+        bindtouchstart="onLedTouchStart"
+        catchtouchmove="onLedTouchMove"
+        bindtouchend="onLedTouchEnd"
+        bindtouchcancel="onLedTouchEnd"
+      >
+        <view
+          wx:for="{{ledCells}}"
+          wx:key="i"
+          class="led-cell led-cell--{{item.state}}"
+        >{{item.i}}</view>
+      </view>
+      <view class="led-picker-hint">{{dragging ? (inCancelZone ? '松开取消 · 保留上次选择' : '拖动中…') : '长按 1 秒激活拖动刷选；灰色为被其他灯组占用'}}</view>
+    </view>
+    <!-- 取消区：fixed 屏幕底部，与面板物理分离，永不遮挡方格 -->
+    <view wx:if="{{dragging}}" class="led-cancel-zone {{inCancelZone ? 'led-cancel-zone--active' : ''}}">
+      <text class="led-cancel-zone__text">{{inCancelZone ? '松开取消 · 保留上次选择' : '拖到此处取消 · 保留上次选择'}}</text>
+    </view>
+  </view>
 
   <!-- 保存栏（功能层玻璃，.bt-glass 含降级） -->
   <view class="save-bar bt-glass">

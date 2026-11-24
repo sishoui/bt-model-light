@@ -137,6 +137,14 @@
   flex-wrap: wrap;
   margin: 8rpx -10rpx 0;
   touch-action: none;
+  justify-content: center;
+}
+
+.led-grid--picker {
+  padding: 8rpx;
+  margin: 0;
+  max-height: 50vh;
+  overflow-y: auto;
 }
 
 .led-cell {
@@ -203,28 +211,38 @@
   border-radius: 999rpx;
 }
 
-/* 红色渐变取消区：仅拖拽时显示；拖入时高亮 */
-.led-cancel {
-  margin-top: 24rpx;
-  height: 96rpx;
+/* 灯珠拖选取消覆盖层（微信语音取消样式）：全屏 fixed 半透明，
+   下 60% 为红色渐变取消区；拖入时红色加深。 */
+.led-cancel-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none; /* 不拦截 touch（手势由网格 catch） */
+}
+
+.led-cancel-zone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 60%;
+  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 20rpx;
-  background: linear-gradient(90deg, rgba(255, 56, 60, 0.25) 0%, rgba(255, 56, 60, 0.6) 100%);
-  transition: background 0.2s ease-out, transform 0.2s ease-out;
+  background: linear-gradient(180deg, rgba(255, 56, 60, 0) 0%, rgba(255, 56, 60, 0.25) 40%, rgba(255, 56, 60, 0.45) 100%);
+  transition: background 0.2s ease-out;
 }
 
-.led-cancel--active {
-  background: linear-gradient(90deg, rgba(255, 56, 60, 0.5) 0%, rgba(255, 56, 60, 0.9) 100%);
-  transform: scale(1.02);
+.led-cancel-zone--active {
+  background: linear-gradient(180deg, rgba(255, 56, 60, 0.1) 0%, rgba(255, 56, 60, 0.45) 40%, rgba(255, 56, 60, 0.7) 100%);
 }
 
-.led-cancel__text {
-  font-size: 26rpx;
+.led-cancel-zone__text {
+  font-size: 28rpx;
   line-height: 40rpx;
   color: #ffffff;
   font-weight: 600;
+  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.25);
 }
 
 /* 步骤卡片 */
@@ -356,4 +374,128 @@
 
 .save-bar__save {
   flex: 1;
+}
+/* 灯珠选择弹出层（#31） */
+.led-picker-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.led-picker-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.led-picker-panel {
+  position: relative;
+  width: 90vw;
+  max-width: 720rpx;
+  max-height: 80vh;
+  background: var(--bt-color-bg-elevated);
+  border-radius: 28rpx;
+  padding: 24rpx;
+  box-shadow: 0 24rpx 64rpx rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.led-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.led-picker-title {
+  font-size: 32rpx;
+  line-height: 44rpx;
+  font-weight: 700;
+  color: var(--bt-color-label);
+}
+
+.led-picker-close {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32rpx;
+  line-height: 40rpx;
+  color: var(--bt-color-label-secondary);
+  border-radius: 999rpx;
+  background: var(--bt-color-bg-input);
+}
+
+.led-picker-hint {
+  font-size: 22rpx;
+  line-height: 32rpx;
+  color: var(--bt-color-label-tertiary);
+  text-align: center;
+}
+
+.led-picker-open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16rpx 32rpx;
+  margin-top: 12rpx;
+  background: var(--bt-color-bg-input);
+  border-radius: 20rpx;
+  color: var(--bt-color-accent);
+  font-size: 26rpx;
+  line-height: 40rpx;
+  font-weight: 600;
+}
+
+/* 取消区：fixed 屏幕底部，与面板物理分离，永不遮挡方格 */
+.led-cancel-zone {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 32vh;
+  z-index: 101;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(255, 56, 60, 0) 0%, rgba(255, 56, 60, 0.25) 40%, rgba(255, 56, 60, 0.45) 100%);
+  transition: background 0.2s ease-out;
+}
+
+.led-cancel-zone--active {
+  background: linear-gradient(180deg, rgba(255, 56, 60, 0.1) 0%, rgba(255, 56, 60, 0.45) 40%, rgba(255, 56, 60, 0.7) 100%);
+}
+
+.led-cancel-zone__text {
+  font-size: 28rpx;
+  line-height: 40rpx;
+  color: #ffffff;
+  font-weight: 600;
+  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.25);
+}
+
+.range__open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16rpx 32rpx;
+  margin-top: 12rpx;
+  background: var(--bt-color-bg-input);
+  border-radius: 20rpx;
+  color: var(--bt-color-accent);
+  font-size: 26rpx;
+  line-height: 40rpx;
+  font-weight: 600;
+}
+
+.led-grid--picker {
+  padding: 8rpx;
+  margin: 0;
+  max-height: 50vh;
+  overflow-y: auto;
 }
