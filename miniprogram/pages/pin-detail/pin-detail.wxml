@@ -151,6 +151,7 @@
       <view wx:if="{{groups[activeGroup].steps[activeStepSi].layers.length < layersPerStepMax}}" class="add-layer" data-si="{{activeStepSi}}" bindtap="onAddLayer">＋ 添加图层</view>
     </view>
   </block>
+  </block>
 
     <!-- 灯珠选择弹出层：全屏半透明遮罩 + 居中面板 -->
   <view wx:if="{{ledPickerOpen}}" class="led-picker-mask" catchtouchmove="noop">
