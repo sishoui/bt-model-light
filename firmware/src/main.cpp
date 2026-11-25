@@ -28,8 +28,8 @@
 //      playback after APPLY.
 //   4. bleServiceBegin (advertising + GATT server + notify char).
 //   5. Frame task: every TICK_MS, render the active config (or factory
-//      default when IDLE) + ledRefreshAll. Watchdog fed here + in BLE
-//      command handlers (ADR-0016).
+//      default when IDLE) + ledRefreshAll + 配置落盘轮询（ADR-0030）。
+//      Watchdog fed here + in BLE command handlers (ADR-0016).
 //   6. BOOT task: 5s long-press -> clear spiffs + factory default + IDLE.
 //
 // Note: no Serial console in T2. The ESP32-C3-DevKitM-1 has no
@@ -91,14 +91,21 @@ static void frameTask(void *) {
         } else if (st == FW_STATE_PAUSED) {
             // Hold current frame: just refresh (no re-render, no advance).
             // The strips keep their last-written pixels.
+        } else if (st == FW_STATE_CONFIGURED) {
+            // 配置已收到、等 APPLY：保持上一帧，不再刷出厂彩虹（ADR-0030）。
+            // 首次配置时上一帧本就是出厂默认（IDLE/CONNECTED 画的），所以
+            // "开箱即亮"不变；关灯时也不会先闪一下彩虹再灭。
         } else {
-            // IDLE / CONNECTED / CONFIGURED: factory-default breath-rainbow
-            // visual so the device is never dark before first APPLY
-            // (ADR-0015 "开箱即亮").
+            // IDLE / CONNECTED: factory-default breath-rainbow visual so the
+            // device is never dark before first APPLY (ADR-0015 "开箱即亮").
             factoryDefaultFillAll(sTickCount);
         }
         ledRefreshAll();
         sTickCount++;
+
+        // 配置落盘轮询（ADR-0030）：WRITE_CONFIG 只改 RAM，flash 写在这里按
+        // 尾部防抖执行，命令路径（含紧随其后的 APPLY）不再等落盘。
+        bleServicePollPersist(now_ms);
 
         // Frame loop is the heartbeat; the BLE command handler also feeds
         // (ADR-0016). A hang in rendering or scheduling trips the reset.

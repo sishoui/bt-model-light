@@ -8,6 +8,8 @@
 
 #if defined(ARDUINO)
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>   // 配置锁（ADR-0030：延迟落盘串行化）
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -31,6 +33,20 @@ static bool sConnected = false;
 
 static BLECharacteristic *sNotifyChar = nullptr;
 static parser_t sParser;
+
+// ---- 配置落盘（ADR-0030） ------------------------------------------------
+// WRITE_CONFIG 只更新 RAM 配置并标记待落盘，spiffs 写由 frame task 每轮调用
+// bleServicePollPersist() 按尾部防抖执行——命令路径不再被 flash 写阻塞，
+// APPLY 紧随 WRITE_CONFIG 时不必等落盘（代价：这段窗口内断电会丢一次配置，
+// 重启回落出厂默认，ADR-0015）。
+// sCfgLock 串行化"sCfg 整份赋值"与"落盘读取 sCfg"：单核可抢占，5.4KB 结构体
+// 拷贝被打断会让落盘读到半新半旧的配置（写入一份自洽但错乱的 blob）。
+static SemaphoreHandle_t sCfgLock = nullptr;
+static bool sPersistDirty = false;
+static uint32_t sPersistDirtyAtMs = 0; // 最后一次改动时刻（尾部防抖起点）
+static uint8_t sPersistAttempts = 0;
+static const uint32_t PERSIST_DEBOUNCE_MS = 600;
+static const uint8_t PERSIST_MAX_ATTEMPTS = 3;
 
 // ---- notify helper -------------------------------------------------------
 
@@ -61,8 +77,8 @@ static void notify_version(uint8_t seq) {
 
 // ---- command handlers ----------------------------------------------------
 // Each handler returns the seq it is responding to (so notify pairs with
-// the triggering command). Handlers never block long; SPIFFS writes are
-// the slowest (~tens of ms) and are acceptable inside the callback.
+// the triggering command). Handlers stay short: spiffs writes are deferred
+// to the frame task (ADR-0030), so no handler blocks on flash.
 
 static void handle_get_version(uint8_t seq) {
     notify_version(seq);
@@ -86,10 +102,15 @@ static void handle_write_config(uint8_t seq, const uint8_t *payload, size_t len)
         notify_status(NOTIFY_STATUS_ERROR, tr, seq);
         return;
     }
-    // Commit: copy into the live config and persist.
+    // Commit: copy into the live config (RAM 立即生效) and mark for deferred
+    // persist (ADR-0030) — the app's APPLY right after must not wait for flash.
+    xSemaphoreTake(sCfgLock, portMAX_DELAY);
     *sCfg = decoded;
     composition_init(sCfg, sPb);
-    configPersistSave(sCfg);   // best-effort; RAM stays consistent on failure
+    sPersistDirty = true;
+    sPersistDirtyAtMs = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    sPersistAttempts = 0;
+    xSemaphoreGive(sCfgLock);
     notify_status(NOTIFY_STATUS_OK, CMD_WRITE_CONFIG, seq);
 }
 
@@ -160,9 +181,15 @@ static void handle_stop(uint8_t seq) {
 
 static void handle_reset_default(uint8_t seq) {
     // Clear spiffs, restore factory default in RAM, back to IDLE.
+    // 放弃未落盘的旧改动（ADR-0030）：否则 frame task 稍后会把复位前的配置
+    // 又写回 spiffs，复位就不干净了。
+    xSemaphoreTake(sCfgLock, portMAX_DELAY);
+    sPersistDirty = false;
+    sPersistAttempts = 0;
     configPersistErase();
     config_load_factory_default(sCfg);
     composition_init(sCfg, sPb);
+    xSemaphoreGive(sCfgLock);
     stateMachineDispatch(FW_EVT_RESET_DEFAULT);
     notify_status(NOTIFY_STATUS_OK, CMD_RESET_DEFAULT, seq);
 }
@@ -281,6 +308,8 @@ void bleServiceBegin(device_config_t *cfg,
     sPb = pb;
     sConnected = false;
     parser_init(&sParser);
+    // 配置锁先于任何回调创建（广告开始后随时可能有写命令进来）。
+    if (!sCfgLock) sCfgLock = xSemaphoreCreateMutex();
 
     // Device name: BTLight_ + 4 hex chars of the MAC (ADR-0025 prefix).
     uint8_t mac[6];
@@ -327,6 +356,22 @@ bool bleServiceConnected() {
     return sConnected;
 }
 
+// 延迟落盘（ADR-0030）：frame task 每轮调用。尾部防抖 600ms（最后一次
+// WRITE_CONFIG 起算，期间又有改动就顺延），避免拖拽参数时每次改动都写 flash。
+// 锁拿不到（BTC 正在整份改配置）就下一轮再来；写失败重试 PERSIST_MAX_ATTEMPTS
+// 次后放弃 —— RAM 配置始终一致，spiffs 保留上一份 blob（best-effort）。
+void bleServicePollPersist(uint32_t now_ms) {
+    if (!sCfg || !sCfgLock || !sPersistDirty) return;
+    if ((uint32_t)(now_ms - sPersistDirtyAtMs) < PERSIST_DEBOUNCE_MS) return;
+    if (xSemaphoreTake(sCfgLock, 0) != pdTRUE) return;
+    bool saved = configPersistSave(sCfg);
+    xSemaphoreGive(sCfgLock);
+    if (saved || ++sPersistAttempts >= PERSIST_MAX_ATTEMPTS) {
+        sPersistDirty = false;
+        sPersistAttempts = 0;
+    }
+}
+
 #else
 // Native / non-Arduino build: stubs so files that include ble_service.h
 // still link. ble_service.cpp is excluded from the native test build, so
@@ -336,4 +381,5 @@ void bleServiceBegin(device_config_t *cfg,
     (void)cfg; (void)pb;
 }
 bool bleServiceConnected() { return false; }
+void bleServicePollPersist(uint32_t now_ms) { (void)now_ms; }
 #endif
