@@ -32,11 +32,14 @@
     </view>
   </view>
 
-  <!-- 引脚卡片列表：固定 8 个硬件引脚（4 列网格小卡；未配置显示占位，点击进入配置） -->
+  <!-- 引脚卡片列表：固定 8 个硬件引脚（4 列网格小卡；未配置显示占位，点击进入配置）
+       设备关机（整机开关 off，ADR-0032）→ 整列置灰且不可操作：卡片不可点、开关 disabled；
+       各引脚自己的开关状态原样保留，设备开机后恢复可操作。 -->
   <view wx:if="{{pins.length}}" class="section">
     <view class="bt-section-title">引脚</view>
     <view class="pin-grid">
-      <view wx:for="{{pins}}" wx:key="pin" class="pin-card {{item.configured ? '' : 'pin-card--empty'}} bt-pressable"
+      <view wx:for="{{pins}}" wx:key="pin"
+        class="pin-card {{item.configured ? '' : 'pin-card--empty'}} {{power ? 'bt-pressable' : 'pin-card--off'}}"
         data-pin="{{item.pin}}" bindtap="onTapPin">
         <!-- 1:1 方形媒体区：图铺满，引脚号/名称/开关浮层在图上 -->
         <view class="pin-card__media">
@@ -44,9 +47,11 @@
           <view wx:else class="pin-card__placeholder">
             <text class="pin-card__placeholder-text">{{item.pin + 1}}</text>
           </view>
-          <!-- 右上 灯带开关（仅已配置引脚展示）：开关该引脚灯带；catchtap 阻止冒泡触发卡片跳转 -->
+          <!-- 右上 灯带开关（仅已配置引脚展示）：开关该引脚灯带；catchtap 阻止冒泡触发卡片跳转。
+               设备关机时 disabled（灰化 + 不可切换）。 -->
           <switch wx:if="{{item.configured}}" class="pin-card__switch" data-pin="{{item.pin}}"
-            checked="{{item.power}}" color="#0088FF" catchtap="noop" bindchange="onPinPowerChange" />
+            checked="{{item.power}}" disabled="{{!power}}" color="#0088FF" catchtap="noop"
+            bindchange="onPinPowerChange" />
           <!-- 底部名称条（引脚号 + 名称） -->
           <view class="pin-card__name-bar">
             <text class="pin-card__name">{{item.name}}</text>

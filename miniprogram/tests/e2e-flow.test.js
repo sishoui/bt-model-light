@@ -19,7 +19,7 @@ const { decodeConfigBlob } = require('../utils/configCodec')
 const { FrameParser, PARSE_OK, decodeFrame } = require('../utils/frameParser')
 const { setupBle, flush, statusFrame, notify } = require('./bleTestUtils')
 const autoSync = require('../utils/autoSync')
-const { CMD, NOTIFY, ERR } = require('../utils/protocol_gen')
+const { CMD, NOTIFY, ERR, PROTOCOL_VERSION, FIRMWARE_VERSION } = require('../utils/protocol_gen')
 
 const DEVICE_LIST = '../pages/device-list/device-list'
 const HOME = '../pages/home/home'
@@ -99,8 +99,11 @@ describe('端到端全流程（#28 / T8）', () => {
     const afterConnect = writtenFrames(wx)
     expect(afterConnect.map((f) => f.cmd)).toEqual([CMD.GET_VERSION])
 
-    // 固件回 VERSION notify（协议 1.0 兼容）→ 协商成功。
-    notify(wx, statusFrame(NOTIFY.VERSION, 0, 0, [1, 0, 0, 1]), 'dev-e2e')
+    // 固件回 VERSION notify（当前协议版本，见 versions.csv）→ 协商成功。
+    notify(wx, statusFrame(NOTIFY.VERSION, 0, 0, [
+      PROTOCOL_VERSION.major, PROTOCOL_VERSION.minor,
+      FIRMWARE_VERSION.major, FIRMWARE_VERSION.minor,
+    ]), 'dev-e2e')
     expect(client.versionKnown).toBe(true)
     expect(client.compatible).toBe(true)
 

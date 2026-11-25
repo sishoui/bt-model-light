@@ -2,9 +2,9 @@
 // Source of truth: protocol/*.csv + protocol/frame-spec.md. Regenerate: python protocol/codegen/generate.py
 // Project: sishoui/bt-model-light
 //
-// protocol_version 1.0 (released 2026-11-23)
-// firmware_version 0.1 (released 2026-11-23)
-// app_version     0.1 (released 2026-11-23)
+// protocol_version 1.2 (released 2026-11-26)
+// firmware_version 0.3 (released 2026-11-26)
+// app_version     0.3 (released 2026-11-26)
 
 #ifndef BT_MODEL_LIGHT_PROTOCOL_GEN_H
 #define BT_MODEL_LIGHT_PROTOCOL_GEN_H
@@ -18,14 +18,14 @@ extern "C" {
 
 /* ---- versions (versions.csv) ---- */
 #define PROTOCOL_VERSION_MAJOR 1
-#define PROTOCOL_VERSION_MINOR 0
-#define PROTOCOL_VERSION_STRING "1.0"
+#define PROTOCOL_VERSION_MINOR 2
+#define PROTOCOL_VERSION_STRING "1.2"
 #define FIRMWARE_VERSION_MAJOR 0
-#define FIRMWARE_VERSION_MINOR 1
-#define FIRMWARE_VERSION_STRING "0.1"
+#define FIRMWARE_VERSION_MINOR 3
+#define FIRMWARE_VERSION_STRING "0.3"
 #define APP_VERSION_MAJOR 0
-#define APP_VERSION_MINOR 1
-#define APP_VERSION_STRING "0.1"
+#define APP_VERSION_MINOR 3
+#define APP_VERSION_STRING "0.3"
 
 /* ---- frame (frame-spec.md) ---- */
 #define FRAME_HEADER_BYTE 0xAA
@@ -57,10 +57,12 @@ extern "C" {
 #define CMD_RESET_DEFAULT    0x07  /* 恢复出厂默认 */
 #define CMD_GET_VERSION      0x08  /* 读协议版本 + 固件版本 */
 #define CMD_GET_PIN_CAPS     0x09  /* 读每引脚能力（灯珠数） */
+#define CMD_SET_BRIGHTNESS   0x0A  /* 设置整机亮度：所有引脚统一缩放（0-255） */
+#define CMD_SET_POWER        0x0B  /* 设置整机开关：0=关（输出全黑，不改各引脚状态）/1=开 */
 #define CMD_STATUS_NOTIFY    0x81  /* notify 回传状态/错误/进度 */
 #define CMD_OTA              0xF0  /* 预留给 v2，命令码预留流程延后 */
 
-#define CMD_COUNT 11
+#define CMD_COUNT 13
 
 /* ---- command direction ---- */
 typedef enum {
@@ -85,6 +87,8 @@ static const cmd_entry_t CMD_TABLE[] = {
     { 0x07, "RESET_DEFAULT", CMD_DIR_APP_TO_FW },
     { 0x08, "GET_VERSION", CMD_DIR_APP_TO_FW },
     { 0x09, "GET_PIN_CAPS", CMD_DIR_APP_TO_FW },
+    { 0x0A, "SET_BRIGHTNESS", CMD_DIR_APP_TO_FW },
+    { 0x0B, "SET_POWER", CMD_DIR_APP_TO_FW },
     { 0x81, "STATUS_NOTIFY", CMD_DIR_FW_TO_APP },
     { 0xF0, "OTA", CMD_DIR_BIDIRECTIONAL },
 };

@@ -1,9 +1,13 @@
 // 设备持久化（ADR-0023 / ADR-0025 / ADR-0026）。
 //
 // Storage 布局（小程序 Storage 为真相源，SPEC 持久化节）：
-//   bt_devices        已保存设备数组：[{ id, name, deviceId }]
+//   bt_devices        已保存设备数组：[{ id, name, deviceId, power?, brightness? }]
 //   bt_current_device 当前选中设备 id（'' 表示未选择）
 //   device_config_<id> 每设备配置（T7 引脚配置写入，本文件只提供读写通道）
+//
+// power / brightness 是整机开关与整机亮度（ADR-0031/0032）：可选字段，
+// 缺省 开 / 255（与固件默认一致）。存设备记录而非设备配置：它们是设备级
+// 展示状态，不进 WRITE_CONFIG 的配置 blob。
 //
 // id 是本地生成的无序唯一键（时间戳 + 随机数），与 BLE deviceId（MAC 地址）
 // 解耦：固件 MAC 可能随烧录变化，本地 id 稳定。
@@ -104,6 +108,48 @@ function setCurrentDeviceId(id) {
   _wx().setStorageSync(STORAGE_KEY_CURRENT, id || '')
 }
 
+// ---- 整机开关 / 整机亮度（ADR-0031 / ADR-0032） ------------------------------
+
+const BRIGHTNESS_DEFAULT = 255
+const POWER_DEFAULT = true
+
+// 读某设备的整机开关（未设置过 → 开）。
+function getDevicePower(id) {
+  const dev = _readDevices().find((d) => d.id === id)
+  return dev && dev.power !== undefined ? !!dev.power : POWER_DEFAULT
+}
+
+// 写某设备的整机开关（返回落盘值）。只动整机状态，不碰各引脚的 power
+// （引脚状态不变是 ADR-0032 的核心：开机后各引脚按原状态恢复）。
+function saveDevicePower(id, on) {
+  const v = !!on
+  saveDevice({ id, power: v })
+  return v
+}
+
+// 归一化：非数字/越界一律回落到默认值，避免脏 Storage 把固件写成黑屏。
+// 导出供页面直接用（滑块的原始值也要过这里，保证界面与落盘同口径）。
+function clampBrightness(value) {
+  const n = Math.round(Number(value))
+  if (!isFinite(n) || n < 0 || n > 255) return BRIGHTNESS_DEFAULT
+  return n
+}
+
+// 读某设备的整机亮度（未设置过 → 255）。
+function getDeviceBrightness(id) {
+  const dev = _readDevices().find((d) => d.id === id)
+  return dev && dev.brightness !== undefined
+    ? clampBrightness(dev.brightness)
+    : BRIGHTNESS_DEFAULT
+}
+
+// 写某设备的整机亮度（返回落盘值）。
+function saveDeviceBrightness(id, value) {
+  const v = clampBrightness(value)
+  saveDevice({ id, brightness: v })
+  return v
+}
+
 // ---- 每设备配置（device_config_<id>） ----------------------------------------
 
 function _configKey(id) {
@@ -135,6 +181,8 @@ function resetDeviceStore() {
 module.exports = {
   STORAGE_KEY_DEVICES,
   STORAGE_KEY_CURRENT,
+  BRIGHTNESS_DEFAULT,
+  POWER_DEFAULT,
   listDevices,
   saveDevice,
   removeDevice,
@@ -142,5 +190,10 @@ module.exports = {
   setCurrentDeviceId,
   getDeviceConfig,
   saveDeviceConfig,
+  clampBrightness,
+  getDevicePower,
+  saveDevicePower,
+  getDeviceBrightness,
+  saveDeviceBrightness,
   resetDeviceStore,
 }

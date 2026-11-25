@@ -50,6 +50,9 @@ bool ledInit();
 //   pin  : 0..PIN_COUNT-1
 //   idx  : LED index within that pin's strip, 0..count-1
 //   color: RGB color (0,0,0 = off)
+// The color is first gated/scaled by the master output stage (整机开关 +
+// 整机亮度, ADR-0031/0032) — this is the single choke point every renderer
+// (config playback, preview, factory default) goes through.
 void ledSetPixel(uint8_t pin, uint16_t idx, Rgb color);
 
 // Refresh all 8 pins sequentially: pin0.show() -> pin1.show() -> ...

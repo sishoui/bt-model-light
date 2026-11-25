@@ -10,7 +10,7 @@
 // 灯效参数 schema 直接消费 protocol_gen 的 EFFECT_PARAMS（与固件 ADR-0018 同源），
 // 切换灯效即按 schema 重建参数表单。Storage 真相源经 configCodec 编码下发固件。
 
-const { getDeviceConfig, saveDeviceConfig } = require('../../utils/deviceStore')
+const { getDeviceConfig, saveDeviceConfig, getDevicePower } = require('../../utils/deviceStore')
 const { encodeConfigBlob, validateConfig, effectName, clampInt } = require('../../utils/configCodec')
 const { getRecentColors, pushRecentColor, rgbToHex, hexToRgb, hsvToRgb, rgbToHsv } = require('../../utils/recentColors')
 const { EFF, EFFECT_PARAMS, LIMITS } = require('../../utils/protocol_gen')
@@ -236,6 +236,8 @@ Page({
     img: '',
     pinName: '引脚',
     power: false,
+    // 整机开关（ADR-0032）：关 = 设备输出全黑，本页的灯带开关随之置灰不可切换。
+    masterPower: true,
     // 模拟模式标志（onLoad 设置，用于显示提示）。
     simMode: false,
     // 灯组 Tab（固定 5 个，无新增/删除；tab 上小字显示灯珠区间）
@@ -343,6 +345,8 @@ Page({
       // 灯带开关：只有显式 power === false 才算关（老配置无该字段 → 开，ADR-0028）；
       // 首次配置保存时写入该默认值，与 home 引脚卡片开关同口径。
       power: !pinEntry || pinEntry.power !== false,
+      // 设备关机时本页灯带开关置灰（ADR-0032）——状态照旧显示，只是不可切换。
+      masterPower: getDevicePower(this._deviceId),
       groups,
       activeGroup: 0,
       activeStepSi: 0,
@@ -625,6 +629,7 @@ Page({
   },
 
   onPowerChange(e) {
+    if (!this.data.masterPower) return // 设备关机时不可切换（ADR-0032，WXML 已 disabled）
     this.setData({ power: e.detail.value })
     // 灯带开关是离散动作：跳过防抖立即下发（ADR-0029）。
     this._markDirty({ immediate: true })

@@ -9,6 +9,11 @@
 //   4. hash 去重：与上次成功下发的快照相同则跳过（固件 WRITE_CONFIG 幂等，
 //      去重只为省空口流量）。
 //
+// 整机开关/整机亮度（ADR-0031 / ADR-0032）走同一个出口：schedulePower /
+// scheduleBrightness 各只发一条 1 字节命令（SET_POWER / SET_BRIGHTNESS），不重发
+// 整份配置、不碰 Storage。它们与配置下发共用 in-flight 串行：同一时刻只有一条命令
+// 在写空口，避免分片交错写坏字节流（同 GET_VERSION 与配置下发的关系）。
+//
 // 单例状态挂 globalThis slot（与 bleClient 的 __btBleClient 同模式）：
 // jest.isolateModules 下页面副本与测试副本共享同一协调器。
 // 状态订阅供页面顶部状态条使用：syncing / synced / failed / local（idle 不显示）。
@@ -49,6 +54,10 @@ function _store() {
       deviceId: null,
       pending: null, // { deviceId, blob, hash } 待下发/补发的最新快照
       lastSyncedHash: {}, // deviceId -> hash（跨设备）
+      pendingPower: null, // { deviceId, on } 待下发/补发的整机开关（ADR-0032）
+      lastSentPower: {}, // deviceId -> on
+      pendingBrightness: null, // { deviceId, value } 待下发/补发的整机亮度（ADR-0031）
+      lastSentBrightness: {}, // deviceId -> value（与配置同样的去重）
       timer: null,
       retryTimer: null,
       retryCount: 0,
@@ -138,17 +147,73 @@ function schedule(deviceId, config, opts) {
   _armDebounce(S)
 }
 
-// 连接建立：补发未同步快照（hash 未变则跳过）。
+// 整机亮度（ADR-0031）：落盘由页面做，这里只安排 SET_BRIGHTNESS 下发。
+// 拖动中每个事件都调一次：与上次成功下发的值相同则跳过，在途则合并为
+// "最新值待发"——不节流也能自然限速（发多快取决于空口）。
+function scheduleBrightness(deviceId, value) {
+  const S = _store()
+  const v = Math.round(Number(value))
+  if (!isFinite(v) || v < 0 || v > 255) return // 脏值静默（页面已归一化，这里是双保险）
+  S.deviceId = deviceId
+  if (S.lastSentBrightness[deviceId] === v) return // 已下发同值：无空口流量
+  if (S.pendingBrightness && S.pendingBrightness.value === v) return // 已在待发队列
+  S.pendingBrightness = { deviceId, value: v }
+  S.retryCount = 0
+  if (S.retryTimer) {
+    clearTimeout(S.retryTimer)
+    S.retryTimer = null
+  }
+  attach()
+  const client = getCurrentBleClient()
+  if (!client || !client.connected) {
+    _setState(S, 'local') // 仅本机；pending 保留，连接后补发
+    return
+  }
+  _flush()
+}
+
+// 整机开关（ADR-0032）：落盘由页面做，这里只安排 SET_POWER 下发。
+// 关 = 设备输出全黑，但**不改各引脚自己的开关状态**——开机后各引脚按原状态恢复。
+function schedulePower(deviceId, on) {
+  const S = _store()
+  const v = !!on
+  S.deviceId = deviceId
+  if (S.lastSentPower[deviceId] === v) return // 已下发同值：无空口流量
+  if (S.pendingPower && S.pendingPower.on === v) return // 已在待发队列
+  S.pendingPower = { deviceId, on: v }
+  S.retryCount = 0
+  if (S.retryTimer) {
+    clearTimeout(S.retryTimer)
+    S.retryTimer = null
+  }
+  attach()
+  const client = getCurrentBleClient()
+  if (!client || !client.connected) {
+    _setState(S, 'local') // 仅本机；pending 保留，连接后补发
+    return
+  }
+  _flush()
+}
+
+// 连接建立：补发未同步的快照与整机状态（未变则跳过）。
 // 补发走防抖定时器而非立即 flush：connect() 在 GET_VERSION 发出前就会触发
 // 连接事件，立即下发会与 GET_VERSION 分片交错写坏空口字节流（CRC 全乱）。
 function onConnected() {
   const S = _store()
   attach()
-  if (!S.pending) return
-  if (S.pending.hash === S.lastSyncedHash[S.pending.deviceId]) {
+  if (S.pending && S.pending.hash === S.lastSyncedHash[S.pending.deviceId]) {
     S.pending = null
-    return
   }
+  if (S.pendingPower && S.lastSentPower[S.pendingPower.deviceId] === S.pendingPower.on) {
+    S.pendingPower = null
+  }
+  if (
+    S.pendingBrightness &&
+    S.lastSentBrightness[S.pendingBrightness.deviceId] === S.pendingBrightness.value
+  ) {
+    S.pendingBrightness = null
+  }
+  if (!S.pending && !S.pendingPower && !S.pendingBrightness) return
   _armDebounce(S)
 }
 
@@ -162,13 +227,30 @@ function _armDebounce(S) {
   _setState(S, 'syncing')
 }
 
+// 下一个待发 job：整机开关 > 整机亮度 > 配置。
+// 整机命令都是 1 字节、用户正盯着灯看，先发；配置放最后（它最重且会触发重渲染）。
+// 返回 null 表示无待发。
+function _nextJob(S) {
+  if (S.pendingPower) {
+    return { kind: 'power', deviceId: S.pendingPower.deviceId, on: S.pendingPower.on }
+  }
+  if (S.pendingBrightness) {
+    return { kind: 'brightness', deviceId: S.pendingBrightness.deviceId, value: S.pendingBrightness.value }
+  }
+  if (S.pending) {
+    return { kind: 'config', deviceId: S.pending.deviceId, blob: S.pending.blob, hash: S.pending.hash }
+  }
+  return null
+}
+
 async function _flush() {
   const S = _store()
   if (S.inFlight) {
-    S.queued = true // 在途：等当前完成发最新快照
+    S.queued = true // 在途：等当前完成发最新 job
     return
   }
-  if (!S.pending) return
+  const job = _nextJob(S)
+  if (!job) return
   const client = getCurrentBleClient()
   if (!client || !client.connected) {
     _setState(S, 'local')
@@ -176,12 +258,24 @@ async function _flush() {
   }
   S.inFlight = true
   _setState(S, 'syncing')
-  const job = S.pending
   try {
-    await client.sendCmd(CMD.WRITE_CONFIG, Array.from(job.blob))
-    await client.sendCmd(CMD.APPLY, [])
-    S.lastSyncedHash[job.deviceId] = job.hash
-    S.pending = null
+    if (job.kind === 'power') {
+      await client.sendCmd(CMD.SET_POWER, [job.on ? 1 : 0])
+      S.lastSentPower[job.deviceId] = job.on
+      if (S.pendingPower && S.pendingPower.on === job.on) S.pendingPower = null
+    } else if (job.kind === 'brightness') {
+      await client.sendCmd(CMD.SET_BRIGHTNESS, [job.value])
+      S.lastSentBrightness[job.deviceId] = job.value
+      // 按值清 pending（拖动中同值重复入队已被 scheduleBrightness 挡掉）。
+      if (S.pendingBrightness && S.pendingBrightness.value === job.value) {
+        S.pendingBrightness = null
+      }
+    } else {
+      await client.sendCmd(CMD.WRITE_CONFIG, Array.from(job.blob))
+      await client.sendCmd(CMD.APPLY, [])
+      S.lastSyncedHash[job.deviceId] = job.hash
+      if (S.pending && S.pending.hash === job.hash) S.pending = null
+    }
     S.inFlight = false
     _setState(S, 'synced', _now())
   } catch (err) {
@@ -191,7 +285,7 @@ async function _flush() {
     _scheduleRetry(S)
     return
   }
-  if (S.queued) {
+  if (S.queued || _nextJob(S)) {
     S.queued = false
     _flush()
   }
@@ -211,10 +305,10 @@ function _scheduleRetry(S) {
   }, delay)
 }
 
-// 状态条「失败·重试」点击：立即重发 pending。
+// 状态条「失败·重试」点击：立即重发待发的 job（整机状态或配置）。
 function retry() {
   const S = _store()
-  if (!S.pending) return
+  if (!S.pending && !S.pendingPower && !S.pendingBrightness) return
   S.retryCount = 0
   if (S.retryTimer) {
     clearTimeout(S.retryTimer)
@@ -234,6 +328,10 @@ function reset() {
   S.deviceId = null
   S.pending = null
   S.lastSyncedHash = {}
+  S.pendingPower = null
+  S.lastSentPower = {}
+  S.pendingBrightness = null
+  S.lastSentBrightness = {}
   S.timer = null
   S.retryTimer = null
   S.retryCount = 0
@@ -244,4 +342,4 @@ function reset() {
   S.subs.clear()
 }
 
-module.exports = { schedule, onConnected, subscribe, retry, reset }
+module.exports = { schedule, schedulePower, scheduleBrightness, onConnected, subscribe, retry, reset }

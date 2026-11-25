@@ -4,7 +4,15 @@
 
 const { loadPage, makeApp } = require('./pageHarness')
 const { createWxMock } = require('./wx-mock')
-const { saveDevice, saveDeviceConfig, getDeviceConfig, resetDeviceStore } = require('../utils/deviceStore')
+const {
+  saveDevice,
+  saveDeviceConfig,
+  getDeviceConfig,
+  getDeviceBrightness,
+  getDevicePower,
+  listDevices,
+  resetDeviceStore,
+} = require('../utils/deviceStore')
 const { createBleClient, setCurrentBleClient } = require('../utils/bleClient')
 const { setupBle, flush } = require('./bleTestUtils')
 const { statusFrame, notify } = require('./bleTestUtils')
@@ -196,12 +204,219 @@ describe('home 页（#25）', () => {
     expect(log[0].context).toBe('版本不兼容')
   })
 
-  test('整体开关/亮度滑块更新本地 data', () => {
+  // ---- 整机开关：设备级总开关（ADR-0032） -------------------------------------
+
+  test('整机关机 → 只发 SET_POWER 0；各引脚开关状态原样保留（不改写、不下发配置）', async () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    // pin 0 开着（无 power 字段），pin 3 之前被单独关掉（power=false）。
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [samplePin({ pin: 0 }), samplePin({ pin: 3, power: false })],
+    })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+
     const page = loadPage(HOME, app)
-    page.onPowerChange({ detail: { value: true } })
+    page.onShow()
+    expect(page.data.power).toBe(true) // 设备默认开着 → 按钮显示“关机”
+
+    page.onTogglePower()
+    expect(page.data.power).toBe(false)
+
+    // 引擎状态不变：pin 0 仍开、pin 3 仍关；设备级开关落在设备记录上。
+    const saved = getDeviceConfig(dev.id).pins
+    expect(saved.find((p) => p.pin === 0).power).not.toBe(false)
+    expect(saved.find((p) => p.pin === 3).power).toBe(false)
+    resetDeviceStore() // 页面副本写的是同一份 Storage，清缓存才能读回（同 brightness）
+    expect(getDevicePower(dev.id)).toBe(false)
+
+    await flush()
+    expect(client.sendCmd.mock.calls).toEqual([[CMD.SET_POWER, [0]]]) // 没有 WRITE_CONFIG/APPLY
+  })
+
+  test('整机开机 → 只发 SET_POWER 1；之前手动关掉的引脚仍是关', async () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [samplePin({ pin: 0 }), samplePin({ pin: 3, power: false })],
+    })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.onTogglePower() // 关
+    await flush()
+    client.sendCmd.mockClear()
+
+    page.onTogglePower() // 开
     expect(page.data.power).toBe(true)
-    page.onBrightnessChange({ detail: { value: 200 } })
-    expect(page.data.brightness).toBe(200)
+    await flush()
+    expect(client.sendCmd.mock.calls).toEqual([[CMD.SET_POWER, [1]]])
+    // 引脚状态全程未被改写：pin 3 仍是关（开机不等于全开）。
+    const saved = getDeviceConfig(dev.id).pins
+    expect(saved.find((p) => p.pin === 3).power).toBe(false)
+  })
+
+  test('设备关机：引脚卡片不可点、开关不可切换，点了也不落盘', async () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    saveDeviceConfig(dev.id, { version: 1, pins: [samplePin({ pin: 0 })] })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.onTogglePower() // 关机
+    await flush()
+    client.sendCmd.mockClear()
+
+    page.onTapPin({ currentTarget: { dataset: { pin: 0 } } })
+    expect(wx.navigateTo).not.toHaveBeenCalled() // 灰卡不可进配置页
+    page.onPinPowerChange({ currentTarget: { dataset: { pin: 0 } }, detail: { value: false } })
+    expect(page.data.pins[0].power).toBe(true) // 开关状态不动
+    expect(getDeviceConfig(dev.id).pins[0].power).not.toBe(false)
+    expect(client.sendCmd).not.toHaveBeenCalled()
+  })
+
+  test('整机开关落盘在设备记录：切页/重建页面后仍是关机；默认开着', () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+    const page = loadPage(HOME, app)
+    page.onShow()
+    expect(page.data.power).toBe(true) // 缺省 = 开（与固件默认一致）
+
+    page.onTogglePower()
+    resetDeviceStore()
+    expect(getDevicePower(dev.id)).toBe(false)
+    const page2 = loadPage(HOME, app) // 模拟重进页面
+    page2.onShow()
+    expect(page2.data.power).toBe(false)
+  })
+
+  // ---- 整体亮度（ADR-0031） --------------------------------------------------
+
+  test('亮度松手：落盘设备记录 + 下发 SET_BRIGHTNESS 最终值', async () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.onBrightnessChange({ detail: { value: 40 } })
+    expect(page.data.brightness).toBe(40)
+    resetDeviceStore() // 页面副本写的是同一份 Storage，清缓存才能读回（同 pin-detail.test.js）
+    expect(getDeviceBrightness(dev.id)).toBe(40) // Storage 落盘（页面重建不丢）
+
+    await flush()
+    expect(client.sendCmd.mock.calls).toEqual([[CMD.SET_BRIGHTNESS, [40]]])
+  })
+
+  test('拖动中实时下发但不落盘；在途合并为最新值', async () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.onBrightnessChanging({ detail: { value: 200 } })
+    page.onBrightnessChanging({ detail: { value: 100 } }) // 在途 → 合并
+    page.onBrightnessChanging({ detail: { value: 60 } })
+    expect(page.data.brightness).toBe(60)
+    resetDeviceStore()
+    expect(getDeviceBrightness(dev.id)).toBe(255) // 拖动中不落盘
+
+    await flush()
+    // 首个已发出；后面两次合并成最新值再发一次（不逐帧塞满空口）。
+    expect(client.sendCmd.mock.calls).toEqual([
+      [CMD.SET_BRIGHTNESS, [200]],
+      [CMD.SET_BRIGHTNESS, [60]],
+    ])
+  })
+
+  test('没设置过亮度的设备：滑块显示 255（与固件默认一致），无空口流量', () => {    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    expect(page.data.brightness).toBe(255)
+    expect(client.sendCmd).not.toHaveBeenCalled()
+  })
+
+  test('无当前设备：拖动/松手亮度只动界面，不落盘、不产生垃圾设备记录', () => {
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+    const page = loadPage(HOME, app) // app.globalData.currentDeviceId 为空
+    page.onShow()
+
+    expect(() => {
+      page.onBrightnessChanging({ detail: { value: 90 } })
+      page.onBrightnessChange({ detail: { value: 90 } })
+      page.onTogglePower()
+    }).not.toThrow()
+    expect(page.data.brightness).toBe(90)
+    expect(client.sendCmd).not.toHaveBeenCalled()
+    expect(listDevices()).toEqual([]) // 不得凭空造设备条目
+  })
+
+  test('未连接：亮度只落盘 + 状态 local，不写空口；连接后补发', async () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(false)
+    setCurrentBleClient(client)
+
+    const snaps = []
+    const off = autoSync.subscribe((s) => snaps.push(s.state))
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.onBrightnessChange({ detail: { value: 30 } })
+    resetDeviceStore()
+    expect(getDeviceBrightness(dev.id)).toBe(30)
+    expect(client.sendCmd).not.toHaveBeenCalled()
+    expect(snaps[snaps.length - 1]).toBe('local')
+
+    // 连接建立 → 防抖窗口后补发一次（避开 connect 内 GET_VERSION 的分片交错）。
+    client.connected = true
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    autoSync.onConnected()
+    jest.advanceTimersByTime(500)
+    await flush()
+    jest.useRealTimers()
+
+    expect(client.sendCmd.mock.calls).toEqual([[CMD.SET_BRIGHTNESS, [30]]])
+    off()
+  })
+
+  test('重连补发顺序：整机开关先于整机亮度（1 字节命令优先，配置最后）', async () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    saveDeviceConfig(dev.id, { version: 1, pins: [samplePin({ pin: 0 })] })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(false)
+    setCurrentBleClient(client)
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.onBrightnessChange({ detail: { value: 30 } }) // 未连接 → 仅落盘 + pending
+    page.onTogglePower() // 未连接 → 仅落盘 + pending
+
+    client.connected = true
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    autoSync.onConnected()
+    jest.advanceTimersByTime(500)
+    await flush()
+    jest.useRealTimers()
+
+    expect(client.sendCmd.mock.calls).toEqual([
+      [CMD.SET_POWER, [0]],
+      [CMD.SET_BRIGHTNESS, [30]],
+    ])
   })
 
   test('引脚卡片点击 → navigateTo 引脚配置详情页（带 pin）', () => {

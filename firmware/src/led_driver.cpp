@@ -1,6 +1,7 @@
 // LED driver implementation.
 
 #include "led_driver.h"
+#include "master_output.h"   // 输出级整机开关门控 + 整机亮度缩放（ADR-0031/0032）
 
 #if defined(ARDUINO)
 #include <Adafruit_NeoPixel.h>
@@ -42,6 +43,8 @@ bool ledInit() {
 void ledSetPixel(uint8_t pin, uint16_t idx, Rgb color) {
     if (pin >= PIN_COUNT) return;
     if (idx >= LEDS_PER_PIN_MAX) return;
+    // 整机开关/亮度在这里（所有渲染路径的唯一出口）统一门控与缩放。
+    color = masterApplyOutput(color);
 #if defined(ARDUINO)
     sStrips[pin].setPixelColor(idx, sStrips[pin].Color(color.r, color.g, color.b));
 #else

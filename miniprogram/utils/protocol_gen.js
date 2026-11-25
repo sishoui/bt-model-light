@@ -2,16 +2,16 @@
 // Source of truth: protocol/*.csv + protocol/frame-spec.md. Regenerate: python protocol/codegen/generate.py
 // Project: sishoui/bt-model-light
 //
-// protocol_version 1.0 (released 2026-11-23)
-// firmware_version 0.1 (released 2026-11-23)
-// app_version     0.1 (released 2026-11-23)
+// protocol_version 1.2 (released 2026-11-26)
+// firmware_version 0.3 (released 2026-11-26)
+// app_version     0.3 (released 2026-11-26)
 
 'use strict'
 
 /* ---- versions (versions.csv) ---- */
-const PROTOCOL_VERSION = { major: 1, minor: 0, string: '1.0' };
-const FIRMWARE_VERSION = { major: 0, minor: 1, string: '0.1' };
-const APP_VERSION = { major: 0, minor: 1, string: '0.1' };
+const PROTOCOL_VERSION = { major: 1, minor: 2, string: '1.2' };
+const FIRMWARE_VERSION = { major: 0, minor: 3, string: '0.3' };
+const APP_VERSION = { major: 0, minor: 3, string: '0.3' };
 
 /* ---- frame (frame-spec.md) ---- */
 const FRAME = {
@@ -50,6 +50,8 @@ const CMD = {
   RESET_DEFAULT: 0x07,  // 恢复出厂默认
   GET_VERSION: 0x08,  // 读协议版本 + 固件版本
   GET_PIN_CAPS: 0x09,  // 读每引脚能力（灯珠数）
+  SET_BRIGHTNESS: 0x0A,  // 设置整机亮度：所有引脚统一缩放（0-255）
+  SET_POWER: 0x0B,  // 设置整机开关：0=关（输出全黑，不改各引脚状态）/1=开
   STATUS_NOTIFY: 0x81,  // notify 回传状态/错误/进度
   OTA: 0xF0,  // 预留给 v2，命令码预留流程延后
 };
@@ -64,6 +66,8 @@ const CMD_DIRECTION = {
   RESET_DEFAULT: 'app_to_fw',
   GET_VERSION: 'app_to_fw',
   GET_PIN_CAPS: 'app_to_fw',
+  SET_BRIGHTNESS: 'app_to_fw',
+  SET_POWER: 'app_to_fw',
   STATUS_NOTIFY: 'fw_to_app',
   OTA: 'bidirectional',
 };
