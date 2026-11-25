@@ -106,6 +106,69 @@
   max-width: 200rpx;
 }
 
+/* 时长 / 参数滑块：标签 + 滑块 + 数字输入框 */
+.row__slider {
+  flex: 1;
+  margin: 0 12rpx;
+}
+
+.row__slider-input {
+  width: 96rpx;
+  max-width: 96rpx;
+  flex: 0 0 auto;
+}
+
+.row__slider-val {
+  width: 72rpx;
+  font-size: 28rpx;
+  line-height: 38rpx;
+  color: var(--bt-color-label);
+  text-align: right;
+}
+
+.param-slider {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.param-slider__bar {
+  flex: 1;
+  margin-right: 12rpx;
+  min-width: 0;
+}
+
+.param-slider__val {
+  width: 64rpx;
+  font-size: 26rpx;
+  line-height: 34rpx;
+  color: var(--bt-color-label-secondary);
+  text-align: right;
+}
+
+/* 枚举单选：行内胶囊，选中高亮（点击切换，无弹层） */
+.param-radio {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx 12rpx;
+  justify-content: flex-end;
+}
+
+.param-radio__item {
+  padding: 6rpx 20rpx;
+  font-size: 26rpx;
+  line-height: 34rpx;
+  color: var(--bt-color-label);
+  background: var(--bt-color-bg-input);
+  border-radius: 999rpx;
+}
+
+.param-radio__item--on {
+  color: #ffffff;
+  background: #0088ff;
+}
+
 .row__picker {
   flex: 1;
   padding: 0 16rpx;

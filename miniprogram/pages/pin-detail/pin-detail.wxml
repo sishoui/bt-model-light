@@ -85,8 +85,9 @@
     </view>
 
       <view class="row">
-        <text class="row__label">时长(秒)</text>
-        <input class="row__input row__input--num" type="number" value="{{groups[activeGroup].steps[activeStepSi].duration}}" data-si="{{activeStepSi}}" bindinput="onDurationInput" />
+        <text class="row__label">时长</text>
+        <slider class="row__slider" min="{{1}}" max="{{60}}" step="1" value="{{groups[activeGroup].steps[activeStepSi].duration}}" activeColor="#0088FF" block-size="20" data-si="{{activeStepSi}}" bindchanging="onDurationChanging" bindchange="onDurationChange" />
+        <input class="row__input row__input--num row__slider-input" type="number" value="{{groups[activeGroup].steps[activeStepSi].duration}}" data-si="{{activeStepSi}}" bindinput="onDurationInput" />
       </view>
       <view class="row row--two">
         <view class="row__half">
@@ -133,7 +134,7 @@
             class="row param"
           >
             <text class="row__label">{{fld.label}}</text>
-            <!-- rgb：色块预览 + 弹层 -->
+            <!-- u8 / u16：连续量走滑块；离散/枚举走选择器；其余走数字输入 -->
             <block wx:if="{{fld.type === 'rgb'}}">
               <view
                 class="color-swatch"
@@ -144,10 +145,61 @@
                 bindtap="onOpenColorPicker"
               ></view>
             </block>
-            <!-- u8 / u16 -->
-            <block wx:else>
-              <input class="row__input row__input--num" type="number" value="{{fld.value}}" data-si="{{activeStepSi}}" data-li="{{li}}" data-fi="{{fi}}" bindinput="onParamInput" />
+            <view
+              wx:elif="{{fld.options}}"
+              class="param-radio"
+              data-si="{{activeStepSi}}"
+              data-li="{{li}}"
+              data-fi="{{fi}}"
+            >
+              <view
+                wx:for="{{fld.options}}"
+                wx:key="*this"
+                wx:for-item="opt"
+                wx:for-index="oi"
+                class="param-radio__item {{fld.displayValue === oi ? 'param-radio__item--on' : ''}}"
+                data-si="{{activeStepSi}}"
+                data-li="{{li}}"
+                data-fi="{{fi}}"
+                data-oi="{{oi}}"
+                bindtap="onParamOptionTap"
+              >{{opt}}</view>
+            </view>
+            <block wx:elif="{{fld.slider}}">
+              <slider
+                class="param-slider__bar"
+                min="{{fld.min}}"
+                max="{{fld.max}}"
+                step="1"
+                value="{{fld.value}}"
+                activeColor="#0088FF"
+                block-size="20"
+                data-si="{{activeStepSi}}"
+                data-li="{{li}}"
+                data-fi="{{fi}}"
+                bindchanging="onParamChanging"
+                bindchange="onParamChange"
+              />
+              <input
+                class="row__input row__input--num row__slider-input"
+                type="number"
+                value="{{fld.value}}"
+                data-si="{{activeStepSi}}"
+                data-li="{{li}}"
+                data-fi="{{fi}}"
+                bindinput="onParamInput"
+              />
             </block>
+            <input
+              wx:else
+              class="row__input row__input--num"
+              type="number"
+              value="{{fld.value}}"
+              data-si="{{activeStepSi}}"
+              data-li="{{li}}"
+              data-fi="{{fi}}"
+              bindinput="onParamInput"
+            />
           </view>
         </block>
       </view>

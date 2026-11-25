@@ -472,7 +472,7 @@ describe('pin-detail 页（#27）', () => {
     const layer = page.data.groups[0].steps[0].layers[0]
     const brightFi = layer.fields.findIndex((f) => f.name === 'brightness')
     // 亮度 100。
-    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '100' } })
+    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '100' } })
     const after = page.data.groups[0].steps[0].layers[0]
     expect(fieldOf(after, 'brightness').value).toBe(100)
     // rgb 通道写入已废弃：rgb 仅经颜色弹层 onColorSelected 修改。
@@ -795,8 +795,8 @@ describe('pin-detail 页（#27）', () => {
     page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: -50, clientY: 0 }] })
     expect(page.data.pickerHsv.h).toBe(0)
     page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 9999, clientY: 0 }] })
-    // 比例钳到 1 → 360°，归一后等价 0°；s0 v100 下颜色仍为白。
-    expect(page.data.pickerHsv.h).toBe(0)
+    // 比例钳到 1 → 色相封顶 359°（不再回卷 0 跳到最左）；s0 v100 下颜色仍为白。
+    expect(page.data.pickerHsv.h).toBe(359)
     expect(page.data.pickerHex).toBe('#FFFFFF')
   })
 
@@ -853,11 +853,11 @@ describe('pin-detail 页（#27）', () => {
     const page = load(0)
     // 连续三次参数改动（亮度 10 → 20 → 30），每次间隔 200ms < 防抖窗口。
     const brightFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'brightness')
-    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '10' } })
+    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '10' } })
     jest.advanceTimersByTime(200)
-    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '20' } })
+    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '20' } })
     jest.advanceTimersByTime(200)
-    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '30' } })
+    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '30' } })
     jest.advanceTimersByTime(500)
     await flush()
 

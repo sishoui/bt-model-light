@@ -76,6 +76,19 @@ function defaultParamValue(p) {
   return p.min
 }
 
+// 枚举型参数：离散取值用 picker（选项标签 → 值由 min 起算的序号）。
+const PARAM_OPTIONS = {
+  direction: ['正向', '反向'],
+  waveform: ['正弦', '方波'],
+  mode: ['渐变', '渐变回卷'],
+}
+
+// 连续型参数用滑块；离散/枚举用 picker；其余（小范围整数如灯珠数/间隔）留数字输入。
+const SLIDER_PARAMS = new Set([
+  'brightness', 'speed', 'period', 'on_time', 'off_time',
+  'spread', 'tail_length', 'decay', 'step_size',
+])
+
 // ---- 图层参数：schema ↔ 表单字段 -------------------------------------------
 
 // 按 effect 的 EFFECT_PARAMS schema 生成表单字段描述（供 WXML 渲染）。
@@ -93,7 +106,14 @@ function buildParamFields(effectId, params) {
       const v = src[p.name] === undefined ? defaultParamValue(p) : src[p.name]
       value = clamp(v, p.min, p.max)
     }
-    return { name: p.name, label: PARAM_LABELS[p.name] || p.name, type: p.type, min: p.min, max: p.max, value, hex }
+    const options = p.type === 'rgb' ? null : PARAM_OPTIONS[p.name] || null
+    // 枚举 picker 的 value 是选项序号（0 起），与协议值（min 起）差一个 min 偏移。
+    const displayValue = options ? value - p.min : value
+    return {
+      name: p.name, label: PARAM_LABELS[p.name] || p.name, type: p.type,
+      min: p.min, max: p.max, value, hex, options, displayValue,
+      slider: !options && p.type !== 'rgb' && SLIDER_PARAMS.has(p.name),
+    }
   })
 }
 
@@ -583,7 +603,7 @@ Page({
   },
 
   // 替换 activeGroup 的 VM（不可变更新）：mutator 直接在克隆上改，返回后写回。
-  _editActiveGroup(mutator) {
+  _editActiveGroup(mutator, opts) {
     const groups = this.data.groups.slice()
     const group = Object.assign({}, groups[this.data.activeGroup])
     const steps = (group.steps || []).map((s) => Object.assign({}, s))
@@ -591,7 +611,7 @@ Page({
     group.steps = steps
     groups[this.data.activeGroup] = group
     this.setData({ groups })
-    this._markDirty()
+    if (!(opts && opts.silent)) this._markDirty()
   },
 
   // ---- 顶部 -------------------------------------------------------------------
@@ -840,7 +860,27 @@ Page({
     })
   },
 
+  // 时长数字输入：与 slider 双向绑定（onDurationChange 同步改）。
   onDurationInput(e) {
+    const si = Number(e.currentTarget.dataset.si)
+    const v = clamp(e.detail.value, LIMITS.stepDurationMin, LIMITS.stepDurationMax)
+    this._editActiveGroup((group, steps) => {
+      steps[si] = Object.assign({}, steps[si], { duration: v })
+    })
+    this._recalcSegW()
+  },
+
+  // 时长滑块拖动中：实时更新 VM（不触发下发，松手 onDurationChange 才落盘）。
+  onDurationChanging(e) {
+    const si = Number(e.currentTarget.dataset.si)
+    const v = clamp(e.detail.value, LIMITS.stepDurationMin, LIMITS.stepDurationMax)
+    this._editActiveGroup((group, steps) => {
+      steps[si] = Object.assign({}, steps[si], { duration: v })
+    }, { silent: true })
+    this._recalcSegW()
+  },
+
+  onDurationChange(e) {
     const si = Number(e.currentTarget.dataset.si)
     const v = clamp(e.detail.value, LIMITS.stepDurationMin, LIMITS.stepDurationMax)
     this._editActiveGroup((group, steps) => {
@@ -929,7 +969,7 @@ Page({
     })
   },
 
-  // 参数输入：标量（u8/u16）走数字。rgb 不再有逐通道 input（色块 + 弹层，#33）。
+  // 参数输入：标量数字走 input；枚举 picker / 连续滑块走 onParamChange。rgb 走色块弹层（#33）。
   onParamInput(e) {
     const ds = e.currentTarget.dataset
     const si = Number(ds.si)
@@ -941,7 +981,7 @@ Page({
       // rgb 已由 onOpenColorPicker + onColorSelected 处理；旧 data-ch 入口不再绑定。
       return
     }
-    // 标量（u8/u16）。
+    // 标量（u8/u16）数字输入。
     const raw = e.detail.value
     this._editActiveGroup((group, steps) => {
       const layers = steps[si].layers.slice()
@@ -949,6 +989,78 @@ Page({
       const fields = layer.fields.slice()
       const f = Object.assign({}, fields[fi])
       f.value = clamp(raw, f.min, f.max)
+      fields[fi] = f
+      layer.fields = fields
+      layers[li] = layer
+      steps[si] = Object.assign({}, steps[si], { layers })
+    })
+  },
+
+  // 参数滑块拖动中：实时更新 VM（不触发下发）。
+  onParamChanging(e) {
+    const ds = e.currentTarget.dataset
+    const si = Number(ds.si)
+    const li = Number(ds.li)
+    const fi = Number(ds.fi)
+    const field = this._locateField(si, li, fi)
+    if (!field) return
+    const raw = clamp(e.detail.value, field.min, field.max)
+    this._editActiveGroup((group, steps) => {
+      const layers = steps[si].layers.slice()
+      const layer = Object.assign({}, layers[li])
+      const fields = layer.fields.slice()
+      const f = Object.assign({}, fields[fi])
+      f.value = raw
+      fields[fi] = f
+      layer.fields = fields
+      layers[li] = layer
+      steps[si] = Object.assign({}, steps[si], { layers })
+    }, { silent: true })
+  },
+
+  // 参数滑块：连续量按 min~max 写入（松手落盘）。
+  onParamChange(e) {
+    const ds = e.currentTarget.dataset
+    const si = Number(ds.si)
+    const li = Number(ds.li)
+    const fi = Number(ds.fi)
+    const field = this._locateField(si, li, fi)
+    if (!field) return
+    if (field.type === 'rgb') {
+      // rgb 已由 onOpenColorPicker + onColorSelected 处理；旧 data-ch 入口不再绑定。
+      return
+    }
+    const raw = e.detail.value
+    this._editActiveGroup((group, steps) => {
+      const layers = steps[si].layers.slice()
+      const layer = Object.assign({}, layers[li])
+      const fields = layer.fields.slice()
+      const f = Object.assign({}, fields[fi])
+      f.value = clamp(raw, f.min, f.max)
+      fields[fi] = f
+      layer.fields = fields
+      layers[li] = layer
+      steps[si] = Object.assign({}, steps[si], { layers })
+    })
+  },
+
+  // 枚举单选：点击胶囊选项，按序号 + min 偏移还原协议值。
+  onParamOptionTap(e) {
+    const ds = e.currentTarget.dataset
+    const si = Number(ds.si)
+    const li = Number(ds.li)
+    const fi = Number(ds.fi)
+    const oi = Number(ds.oi)
+    const field = this._locateField(si, li, fi)
+    if (!field || !field.options) return
+    const raw = field.min + oi
+    this._editActiveGroup((group, steps) => {
+      const layers = steps[si].layers.slice()
+      const layer = Object.assign({}, layers[li])
+      const fields = layer.fields.slice()
+      const f = Object.assign({}, fields[fi])
+      f.value = clamp(raw, f.min, f.max)
+      f.displayValue = oi
       fields[fi] = f
       layer.fields = fields
       layers[li] = layer
@@ -975,7 +1087,9 @@ Page({
   // HSV → 弹层 UI 派生：当前 hex 预览 + 三条位置/渐变端点。单一计算点，
   // 打开初始化与拖动更新共用，避免两处漂移。
   _setPickerHsv(hsv) {
-    const h = Math.round(((Number(hsv.h) || 0) % 360 + 360) % 360)
+    // 色相取整到 [0,359]：拖到最右（ratio=1 → 360）回卷到 0 会让圆点跳到最左，
+    // 钳到 359 使 359°（红端）稳定停在最右，与视觉连续。
+    const h = Math.round(Math.max(0, Math.min(359, Number(hsv.h) || 0)))
     const s = Math.round(Math.max(0, Math.min(100, Number(hsv.s) || 0)))
     const v = Math.round(Math.max(0, Math.min(100, Number(hsv.v) || 0)))
     const hex = rgbToHex(hsvToRgb(h, s, v)).toUpperCase()
@@ -1030,7 +1144,8 @@ Page({
     if (!rect || !rect.width) return
     const ratio = Math.max(0, Math.min(1, ((t.clientX || 0) - rect.left) / rect.width))
     const cur = this._pickerHsv || { h: 0, s: 0, v: 100 }
-    if (part === 'hue') this._setPickerHsv({ h: ratio * 360, s: cur.s, v: cur.v })
+    // 色相 359° 封顶：ratio=1（最右）→ 359，避免回卷 0 跳到最左。
+    if (part === 'hue') this._setPickerHsv({ h: Math.min(359, ratio * 360), s: cur.s, v: cur.v })
     else if (part === 'sat') this._setPickerHsv({ h: cur.h, s: ratio * 100, v: cur.v })
     else if (part === 'val') this._setPickerHsv({ h: cur.h, s: cur.s, v: ratio * 100 })
   },
