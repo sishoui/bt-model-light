@@ -10,7 +10,8 @@
 //
 // Commands handled:
 //   0x08 GET_VERSION    -> STATUS_NOTIFY VERSION (protocol + firmware ver)
-//   0x01 WRITE_CONFIG   -> decode blob, validate, store + persist, STATUS_NOTIFY OK
+//   0x01 WRITE_CONFIG   -> decode blob, validate, RAM commit + mark dirty,
+//                          STATUS_NOTIFY OK (spiffs 落盘延后，见 bleServicePollPersist)
 //   0x02 READ_CONFIG    -> encode active config, notify as cmd=0x02 frame
 //   0x03 APPLY          -> state CONNECTED/CONFIGURED -> PLAYING, OK notify
 //   0x04 READ_STATUS    -> STATUS_NOTIFY STATE (current state value)
@@ -54,6 +55,11 @@ void bleServiceBegin(device_config_t *cfg,
 
 // True if a central is currently connected.
 bool bleServiceConnected();
+
+// 延迟落盘轮询（ADR-0030）：frame task 每轮调用一次，传当前毫秒时钟。
+// WRITE_CONFIG 只在命令路径里更新 RAM + 标记待落盘，真正的 spiffs 写在这里
+// 按尾部防抖（600ms 无新改动）执行——命令路径不再被 flash 写阻塞。
+void bleServicePollPersist(uint32_t now_ms);
 
 #ifdef __cplusplus
 }
