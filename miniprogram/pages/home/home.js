@@ -4,8 +4,10 @@
 // 引脚卡片点击进入引脚配置详情页。
 
 const { getCurrentBleClient } = require('../../utils/bleClient')
-const { listDevices, getDeviceConfig, saveDevice } = require('../../utils/deviceStore')
+const { listDevices, getDeviceConfig, saveDevice, saveDeviceConfig } = require('../../utils/deviceStore')
 const { friendlyMessage, logError } = require('../../utils/errorHandler')
+const { validateConfig } = require('../../utils/configCodec')
+const autoSync = require('../../utils/autoSync')
 const GEN = require('../../utils/protocol_gen')
 
 Page({
@@ -122,7 +124,8 @@ Page({
           pin: i,
           configured: !!p,
           name: (p && p.name) || `引脚 ${i + 1}`,
-          power: !!(p && p.power),
+          // 灯带开关：只有显式 power === false 才算关（老配置无该字段 → 开，ADR-0028）。
+          power: !(p && p.power === false),
           img: (p && p.img) || '',
           info: p ? `${p.groups.length} 个灯组` : '未配置',
         })
@@ -140,6 +143,35 @@ Page({
   onTapPin(e) {
     const pin = e.currentTarget.dataset.pin
     wx.navigateTo({ url: `/pages/pin-detail/pin-detail?pin=${pin}` })
+  },
+
+  // 引脚卡片灯带开关（ADR-0028）：写 pin.power 落盘 Storage 后经 autoSync 下发。
+  // 关 = 编码时该引脚不下发灯组（group_count=0）→ 固件清空该灯带；开 = 恢复原灯组配置。
+  // 与引脚配置详情页顶部开关同一字段，两边状态经 Storage 共享。
+  onPinPowerChange(e) {
+    const pin = Number(e.currentTarget.dataset.pin)
+    const power = !!(e.detail && e.detail.value)
+    const app = getApp()
+    const currentId = (app && app.globalData && app.globalData.currentDeviceId) || null
+    if (!currentId) return
+    const base = getDeviceConfig(currentId)
+    const pins = base && Array.isArray(base.pins) ? base.pins.slice() : []
+    const idx = pins.findIndex((p) => p && p.pin === pin)
+    if (idx < 0) return // 未配置引脚没有开关（WXML 已用 configured 过滤），兜底忽略
+    pins[idx] = Object.assign({}, pins[idx], { power })
+    const config = { version: (base && base.version) || 1, pins }
+
+    // 与 pin-detail._markDirty 同口径：校验不过就不落盘（下发链路同样会编码失败）。
+    const verr = validateConfig(config)
+    if (verr) {
+      wx.showToast({ title: '引脚配置无效，请进入配置页检查', icon: 'none' })
+      this._refresh() // 开关回弹到 Storage 的真实状态
+      return
+    }
+    saveDeviceConfig(currentId, config)
+    // 开关是离散动作：跳过 autoSync 的 500ms 防抖，立即下发（ADR-0029）。
+    autoSync.schedule(currentId, config, { immediate: true })
+    this._refresh()
   },
 
   onPowerChange(e) {
@@ -221,5 +253,6 @@ Page({
   },
 
   // 引脚卡片内 switch 的 catchtap 占位：阻止点击冒泡到卡片（不触发跳转）。
+  // 开关本身的状态变化走 onPinPowerChange（bindchange），与此无关。
   noop() {},
 })

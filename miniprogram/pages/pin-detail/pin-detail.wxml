@@ -1,5 +1,5 @@
 <!-- 引脚配置详情页（ADR-0027 / #27 / T7；灯珠拖选 #31）。
-     顶部图片/名称/开关 → 灯组 Tab → 灯珠范围拖选 → 步骤/图层/灯效编辑。
+     顶部图片/名称/开关 → 灯组 Tab（长按弹配置窗改名称/灯珠范围）→ 阶段/图层/灯效编辑。
      修改即推送（autoSync 防抖下发），无保存按钮。 -->
 <view class="page">
   <sim-banner wx:if="{{simMode}}" />
@@ -32,35 +32,16 @@
       class="group-tab {{activeGroup === index ? 'group-tab--active' : ''}} bt-pressable"
       data-index="{{index}}"
       bindtap="onTapGroup"
+      bindlongpress="onGroupLongPress"
     >
       <text class="group-tab__name">{{item.name}}</text>
-      <text class="group-tab__range">{{item.ledStart}}-{{item.ledEnd}}</text>
+      <text class="group-tab__range">{{item.ledStart === 255 ? '未配置' : item.ledStart + '-' + item.ledEnd}}</text>
     </view>
   </scroll-view>
 
   <!-- 灯珠范围拖选：长按 1s 激活刷选；被其他灯组占用的格灰显不可选；
        拖选时全屏半透明覆盖层 fixed 屏幕下方（微信语音取消样式），拖入松手回滚。 -->
   <block wx:if="{{groups.length}}">
-    <view class="bt-card">
-      <view class="row">
-        <text class="row__label">灯组名称</text>
-        <input class="row__input" value="{{groups[activeGroup].name}}" data-index="{{activeGroup}}" bindinput="onGroupNameInput" />
-      </view>
-
-      <view class="range">
-        <view class="bt-row bt-row--between">
-          <text class="range__title">灯珠范围 <text wx:if="{{groups[activeGroup].ledStart !== 255}}">[{{groups[activeGroup].ledStart}}, {{groups[activeGroup].ledEnd}}] ({{groups[activeGroup].ledEnd - groups[activeGroup].ledStart + 1}} 颗)</text><text wx:else>未选 (0 颗)</text></text>
-          <text class="bt-text--secondary">点此选择灯珠 ›</text>
-        </view>
-        <view class="range__open bt-pressable" bindtap="onOpenLedPicker">
-          <text>选择灯珠（长按拖动）</text>
-        </view>
-        <view class="range__actions">
-          <view class="range__clear bt-pressable" bindtap="onClearLeds">清除本组</view>
-        </view>
-      </view>
-    </view>
-
   <!-- 阶段标题 + 添加（＋ 在标题右侧，满 5 禁用）；下方圆形节点步进条撑满居中 -->
   <view class="stage-head">
     <text class="stage-head__title">阶段</text>
@@ -90,10 +71,13 @@
     </view>
   </scroll-view>
 
-  <view class="step-detail">
-    <view class="step-detail__head">
-      <text class="step-detail__title">{{groups[activeGroup].name}} · {{groups[activeGroup].steps[activeStepSi].name}}</text>
-    </view>
+  <!-- 阶段详情气泡卡片：箭头指向当前选中阶段（left 由 JS 按段中心算出） -->
+  <view class="step-bubble" style="--bubble-x: {{bubbleX}}rpx;">
+    <view class="step-bubble__arrow"></view>
+    <view class="step-detail">
+      <view class="step-detail__head">
+        <text class="step-detail__title">{{groups[activeGroup].name}} · {{groups[activeGroup].steps[activeStepSi].name}}</text>
+      </view>
 
     <view class="row">
       <text class="row__label">阶段名称</text>
@@ -101,8 +85,9 @@
     </view>
 
       <view class="row">
-        <text class="row__label">时长(秒)</text>
-        <input class="row__input row__input--num" type="number" value="{{groups[activeGroup].steps[activeStepSi].duration}}" data-si="{{activeStepSi}}" bindinput="onDurationInput" />
+        <text class="row__label">时长</text>
+        <slider class="row__slider" min="{{1}}" max="{{60}}" step="1" value="{{groups[activeGroup].steps[activeStepSi].duration}}" activeColor="#0088FF" block-size="20" data-si="{{activeStepSi}}" bindchanging="onDurationChanging" bindchange="onDurationChange" />
+        <input class="row__input row__input--num row__slider-input" type="number" value="{{groups[activeGroup].steps[activeStepSi].duration}}" data-si="{{activeStepSi}}" bindinput="onDurationInput" />
       </view>
       <view class="row row--two">
         <view class="row__half">
@@ -149,7 +134,7 @@
             class="row param"
           >
             <text class="row__label">{{fld.label}}</text>
-            <!-- rgb：色块预览 + 弹层 -->
+            <!-- u8 / u16：连续量走滑块；离散/枚举走选择器；其余走数字输入 -->
             <block wx:if="{{fld.type === 'rgb'}}">
               <view
                 class="color-swatch"
@@ -160,10 +145,61 @@
                 bindtap="onOpenColorPicker"
               ></view>
             </block>
-            <!-- u8 / u16 -->
-            <block wx:else>
-              <input class="row__input row__input--num" type="number" value="{{fld.value}}" data-si="{{activeStepSi}}" data-li="{{li}}" data-fi="{{fi}}" bindinput="onParamInput" />
+            <view
+              wx:elif="{{fld.options}}"
+              class="param-radio"
+              data-si="{{activeStepSi}}"
+              data-li="{{li}}"
+              data-fi="{{fi}}"
+            >
+              <view
+                wx:for="{{fld.options}}"
+                wx:key="*this"
+                wx:for-item="opt"
+                wx:for-index="oi"
+                class="param-radio__item {{fld.displayValue === oi ? 'param-radio__item--on' : ''}}"
+                data-si="{{activeStepSi}}"
+                data-li="{{li}}"
+                data-fi="{{fi}}"
+                data-oi="{{oi}}"
+                bindtap="onParamOptionTap"
+              >{{opt}}</view>
+            </view>
+            <block wx:elif="{{fld.slider}}">
+              <slider
+                class="param-slider__bar"
+                min="{{fld.min}}"
+                max="{{fld.max}}"
+                step="1"
+                value="{{fld.value}}"
+                activeColor="#0088FF"
+                block-size="20"
+                data-si="{{activeStepSi}}"
+                data-li="{{li}}"
+                data-fi="{{fi}}"
+                bindchanging="onParamChanging"
+                bindchange="onParamChange"
+              />
+              <input
+                class="row__input row__input--num row__slider-input"
+                type="number"
+                value="{{fld.value}}"
+                data-si="{{activeStepSi}}"
+                data-li="{{li}}"
+                data-fi="{{fi}}"
+                bindinput="onParamInput"
+              />
             </block>
+            <input
+              wx:else
+              class="row__input row__input--num"
+              type="number"
+              value="{{fld.value}}"
+              data-si="{{activeStepSi}}"
+              data-li="{{li}}"
+              data-fi="{{fi}}"
+              bindinput="onParamInput"
+            />
           </view>
         </block>
       </view>
@@ -172,39 +208,10 @@
     </view>
 
     <view wx:if="{{groups[activeGroup].steps.length > 1}}" class="del-stage bt-pressable" data-si="{{activeStepSi}}" catchtap="onDeleteStep">删除当前阶段</view>
+    </view>
   </block>
 
-    <!-- 灯珠选择弹出层：全屏半透明遮罩 + 居中面板 -->
-  <view wx:if="{{ledPickerOpen}}" class="led-picker-mask" catchtouchmove="noop">
-    <view class="led-picker-backdrop" bindtap="onCloseLedPicker"></view>
-    <view class="led-picker-panel">
-      <view class="led-picker-head">
-        <text class="led-picker-title">选择灯珠</text>
-        <text class="led-picker-close" bindtap="onCloseLedPicker">✕</text>
-      </view>
-      <view
-        class="led-grid"
-        bindtouchstart="onLedTouchStart"
-        catchtouchmove="onLedTouchMove"
-        bindtouchend="onLedTouchEnd"
-        bindtouchcancel="onLedTouchEnd"
-      >
-        <view
-          wx:for="{{ledCells}}"
-          wx:key="i"
-          class="led-cell led-cell--{{item.state}}"
-        >{{item.i}}</view>
-      </view>
-      <view class="led-picker-hint">{{dragging ? (inCancelZone ? '松开取消 · 保留上次选择' : '拖动中…') : '长按 1 秒激活拖动刷选；灰色为被其他灯组占用'}}</view>
-    </view>
-  </view>
-
-  <!-- 取消区：fixed 屏幕底部，与弹层物理分离，永不遮挡方格 -->
-  <view wx:if="{{ledPickerOpen && dragging}}" class="led-cancel-zone {{inCancelZone ? 'led-cancel-zone--active' : ''}}">
-    <text class="led-cancel-zone__text">{{inCancelZone ? '松开取消 · 保留上次选择' : '拖到此处取消 · 保留上次选择'}}</text>
-  </view>
-
-  <!-- 颜色弹层：全屏遮罩 + 底部弹板（常用色板 + 最近使用色） -->
+  <!-- 颜色弹层：全屏遮罩 + 底部弹板（HSV 三维拖动 + 最近选色） -->
   <view wx:if="{{colorPickerOpen}}" class="color-picker-mask" catchtouchmove="noop">
     <view class="color-picker-backdrop" bindtap="onCloseColorPicker"></view>
     <view class="color-picker-panel">
@@ -212,19 +219,36 @@
         <text class="color-picker-title">选择颜色</text>
         <text class="color-picker-close" bindtap="onCloseColorPicker">✕</text>
       </view>
-      <view class="color-grid">
-        <view
-          wx:for="{{colorPalette}}"
-          wx:key="*this"
-          wx:for-item="c"
-          class="color-cell"
-          style="background-color: {{c}};"
-          data-hex="{{c}}"
-          data-si="{{colorPickerTarget.si}}"
-          data-li="{{colorPickerTarget.li}}"
-          data-fi="{{colorPickerTarget.fi}}"
-          bindtap="onColorSelected"
-        ></view>
+      <!-- HSV 三维选色：色相（加粗渐变条）/ 饱和度 / 亮度，拖动实时预览 -->
+      <view class="picker-preview" style="background-color: {{pickerHex}};"></view>
+      <view class="picker-bars">
+        <view class="picker-bar-row">
+          <view class="picker-bar-meta">
+            <text class="picker-bar-label">色相</text>
+            <text class="picker-bar-value">{{pickerHsv.h}}°</text>
+          </view>
+          <view class="picker-bar picker-bar--hue" data-part="hue" bindtouchstart="onPickerTouchStart" catchtouchmove="onPickerTouchMove" bindtouchend="onPickerTouchEnd" bindtouchcancel="onPickerTouchEnd">
+            <view class="picker-dot" style="left: {{pickerUi.huePos}};"></view>
+          </view>
+        </view>
+        <view class="picker-bar-row">
+          <view class="picker-bar-meta">
+            <text class="picker-bar-label">饱和度</text>
+            <text class="picker-bar-value">{{pickerHsv.s}}%</text>
+          </view>
+          <view class="picker-bar picker-bar--sat" style="background: linear-gradient(to right, {{pickerUi.satFrom}}, {{pickerUi.satTo}});" data-part="sat" bindtouchstart="onPickerTouchStart" catchtouchmove="onPickerTouchMove" bindtouchend="onPickerTouchEnd" bindtouchcancel="onPickerTouchEnd">
+            <view class="picker-dot" style="left: {{pickerUi.satPos}};"></view>
+          </view>
+        </view>
+        <view class="picker-bar-row">
+          <view class="picker-bar-meta">
+            <text class="picker-bar-label">亮度</text>
+            <text class="picker-bar-value">{{pickerHsv.v}}%</text>
+          </view>
+          <view class="picker-bar picker-bar--val" style="background: linear-gradient(to right, {{pickerUi.valFrom}}, {{pickerUi.valTo}});" data-part="val" bindtouchstart="onPickerTouchStart" catchtouchmove="onPickerTouchMove" bindtouchend="onPickerTouchEnd" bindtouchcancel="onPickerTouchEnd">
+            <view class="picker-dot" style="left: {{pickerUi.valPos}};"></view>
+          </view>
+        </view>
       </view>
       <view wx:if="{{recentColors.length}}" class="recent-colors">
         <text class="recent-colors__title">最近使用</text>
@@ -232,7 +256,7 @@
           <view
             wx:for="{{recentColors}}"
             wx:key="*this"
-            wx:for-item="c"
+            wx-item="c"
             class="color-cell color-cell--recent"
             style="background-color: {{c}};"
             data-hex="{{c}}"
@@ -244,5 +268,48 @@
         </view>
       </view>
     </view>
+  </view>
+
+  <!-- 灯组配置弹窗（长按灯组 Tab 打开）：名称 + 灯珠范围拖选（第一层弹窗，无二级弹层）。
+       拖选激活后底部浮出取消区（fixed，微信语音取消样式），拖入松手回滚。 -->
+  <view wx:if="{{groupConfigOpen}}" class="group-config-mask" catchtouchmove="noop">
+    <view class="group-config-backdrop" bindtap="onCloseGroupConfig"></view>
+    <view class="group-config-panel">
+      <view class="group-config-head">
+        <text class="group-config-title">灯组 {{activeGroup + 1}} 配置</text>
+        <text class="group-config-close" bindtap="onCloseGroupConfig">✕</text>
+      </view>
+      <view class="row">
+        <text class="row__label">名称</text>
+        <input class="row__input" value="{{groups[activeGroup].name}}" data-index="{{activeGroup}}" bindinput="onGroupNameInput" />
+      </view>
+      <view class="range">
+        <view class="bt-row bt-row--between">
+          <text class="range__title">灯珠范围 <text wx:if="{{groups[activeGroup].ledStart !== 255}}">[{{groups[activeGroup].ledStart}}, {{groups[activeGroup].ledEnd}}] ({{groups[activeGroup].ledEnd - groups[activeGroup].ledStart + 1}} 颗)</text><text wx:else>未选 (0 颗)</text></text>
+        </view>
+        <view
+          class="led-grid"
+          bindtouchstart="onLedTouchStart"
+          catchtouchmove="onLedTouchMove"
+          bindtouchend="onLedTouchEnd"
+          bindtouchcancel="onLedTouchEnd"
+        >
+          <view
+            wx:for="{{ledCells}}"
+            wx:key="i"
+            class="led-cell led-cell--{{item.state}}"
+          >{{item.i}}</view>
+        </view>
+        <view class="range__hint">{{dragging ? (inCancelZone ? '松开取消 · 保留上次选择' : '拖动中…') : '长按 1 秒激活拖动刷选；灰色为被其他灯组占用'}}</view>
+        <view class="range__actions">
+          <view class="range__clear bt-pressable" bindtap="onClearLeds">清除本组</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 取消区：fixed 屏幕底部，与弹窗物理分离，永不遮挡方格 -->
+  <view wx:if="{{groupConfigOpen && dragging}}" class="led-cancel-zone {{inCancelZone ? 'led-cancel-zone--active' : ''}}">
+    <text class="led-cancel-zone__text">{{inCancelZone ? '松开取消 · 保留上次选择' : '拖到此处取消 · 保留上次选择'}}</text>
   </view>
 </view>

@@ -4,13 +4,46 @@
 
 const { loadPage, makeApp } = require('./pageHarness')
 const { createWxMock } = require('./wx-mock')
-const { saveDevice, saveDeviceConfig, resetDeviceStore } = require('../utils/deviceStore')
+const { saveDevice, saveDeviceConfig, getDeviceConfig, resetDeviceStore } = require('../utils/deviceStore')
 const { createBleClient, setCurrentBleClient } = require('../utils/bleClient')
-const { setupBle } = require('./bleTestUtils')
+const { setupBle, flush } = require('./bleTestUtils')
 const { statusFrame, notify } = require('./bleTestUtils')
+const { decodeConfigBlob } = require('../utils/configCodec')
+const autoSync = require('../utils/autoSync')
 const { CMD, NOTIFY, BLE } = require('../utils/protocol_gen')
 
 const HOME = '../pages/home/home'
+
+// fake BLE 客户端（同 pin-detail.test.js）：只看 connected + sendCmd 顺序/参数。
+// home 还会订阅 onStatus/onConnectionStateChange 并在未连接时自动重连（connect）。
+function fakeClient(connected) {
+  return {
+    connected: !!connected,
+    sendCmd: jest.fn(() => Promise.resolve()),
+    connect: jest.fn(() => Promise.resolve()),
+    onStatus: jest.fn(() => () => {}),
+    onConnectionStateChange: jest.fn(() => () => {}),
+  }
+}
+
+// 已配置引脚的最小合法灯组（[0,9] 常亮）。
+function samplePin(extra) {
+  return Object.assign(
+    {
+      pin: 0,
+      configured: true,
+      name: 'P',
+      groups: [
+        {
+          ledStart: 0,
+          ledEnd: 9,
+          steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: 1, params: { color: [1, 2, 3], brightness: 200 } }] }],
+        },
+      ],
+    },
+    extra || {}
+  )
+}
 
 describe('home 页（#25）', () => {
   let wx
@@ -20,6 +53,7 @@ describe('home 页（#25）', () => {
     wx = createWxMock()
     global.wx = wx
     resetDeviceStore()
+    autoSync.reset()
     app = makeApp(null)
     setCurrentBleClient(null)
   })
@@ -198,5 +232,97 @@ describe('home 页（#25）', () => {
     page.onShow()
     expect(page.data.pins[0].power).toBe(true)
     expect(page.data.pins[0].img).toBe('x.png')
+  })
+
+  // ---- 引脚卡片灯带开关（ADR-0028） ------------------------------------------
+
+  test('开关关闭 → 落盘 + 立即下发（不等防抖）blob 该引脚无灯组（真灭），打开恢复', async () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    saveDeviceConfig(dev.id, { version: 1, pins: [samplePin({ power: true })] })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    expect(page.data.pins[0].power).toBe(true)
+
+    page.onPinPowerChange({ currentTarget: { dataset: { pin: 0 } }, detail: { value: false } })
+    // 卡片开关即时反映；Storage 落盘 false，且灯组配置完整保留（真相源不丢配置）。
+    expect(page.data.pins[0].power).toBe(false)
+    const savedOff = getDeviceConfig(dev.id).pins.find((p) => p.pin === 0)
+    expect(savedOff.power).toBe(false)
+    expect(savedOff.groups).toHaveLength(1)
+
+    // 离散动作跳过 500ms 防抖（ADR-0029）：不推进任何定时器，微任务走完就已下发。
+    await flush()
+    expect(client.sendCmd.mock.calls.map((c) => c[0])).toEqual([CMD.WRITE_CONFIG, CMD.APPLY])
+    expect(decodeConfigBlob(Uint8Array.from(client.sendCmd.mock.calls[0][1])).pins).toEqual([])
+
+    // 打开：同一份 Storage 配置立即恢复下发，灯组回来。
+    client.sendCmd.mockClear()
+    page.onPinPowerChange({ currentTarget: { dataset: { pin: 0 } }, detail: { value: true } })
+    expect(page.data.pins[0].power).toBe(true)
+    expect(getDeviceConfig(dev.id).pins.find((p) => p.pin === 0).power).toBe(true)
+    await flush()
+    const onPin = decodeConfigBlob(Uint8Array.from(client.sendCmd.mock.calls[0][1])).pins.find((p) => p.pin === 0)
+    expect(onPin.groups[0].ledEnd).toBe(9)
+  })
+
+  test('未连接：开关落盘 + 状态 local（不写空口），不崩', () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    saveDeviceConfig(dev.id, { version: 1, pins: [samplePin({ power: true })] })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(false)
+    setCurrentBleClient(client)
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.onPinPowerChange({ currentTarget: { dataset: { pin: 0 } }, detail: { value: false } })
+    expect(getDeviceConfig(dev.id).pins.find((p) => p.pin === 0).power).toBe(false)
+    expect(client.sendCmd).not.toHaveBeenCalled()
+  })
+
+  test('老配置无 power 字段 → 卡片开关默认开（配好就亮）', () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    saveDeviceConfig(dev.id, { version: 1, pins: [samplePin()] })
+    app.globalData.currentDeviceId = dev.id
+    const page = loadPage(HOME, app)
+    page.onShow()
+    expect(page.data.pins[0].power).toBe(true)
+  })
+
+  test('无当前设备 / 未配置引脚：开关回调安全返回（不落盘、不抛错）', () => {
+    const page = loadPage(HOME, app)
+    page.onShow() // 无当前设备
+    expect(() =>
+      page.onPinPowerChange({ currentTarget: { dataset: { pin: 0 } }, detail: { value: false } })
+    ).not.toThrow()
+
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    saveDeviceConfig(dev.id, { version: 1, pins: [samplePin()] })
+    app.globalData.currentDeviceId = dev.id
+    const page2 = loadPage(HOME, app)
+    page2.onShow()
+    // pin 3 无配置条目（WXML 不渲染其开关）：忽略，不动已配置的 pin 0。
+    page2.onPinPowerChange({ currentTarget: { dataset: { pin: 3 } }, detail: { value: false } })
+    expect(getDeviceConfig(dev.id).pins.map((p) => p.pin)).toEqual([0])
+  })
+
+  test('存量配置非法：开关不落盘、Toast 提示并回弹（不写成半截配置）', () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    const bad = samplePin({ power: true })
+    bad.groups[0].steps[0].duration = 0 // 越界：validateConfig 拒绝
+    saveDeviceConfig(dev.id, { version: 1, pins: [bad] })
+    app.globalData.currentDeviceId = dev.id
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.onPinPowerChange({ currentTarget: { dataset: { pin: 0 } }, detail: { value: false } })
+    expect(getDeviceConfig(dev.id).pins[0].power).toBe(true) // 未落盘
+    expect(page.data.pins[0].power).toBe(true) // 开关回弹到真实状态
+    const arg = wx.showToast.mock.calls[wx.showToast.mock.calls.length - 1][0]
+    expect(arg.icon).toBe('none')
+    expect(arg.title).toMatch(/无效/)
   })
 })

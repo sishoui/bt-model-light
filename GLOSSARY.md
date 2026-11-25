@@ -10,6 +10,7 @@ Single-context glossary for `bt-model-light`. Terms here are the canonical vocab
 | 引脚 (Pin) | One of the 8 GPIOs, each driving an independent WS2812B strip. | "通道","端口" |
 | 灯珠 (LED) | One WS2812B pixel, addressed by RGB (3 bytes). | "灯点","像素点" |
 | 灯带 (Strip) | The WS2812B chain attached to one pin. | "灯条" |
+| 灯带开关 (Pin power) | 引脚级开关（`pin.power`）：关 = 配置下发时该引脚不带灯组（`group_count=0`）→ 固件清空该灯带；开 = 正常播放。灯组配置始终保留在 Storage（ADR-0028）。 | "电源开关","总开关" |
 | 灯组 (LightGroup) | A configured range on one pin's strip with up to 5 steps. | "灯段","灯区" |
 | 灯珠区间 (LED range) | Inclusive `[start, end]` indices into a pin's strip, 0-based. | "灯珠段" |
 | 步骤 (Step) | One playback state of a light group: duration, transition, loop mode, 1–2 layers. | "帧","阶段" |

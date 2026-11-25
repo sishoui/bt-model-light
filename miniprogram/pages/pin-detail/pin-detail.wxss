@@ -106,6 +106,69 @@
   max-width: 200rpx;
 }
 
+/* 时长 / 参数滑块：标签 + 滑块 + 数字输入框 */
+.row__slider {
+  flex: 1;
+  margin: 0 12rpx;
+}
+
+.row__slider-input {
+  width: 96rpx;
+  max-width: 96rpx;
+  flex: 0 0 auto;
+}
+
+.row__slider-val {
+  width: 72rpx;
+  font-size: 28rpx;
+  line-height: 38rpx;
+  color: var(--bt-color-label);
+  text-align: right;
+}
+
+.param-slider {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.param-slider__bar {
+  flex: 1;
+  margin-right: 12rpx;
+  min-width: 0;
+}
+
+.param-slider__val {
+  width: 64rpx;
+  font-size: 26rpx;
+  line-height: 34rpx;
+  color: var(--bt-color-label-secondary);
+  text-align: right;
+}
+
+/* 枚举单选：行内胶囊，选中高亮（点击切换，无弹层） */
+.param-radio {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx 12rpx;
+  justify-content: flex-end;
+}
+
+.param-radio__item {
+  padding: 6rpx 20rpx;
+  font-size: 26rpx;
+  line-height: 34rpx;
+  color: var(--bt-color-label);
+  background: var(--bt-color-bg-input);
+  border-radius: 999rpx;
+}
+
+.param-radio__item--on {
+  color: #ffffff;
+  background: #0088ff;
+}
+
 .row__picker {
   flex: 1;
   padding: 0 16rpx;
@@ -141,13 +204,6 @@
   max-height: 50vh;
   overflow-y: auto;
   overflow-x: hidden;
-}
-
-.led-grid--picker {
-  padding: 8rpx;
-  margin: 0;
-  max-height: 50vh;
-  overflow-y: auto;
 }
 
 .led-cell {
@@ -351,9 +407,33 @@
   color: var(--bt-color-label-tertiary);
 }
 
+/* 阶段详情气泡卡片：箭头指向当前选中阶段（left 由 JS 按段中心写入 --bubble-x） */
+.step-bubble {
+  position: relative;
+  margin: 24rpx 24rpx 0;
+  padding: 20rpx 20rpx 24rpx;
+  background: var(--bt-color-bg-elevated);
+  border-radius: 20rpx;
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.08);
+}
+
+.step-bubble__arrow {
+  position: absolute;
+  top: -12rpx;
+  left: var(--bubble-x, 50%);
+  transform: translateX(-50%);
+  width: 24rpx;
+  height: 24rpx;
+  background: var(--bt-color-bg-elevated);
+  border-left: 2rpx solid rgba(0, 0, 0, 0.08);
+  border-top: 2rpx solid rgba(0, 0, 0, 0.08);
+  transform: translateX(-50%) rotate(45deg);
+  border-radius: 4rpx 0 0 0;
+}
+
 /* 阶段详情（横向阶段条下方的参数编辑区） */
 .step-detail {
-  margin-top: 16rpx;
+  margin-top: 0;
 }
 
 .step-detail__head {
@@ -498,28 +578,81 @@
   background: var(--bt-color-bg-input);
 }
 
-.color-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16rpx;
-  margin-top: 8rpx;
+/* HSV 选色：预览色块 + 三条拖动条（色相加粗渐变，饱和度/亮度随当前色相渐变） */
+.picker-preview {
+  height: 96rpx;
+  border-radius: 16rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
 }
 
-.color-cell {
+.picker-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 28rpx;
+}
+
+.picker-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.picker-bar-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.picker-bar-label {
+  font-size: 26rpx;
+  line-height: 36rpx;
+  color: var(--bt-color-label-secondary);
+}
+
+.picker-bar-value {
+  font-size: 26rpx;
+  line-height: 36rpx;
+  font-weight: 600;
+  color: var(--bt-color-label);
+}
+
+.picker-bar {
+  position: relative;
   width: 100%;
-  aspect-ratio: 1;
-  border-radius: 12rpx;
+  height: 40rpx;
+  border-radius: 999rpx;
   box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
+}
+
+/* 色相条：加粗 + 全色相彩虹渐变（红→黄→绿→青→蓝→品红→红） */
+.picker-bar--hue {
+  height: 56rpx;
+  background: linear-gradient(to right, #FF0000 0%, #FFFF00 16.67%, #00FF00 33.33%, #00FFFF 50%, #0000FF 66.67%, #FF00FF 83.33%, #FF0000 100%);
+}
+
+.picker-dot {
+  position: absolute;
+  top: 50%;
+  width: 36rpx;
+  height: 36rpx;
+  margin-left: -18rpx;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.35), 0 0 0 2rpx rgba(255, 255, 255, 0.9);
+  pointer-events: none;
 }
 
 .color-cell--recent {
   width: 80rpx;
   height: 80rpx;
   flex: 0 0 auto;
+  border-radius: 12rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
 }
 
 .recent-colors {
-  margin-top: 16rpx;
+  margin-top: 24rpx;
 }
 
 .recent-colors__title {
@@ -588,52 +721,50 @@
 .sync-bar--local {
   color: var(--bt-color-label-tertiary);
 }
-/* 灯珠选择弹出层（#31） */
-.led-picker-mask {
+/* 灯组配置弹窗（长按灯组 Tab 打开）：居中面板，名称 + 灯珠范围拖选内嵌。 */
+.group-config-mask {
   position: fixed;
   inset: 0;
-  padding-bottom: 200rpx;
-  box-sizing: border-box;
-  z-index: 100;
+  z-index: 90;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.led-picker-backdrop {
+.group-config-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
 }
 
-.led-picker-panel {
+.group-config-panel {
   position: relative;
   width: 90vw;
   max-width: 720rpx;
-  max-height: 50vh;
+  max-height: 80vh;
+  overflow-y: auto;
   background: var(--bt-color-bg-elevated);
   border-radius: 28rpx;
   padding: 24rpx;
   box-shadow: 0 24rpx 64rpx rgba(0, 0, 0, 0.2);
   display: flex;
   flex-direction: column;
-  gap: 16rpx;
 }
 
-.led-picker-head {
+.group-config-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.led-picker-title {
+.group-config-title {
   font-size: 32rpx;
   line-height: 44rpx;
   font-weight: 700;
   color: var(--bt-color-label);
 }
 
-.led-picker-close {
+.group-config-close {
   width: 56rpx;
   height: 56rpx;
   display: flex;
@@ -646,33 +777,7 @@
   background: var(--bt-color-bg-input);
 }
 
-.led-picker-hint {
-  font-size: 22rpx;
-  line-height: 32rpx;
-  color: var(--bt-color-label-tertiary);
-  text-align: center;
-  padding: 12rpx 0;
-  min-height: 80rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.led-picker-open {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16rpx 32rpx;
-  margin-top: 12rpx;
-  background: var(--bt-color-bg-input);
-  border-radius: 20rpx;
-  color: var(--bt-color-accent);
-  font-size: 26rpx;
-  line-height: 40rpx;
-  font-weight: 600;
-}
-
-/* 取消区：fixed 屏幕底部，与面板物理分离，永不遮挡方格 */
+/* 取消区：fixed 屏幕底部，与弹窗物理分离，永不遮挡方格 */
 .led-cancel-zone {
   position: fixed;
   left: 0;
@@ -697,25 +802,4 @@
   color: #ffffff;
   font-weight: 600;
   text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.25);
-}
-
-.range__open {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16rpx 32rpx;
-  margin-top: 12rpx;
-  background: var(--bt-color-bg-input);
-  border-radius: 20rpx;
-  color: var(--bt-color-accent);
-  font-size: 26rpx;
-  line-height: 40rpx;
-  font-weight: 600;
-}
-
-.led-grid--picker {
-  padding: 8rpx;
-  margin: 0;
-  max-height: 50vh;
-  overflow-y: auto;
 }

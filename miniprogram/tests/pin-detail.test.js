@@ -123,7 +123,39 @@ describe('pin-detail 页（#27）', () => {
     }
     expect(page.data.activeGroup).toBe(0)
     expect(litCount(page)).toBe(0) // 默认全空
+    // 首次配置的引脚灯带开关默认开（ADR-0028：只有显式关才不下发灯组）。
+    expect(page.data.power).toBe(true)
     expect(page.data.syncState).toBe('idle')
+  })
+
+  test('老配置无 power 字段：顶部灯带开关默认开（切页不误灭灯，ADR-0028）', () => {
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [
+        {
+          pin: 0,
+          name: '客厅灯带',
+          configured: true,
+          groups: [
+            { name: '流水', ledStart: 0, ledEnd: 3, steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: EFF.SOLID, params: { color: [1, 1, 1], brightness: 10 } }] }] },
+          ],
+        },
+      ],
+    })
+    const page = load(0)
+    expect(page.data.power).toBe(true)
+  })
+
+  test('顶部灯带开关：立即下发（不等防抖）WRITE_CONFIG + APPLY（ADR-0029）', async () => {
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+    const page = load(0)
+    page.onPowerChange({ detail: { value: false } })
+    // 不推进任何定时器：微任务走完即已下发（离散动作跳过 500ms 防抖）。
+    await flush()
+    expect(client.sendCmd.mock.calls.map((c) => c[0])).toEqual([CMD.WRITE_CONFIG, CMD.APPLY])
+    // 关灯：blob 里该引脚不下发灯组 → 固件清空灯带。
+    expect(decodeConfigBlob(Uint8Array.from(client.sendCmd.mock.calls[0][1])).pins).toEqual([])
   })
 
   test('灯组 Tab：onTapGroup 切换 activeGroup 并重建灯珠网格', () => {
@@ -165,6 +197,22 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.groups[0].name).toBe('彩虹带')
     const saved = getDeviceConfig(dev.id)
     expect(saved.pins.find((p) => p.pin === 0).groups[0].name).toBe('彩虹带')
+  })
+
+  test('长按灯组 Tab：切到该组并弹出配置弹窗，关闭后复位', () => {
+    const page = load(0)
+    expect(page.data.groupConfigOpen).toBe(false)
+    page.onGroupLongPress({ currentTarget: { dataset: { index: 2 } } })
+    expect(page.data.groupConfigOpen).toBe(true)
+    expect(page.data.activeGroup).toBe(2)
+    // 弹窗内灯珠网格内嵌：打开时已按 activeGroup 构建，拖选态复位。
+    expect(page.data.ledCells.length).toBe(page.data.ledCount)
+    expect(page.data.dragging).toBe(false)
+    // 弹窗内改名复用 activeGroup 链路：输入即落盘。
+    page.onGroupNameInput({ currentTarget: { dataset: { index: 2 } }, detail: { value: '氛围组' } })
+    expect(page.data.groups[2].name).toBe('氛围组')
+    page.onCloseGroupConfig()
+    expect(page.data.groupConfigOpen).toBe(false)
   })
 
   test('灯珠拖选：长按 1s 激活→move→end 写回区间 + 落盘 + 蓝框/浅蓝条渲染', () => {
@@ -456,7 +504,7 @@ describe('pin-detail 页（#27）', () => {
     const layer = page.data.groups[0].steps[0].layers[0]
     const brightFi = layer.fields.findIndex((f) => f.name === 'brightness')
     // 亮度 100。
-    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '100' } })
+    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '100' } })
     const after = page.data.groups[0].steps[0].layers[0]
     expect(fieldOf(after, 'brightness').value).toBe(100)
     // rgb 通道写入已废弃：rgb 仅经颜色弹层 onColorSelected 修改。
@@ -704,6 +752,109 @@ describe('pin-detail 页（#27）', () => {
     expect(colors.find((c) => c === '#000000')).toBeUndefined()
   })
 
+  // ---- HSV 三维选色（色相/饱和度/亮度拖动条） --------------------------------
+
+  test('onOpenColorPicker：HSV 初值取目标 field 当前颜色', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    // 默认色为白 [255,255,255] → h0 s0 v100。
+    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
+    expect(page.data.pickerHsv).toEqual({ h: 0, s: 0, v: 100 })
+    expect(page.data.pickerHex).toBe('#FFFFFF')
+  })
+
+  test('拖动色相条：clientX 比例 → 色相/预览 hex 更新，松手才写回 field', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
+    // 条 rect：left 0 width 360（与 wx-mock __gridRect 同构）。
+    wx.__gridRect = { left: 0, top: 0, width: 360, height: 64 }
+    // 先饱和度拖满（s0 时色相不可见，白色下拖色相仍是白）。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 360, clientY: 0 }] })
+    page.onPickerTouchEnd()
+    // 色相拖到 50% → 180（青），s100 v100 → #00FFFF。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 180, clientY: 0 }] })
+    expect(page.data.pickerHsv.h).toBe(180)
+    expect(page.data.pickerHex).toBe('#00FFFF')
+    // 拖动中未松手：field 未写回（仍是上一步的饱和红）。
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([255, 0, 0])
+    page.onPickerTouchEnd()
+    // 松手：写回 field + 最近色。
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([0, 255, 255])
+    expect(getRecentColors()[0]).toBe('#00FFFF')
+  })
+
+  test('拖动饱和度/亮度条：比例 → s/v 更新，三色联动预览', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
+    wx.__gridRect = { left: 0, top: 0, width: 360, height: 48 }
+    // 色相拖到 0（红），饱和度拖到 100% → #FF0000。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 0, clientY: 0 }] })
+    page.onPickerTouchEnd()
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 360, clientY: 0 }] })
+    expect(page.data.pickerHsv.s).toBe(100)
+    expect(page.data.pickerHex).toBe('#FF0000')
+    // 亮度拖到 50% → #800000。
+    page.onPickerTouchEnd()
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'val' } }, touches: [{ clientX: 180, clientY: 0 }] })
+    expect(page.data.pickerHsv.v).toBe(50)
+    expect(page.data.pickerHex).toBe('#800000')
+    page.onPickerTouchEnd()
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([128, 0, 0])
+  })
+
+  test('三维度以个位数为最小单位：拖动比例 → 四舍五入取整', () => {
+    const page = load(0)
+    wx.__gridRect = { left: 0, top: 0, width: 360, height: 56 }
+    // 色相 137.52°（clientX 275.12 不可行，用 275/360*360=275 → 用分数比例模拟非整数）。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 137.52, clientY: 0 }] })
+    expect(page.data.pickerHsv.h).toBe(138)
+    expect(page.data.pickerHsv.h % 1).toBe(0)
+    // 饱和度 49.5% → 50。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 178.2, clientY: 0 }] })
+    expect(page.data.pickerHsv.s).toBe(50)
+    expect(page.data.pickerHsv.s % 1).toBe(0)
+    // 亮度 33.3% → 33。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'val' } }, touches: [{ clientX: 119.88, clientY: 0 }] })
+    expect(page.data.pickerHsv.v).toBe(33)
+    expect(page.data.pickerHsv.v % 1).toBe(0)
+  })
+
+  test('拖动条越界触摸点：比例钳制 [0,1]，不抛异常', () => {
+    const page = load(0)
+    wx.__gridRect = { left: 100, top: 0, width: 200, height: 48 }
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: -50, clientY: 0 }] })
+    expect(page.data.pickerHsv.h).toBe(0)
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 9999, clientY: 0 }] })
+    // 比例钳到 1 → 色相封顶 359°（不再回卷 0 跳到最左）；s0 v100 下颜色仍为白。
+    expect(page.data.pickerHsv.h).toBe(359)
+    expect(page.data.pickerHex).toBe('#FFFFFF')
+  })
+
+  test('rect 未就绪时拖动忽略（查询未回不崩）', () => {
+    const page = load(0)
+    wx.__gridRect = null
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 180, clientY: 0 }] })
+    expect(page.data.pickerHsv).toEqual({ h: 0, s: 0, v: 100 })
+    // move/end 无 active part：安全返回。
+    expect(() => page.onPickerTouchMove({ touches: [{ clientX: 0 }] })).not.toThrow()
+    expect(() => page.onPickerTouchEnd()).not.toThrow()
+  })
+
+  test('色相条渐变端点：s/v 联动（satTo/valTo 随当前维度变化）', () => {
+    const page = load(0)
+    wx.__gridRect = { left: 0, top: 0, width: 360, height: 48 }
+    // v=100 s=0：sat 渐变 白→红，val 渐变 黑→白（s0 时最亮即白）。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 0, clientY: 0 }] })
+    expect(page.data.pickerUi.satFrom).toBe('#FFFFFF')
+    expect(page.data.pickerUi.satTo).toBe('#FF0000')
+    expect(page.data.pickerUi.valTo).toBe('#FFFFFF')
+    // s=50：valTo 变浅红 #FF8080。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 180, clientY: 0 }] })
+    expect(page.data.pickerUi.valTo).toBe('#FF8080')
+  })
+
   // ---- 修改即推送（autoSync）：防抖合并 / 未连接落盘 / 连接后补发 ------------
 
   test('自动推送：已连接 → 防抖 500ms 后先 WRITE_CONFIG 后 APPLY，blob 可解码', async () => {
@@ -734,11 +885,11 @@ describe('pin-detail 页（#27）', () => {
     const page = load(0)
     // 连续三次参数改动（亮度 10 → 20 → 30），每次间隔 200ms < 防抖窗口。
     const brightFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'brightness')
-    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '10' } })
+    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '10' } })
     jest.advanceTimersByTime(200)
-    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '20' } })
+    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '20' } })
     jest.advanceTimersByTime(200)
-    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '30' } })
+    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '30' } })
     jest.advanceTimersByTime(500)
     await flush()
 

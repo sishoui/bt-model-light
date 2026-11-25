@@ -2,6 +2,8 @@
 //
 // 页面每次有效改动 → 落盘 Storage（页面做）→ schedule(deviceId, config)：
 //   1. 500ms 防抖合并，同一时刻只允许一个在途请求，新改动排队发最新快照；
+//      离散动作（引脚开关等，opts.immediate）跳过防抖立即下发——开关点一下
+//      就不该再等合并窗口；
 //   2. 未连接时状态置 local（仅本机），pending 保留，连接建立后补发；
 //   3. 下发失败静默重试 2 次（1s / 2s），仍失败置 failed 等用户点重试；
 //   4. hash 去重：与上次成功下发的快照相同则跳过（固件 WRITE_CONFIG 幂等，
@@ -100,8 +102,9 @@ function attach() {
   }
 }
 
-// 页面每次有效改动后调用：config 已由页面落盘，这里安排防抖下发。
-function schedule(deviceId, config) {
+// 页面每次有效改动后调用：config 已由页面落盘，这里安排下发。
+// opts.immediate：离散动作（开关等）跳过 500ms 防抖立即下发；连续编辑保持防抖合并。
+function schedule(deviceId, config, opts) {
   const S = _store()
   S.deviceId = deviceId
   let blob
@@ -122,6 +125,14 @@ function schedule(deviceId, config) {
   const client = getCurrentBleClient()
   if (!client || !client.connected) {
     _setState(S, 'local') // 仅本机；pending 保留，连接后补发
+    return
+  }
+  if (opts && opts.immediate) {
+    if (S.timer) {
+      clearTimeout(S.timer) // 丢掉还在等的防抖窗口，立即发最新快照
+      S.timer = null
+    }
+    _flush()
     return
   }
   _armDebounce(S)

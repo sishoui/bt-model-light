@@ -1,7 +1,7 @@
 // 引脚配置详情页（ADR-0027 / #27 / T7）。
 //
-// 结构：顶部（图片/名称/开关）+ 灯组 Tab + 灯珠范围点选 + 步骤/图层编辑器
-// + 灯效下拉 + 参数表单联动（同页）。修改即推送：任何有效改动落盘 Storage 后
+// 结构：顶部（图片/名称/开关）+ 灯组 Tab（长按弹配置窗改名称/灯珠范围）
+// + 步骤/图层编辑器 + 灯效下拉 + 参数表单联动（同页）。修改即推送：任何有效改动落盘 Storage 后
 // 经 autoSync 防抖下发固件（WRITE_CONFIG + APPLY），无保存按钮。
 // 引脚固定 8 个（硬件不可增删），本页无删除引脚入口。
 //
@@ -12,7 +12,7 @@
 
 const { getDeviceConfig, saveDeviceConfig } = require('../../utils/deviceStore')
 const { encodeConfigBlob, validateConfig, effectName, clampInt } = require('../../utils/configCodec')
-const { getRecentColors, pushRecentColor, rgbToHex, hexToRgb } = require('../../utils/recentColors')
+const { getRecentColors, pushRecentColor, rgbToHex, hexToRgb, hsvToRgb, rgbToHsv } = require('../../utils/recentColors')
 const { EFF, EFFECT_PARAMS, LIMITS } = require('../../utils/protocol_gen')
 const autoSync = require('../../utils/autoSync')
 
@@ -76,6 +76,19 @@ function defaultParamValue(p) {
   return p.min
 }
 
+// 枚举型参数：离散取值用 picker（选项标签 → 值由 min 起算的序号）。
+const PARAM_OPTIONS = {
+  direction: ['正向', '反向'],
+  waveform: ['正弦', '方波'],
+  mode: ['渐变', '渐变回卷'],
+}
+
+// 连续型参数用滑块；离散/枚举用 picker；其余（小范围整数如灯珠数/间隔）留数字输入。
+const SLIDER_PARAMS = new Set([
+  'brightness', 'speed', 'period', 'on_time', 'off_time',
+  'spread', 'tail_length', 'decay', 'step_size',
+])
+
 // ---- 图层参数：schema ↔ 表单字段 -------------------------------------------
 
 // 按 effect 的 EFFECT_PARAMS schema 生成表单字段描述（供 WXML 渲染）。
@@ -93,7 +106,14 @@ function buildParamFields(effectId, params) {
       const v = src[p.name] === undefined ? defaultParamValue(p) : src[p.name]
       value = clamp(v, p.min, p.max)
     }
-    return { name: p.name, label: PARAM_LABELS[p.name] || p.name, type: p.type, min: p.min, max: p.max, value, hex }
+    const options = p.type === 'rgb' ? null : PARAM_OPTIONS[p.name] || null
+    // 枚举 picker 的 value 是选项序号（0 起），与协议值（min 起）差一个 min 偏移。
+    const displayValue = options ? value - p.min : value
+    return {
+      name: p.name, label: PARAM_LABELS[p.name] || p.name, type: p.type,
+      min: p.min, max: p.max, value, hex, options, displayValue,
+      slider: !options && p.type !== 'rgb' && SLIDER_PARAMS.has(p.name),
+    }
   })
 }
 
@@ -226,9 +246,12 @@ Page({
     dragRange: null,
     inCancelZone: false,
     ledCells: [], // [{ i, state }] 渲染用（state: empty/selected/occupied/drag-*）
-    ledPickerOpen: false, // 灯珠选择弹出层显隐
+    // 灯组配置弹窗（长按灯组 Tab 打开）：名称 + 灯珠范围拖选内嵌其中。
+    groupConfigOpen: false,
     // 当前选中的阶段下标（横向阶段条 + 下方详情单页）。
     activeStepSi: 0,
+    // 气泡卡片箭头水平位置(rpx)：当前选中段中心相对 stage-inner 起点。
+    bubbleX: 0,
     // 长按拖动排序态：dragIndex 为正在拖动的节点下标（null=未拖），dragX 为其当前位移(rpx)，
     // hoverIndex 为当前悬停落点下标（拖动中其余节点据此实时避让）。
     dragIndex: null,
@@ -247,11 +270,11 @@ Page({
     colorPickerOpen: false,
     colorPickerTarget: null, // 目标 field 定位（si/li/fi），随 setData 同步给 WXML
     recentColors: [],
-    colorPalette: [
-      '#000000', '#FFFFFF', '#808080', '#404040', '#C0C0C0',
-      '#FF0000', '#FF8800', '#FFFF00', '#00FF00', '#00FFFF',
-      '#0000FF', '#8000FF', '#FF69B4', '#FFDAB9', '#FFBF00', '#008080',
-    ],
+    // HSV 三维选色状态：h[0,360), s/v [0,100]；pickerHex 当前预览 hex；
+    // pickerUi 为拖动条派生的 UI（位置 + 渐变端点）。
+    pickerHsv: { h: 0, s: 0, v: 100 },
+    pickerHex: '#FFFFFF',
+    pickerUi: { huePos: '0%', satPos: '0%', valPos: '100%', satFrom: '#FFFFFF', satTo: '#FF0000', valFrom: '#000000', valTo: '#FF0000' },
     // 同步状态条（autoSync 驱动）：state 为 syncing/synced/failed/local，idle 不显示。
     syncState: 'idle',
     syncAt: '',
@@ -317,7 +340,9 @@ Page({
       ledCount,
       img: (pinEntry && pinEntry.img) || '',
       pinName: (pinEntry && pinEntry.name) || `引脚 ${pin + 1}`,
-      power: !!(pinEntry && pinEntry.power),
+      // 灯带开关：只有显式 power === false 才算关（老配置无该字段 → 开，ADR-0028）；
+      // 首次配置保存时写入该默认值，与 home 引脚卡片开关同口径。
+      power: !pinEntry || pinEntry.power !== false,
       groups,
       activeGroup: 0,
       activeStepSi: 0,
@@ -353,6 +378,7 @@ Page({
       activeStepSi: si,
       expandedLayers: this._defaultExpandedLayers(group, si),
     })
+    this._recalcBubbleX()
   },
 
   // 测量阶段条容器宽度(px)，并按段时长比例(带最小长度)计算各段宽(rpx)。
@@ -387,6 +413,22 @@ Page({
     }
     this._segRpx = widths
     this.setData({ segW: widths })
+    this._recalcBubbleX()
+  },
+
+  // 气泡箭头水平位置：当前选中段中心(rpx)。stage-inner 左右各 24rpx 外边距，
+  // 气泡卡片同样 24rpx 外边距，二者起点对齐，故段中心即箭头 left。
+  _recalcBubbleX() {
+    const widths = this._segRpx || []
+    const si = this.data.activeStepSi
+    if (!widths.length || si >= widths.length) {
+      this.setData({ bubbleX: 0 })
+      return
+    }
+    let x = 0
+    for (let i = 0; i < si; i++) x += widths[i]
+    x += widths[si] / 2
+    this.setData({ bubbleX: x })
   },
 
   // 各段像素宽 / 累计起点(px)，供拖动使用。
@@ -465,6 +507,7 @@ Page({
         activeStepSi: to,
         expandedLayers: this._defaultExpandedLayers(this.data.groups[this.data.activeGroup], to),
       })
+      this._recalcBubbleX()
     }
     this.setData({ dragIndex: null, dragX: 0, offsets: {} })
   },
@@ -515,9 +558,10 @@ Page({
     return set
   },
 
-  // 标记编辑态：组装配置 → 校验 → 落盘 Storage → 安排防抖下发（autoSync）。
+  // 标记编辑态：组装配置 → 校验 → 落盘 Storage → 安排下发（autoSync）。
+  // opts.immediate：离散动作（灯带开关）跳过防抖立即发；输入框/滑块保持防抖合并。
   // 校验/编码失败时静默跳过（编辑中间态的瞬时非法是常态，避免刷屏 Toast）。
-  _markDirty() {
+  _markDirty(opts) {
     if (!this._deviceId) return
     const pinConfig = {
       pin: this.data.pin,
@@ -542,7 +586,7 @@ Page({
       return
     }
     saveDeviceConfig(this._deviceId, config)
-    autoSync.schedule(this._deviceId, config)
+    autoSync.schedule(this._deviceId, config, opts)
   },
 
   // 离开拦截：仅在同步在途（防抖窗口 <500ms 或下发中）时提示「正在同步」；
@@ -562,7 +606,7 @@ Page({
   },
 
   // 替换 activeGroup 的 VM（不可变更新）：mutator 直接在克隆上改，返回后写回。
-  _editActiveGroup(mutator) {
+  _editActiveGroup(mutator, opts) {
     const groups = this.data.groups.slice()
     const group = Object.assign({}, groups[this.data.activeGroup])
     const steps = (group.steps || []).map((s) => Object.assign({}, s))
@@ -570,7 +614,7 @@ Page({
     group.steps = steps
     groups[this.data.activeGroup] = group
     this.setData({ groups })
-    this._markDirty()
+    if (!(opts && opts.silent)) this._markDirty()
   },
 
   // ---- 顶部 -------------------------------------------------------------------
@@ -582,19 +626,39 @@ Page({
 
   onPowerChange(e) {
     this.setData({ power: e.detail.value })
-    this._markDirty()
+    // 灯带开关是离散动作：跳过防抖立即下发（ADR-0029）。
+    this._markDirty({ immediate: true })
   },
 
   // ---- 灯组 Tab（固定 5 个，无新增/删除；tab 小字显示灯珠区间） -------------
 
-  onTapGroup(e) {
-    const index = Number(e.currentTarget.dataset.index)
+  // 切到指定灯组：重置阶段选中/图层折叠/拖选态，重建灯珠网格与气泡箭头。
+  _activateGroup(index) {
     if (!this.data.groups[index]) return
-    // 点当前组 Tab：无操作（单页阶段条常驻，无返回列表语义）。
     if (index === this.data.activeGroup) return
     this.setData({ activeGroup: index, activeStepSi: 0, expandedLayers: {}, dragging: false, dragRange: null, inCancelZone: false })
     this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount, this._computeOccupied(index), null) })
+    this._recalcBubbleX()
     if (wx.nextTick) wx.nextTick(() => this._measureStage())
+  },
+
+  onTapGroup(e) {
+    this._activateGroup(Number(e.currentTarget.dataset.index))
+  },
+
+  // 长按灯组 Tab：切到该组并弹出配置弹窗（名称 + 灯珠范围拖选内嵌，修改即推送）。
+  onGroupLongPress(e) {
+    const index = Number(e.currentTarget.dataset.index)
+    if (!this.data.groups[index]) return
+    this._activateGroup(index)
+    this.setData({ groupConfigOpen: true, dragging: false, dragRange: null, inCancelZone: false })
+    this.setData({ ledCells: this._buildLedCells(this.data.groups[this.data.activeGroup], this.data.ledCount, this._computeOccupied(this.data.activeGroup), null) })
+    if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
+  },
+
+  // 关闭灯组配置弹窗。
+  onCloseGroupConfig() {
+    this.setData({ groupConfigOpen: false })
   },
 
   onGroupNameInput(e) {
@@ -743,15 +807,6 @@ Page({
     this._markDirty()
   },
 
-  onOpenLedPicker() {
-    this.setData({ ledPickerOpen: true })
-  },
-
-  onCloseLedPicker() {
-    if (this.data.dragging) return // 拖选进行中不允许关闭，避免丢失
-    this.setData({ ledPickerOpen: false })
-  },
-
   noop() {},
 
   // ---- 步骤/图层编辑 ----------------------------------------------------------
@@ -772,6 +827,7 @@ Page({
       enterIndex: newSi,
       expandedLayers: this._defaultExpandedLayers(group, newSi),
     })
+    this._recalcBubbleX()
     setTimeout(() => {
       if (this.data.enterIndex === newSi) this.setData({ enterIndex: -1 })
     }, 300)
@@ -796,6 +852,7 @@ Page({
       activeStepSi: nextSi,
       expandedLayers: this._defaultExpandedLayers(group, nextSi),
     })
+    this._recalcBubbleX()
     if (wx.nextTick) wx.nextTick(() => this._measureStage())
   },
 
@@ -807,7 +864,27 @@ Page({
     })
   },
 
+  // 时长数字输入：与 slider 双向绑定（onDurationChange 同步改）。
   onDurationInput(e) {
+    const si = Number(e.currentTarget.dataset.si)
+    const v = clamp(e.detail.value, LIMITS.stepDurationMin, LIMITS.stepDurationMax)
+    this._editActiveGroup((group, steps) => {
+      steps[si] = Object.assign({}, steps[si], { duration: v })
+    })
+    this._recalcSegW()
+  },
+
+  // 时长滑块拖动中：实时更新 VM（不触发下发，松手 onDurationChange 才落盘）。
+  onDurationChanging(e) {
+    const si = Number(e.currentTarget.dataset.si)
+    const v = clamp(e.detail.value, LIMITS.stepDurationMin, LIMITS.stepDurationMax)
+    this._editActiveGroup((group, steps) => {
+      steps[si] = Object.assign({}, steps[si], { duration: v })
+    }, { silent: true })
+    this._recalcSegW()
+  },
+
+  onDurationChange(e) {
     const si = Number(e.currentTarget.dataset.si)
     const v = clamp(e.detail.value, LIMITS.stepDurationMin, LIMITS.stepDurationMax)
     this._editActiveGroup((group, steps) => {
@@ -896,7 +973,7 @@ Page({
     })
   },
 
-  // 参数输入：标量（u8/u16）走数字。rgb 不再有逐通道 input（色块 + 弹层，#33）。
+  // 参数输入：标量数字走 input；枚举 picker / 连续滑块走 onParamChange。rgb 走色块弹层（#33）。
   onParamInput(e) {
     const ds = e.currentTarget.dataset
     const si = Number(ds.si)
@@ -908,7 +985,7 @@ Page({
       // rgb 已由 onOpenColorPicker + onColorSelected 处理；旧 data-ch 入口不再绑定。
       return
     }
-    // 标量（u8/u16）。
+    // 标量（u8/u16）数字输入。
     const raw = e.detail.value
     this._editActiveGroup((group, steps) => {
       const layers = steps[si].layers.slice()
@@ -923,8 +1000,81 @@ Page({
     })
   },
 
+  // 参数滑块拖动中：实时更新 VM（不触发下发）。
+  onParamChanging(e) {
+    const ds = e.currentTarget.dataset
+    const si = Number(ds.si)
+    const li = Number(ds.li)
+    const fi = Number(ds.fi)
+    const field = this._locateField(si, li, fi)
+    if (!field) return
+    const raw = clamp(e.detail.value, field.min, field.max)
+    this._editActiveGroup((group, steps) => {
+      const layers = steps[si].layers.slice()
+      const layer = Object.assign({}, layers[li])
+      const fields = layer.fields.slice()
+      const f = Object.assign({}, fields[fi])
+      f.value = raw
+      fields[fi] = f
+      layer.fields = fields
+      layers[li] = layer
+      steps[si] = Object.assign({}, steps[si], { layers })
+    }, { silent: true })
+  },
+
+  // 参数滑块：连续量按 min~max 写入（松手落盘）。
+  onParamChange(e) {
+    const ds = e.currentTarget.dataset
+    const si = Number(ds.si)
+    const li = Number(ds.li)
+    const fi = Number(ds.fi)
+    const field = this._locateField(si, li, fi)
+    if (!field) return
+    if (field.type === 'rgb') {
+      // rgb 已由 onOpenColorPicker + onColorSelected 处理；旧 data-ch 入口不再绑定。
+      return
+    }
+    const raw = e.detail.value
+    this._editActiveGroup((group, steps) => {
+      const layers = steps[si].layers.slice()
+      const layer = Object.assign({}, layers[li])
+      const fields = layer.fields.slice()
+      const f = Object.assign({}, fields[fi])
+      f.value = clamp(raw, f.min, f.max)
+      fields[fi] = f
+      layer.fields = fields
+      layers[li] = layer
+      steps[si] = Object.assign({}, steps[si], { layers })
+    })
+  },
+
+  // 枚举单选：点击胶囊选项，按序号 + min 偏移还原协议值。
+  onParamOptionTap(e) {
+    const ds = e.currentTarget.dataset
+    const si = Number(ds.si)
+    const li = Number(ds.li)
+    const fi = Number(ds.fi)
+    const oi = Number(ds.oi)
+    const field = this._locateField(si, li, fi)
+    if (!field || !field.options) return
+    const raw = field.min + oi
+    this._editActiveGroup((group, steps) => {
+      const layers = steps[si].layers.slice()
+      const layer = Object.assign({}, layers[li])
+      const fields = layer.fields.slice()
+      const f = Object.assign({}, fields[fi])
+      f.value = clamp(raw, f.min, f.max)
+      f.displayValue = oi
+      fields[fi] = f
+      layer.fields = fields
+      layers[li] = layer
+      steps[si] = Object.assign({}, steps[si], { layers })
+    })
+  },
+
   // ---- 颜色弹层（#33） ---------------------------------------------------------
   // rgb 色块点击：打开弹层，定位到目标 field，把最近色带入弹层。
+  // HSV 初值取目标 field 当前颜色（弹层打开即三维度可拖）。
   onOpenColorPicker(e) {
     const ds = e.currentTarget.dataset
     const si = Number(ds.si)
@@ -932,7 +1082,76 @@ Page({
     const fi = Number(ds.fi)
     this._locateField(si, li, fi)
     this._colorPickerTarget = { si, li, fi }
+    const field = this._locateField(si, li, fi)
+    const hsv = (field && field.value && rgbToHsv(field.value)) || { h: 0, s: 0, v: 100 }
+    this._setPickerHsv(hsv)
     this.setData({ colorPickerOpen: true, colorPickerTarget: { si, li, fi }, recentColors: getRecentColors() })
+  },
+
+  // HSV → 弹层 UI 派生：当前 hex 预览 + 三条位置/渐变端点。单一计算点，
+  // 打开初始化与拖动更新共用，避免两处漂移。
+  _setPickerHsv(hsv) {
+    // 色相取整到 [0,359]：拖到最右（ratio=1 → 360）回卷到 0 会让圆点跳到最左，
+    // 钳到 359 使 359°（红端）稳定停在最右，与视觉连续。
+    const h = Math.round(Math.max(0, Math.min(359, Number(hsv.h) || 0)))
+    const s = Math.round(Math.max(0, Math.min(100, Number(hsv.s) || 0)))
+    const v = Math.round(Math.max(0, Math.min(100, Number(hsv.v) || 0)))
+    const hex = rgbToHex(hsvToRgb(h, s, v)).toUpperCase()
+    const ui = {
+      huePos: (h / 360) * 100 + '%',
+      satPos: s + '%',
+      valPos: v + '%',
+      satFrom: rgbToHex(hsvToRgb(h, 0, v)).toUpperCase(),
+      satTo: rgbToHex(hsvToRgb(h, 100, v)).toUpperCase(),
+      valFrom: '#000000',
+      valTo: rgbToHex(hsvToRgb(h, s, 100)).toUpperCase(),
+    }
+    this._pickerHsv = { h, s, v }
+    this._pickerHex = hex
+    this.setData({ pickerHsv: { h, s, v }, pickerHex: hex, pickerUi: ui })
+  },
+
+  // 拖动条触摸：start 记录条 rect（后续 move 复用），move 按 clientX 反查比例。
+  // 三条共用一套处理，data-part 区分（hue/sat/val）。
+  onPickerTouchStart(e) {
+    const part = e.currentTarget.dataset.part
+    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
+    const query = wx.createSelectorQuery()
+    query.in(this)
+    query.select('.picker-bar--' + part).boundingClientRect()
+    query.exec((res) => {
+      this._barRects = this._barRects || {}
+      this._barRects[part] = (res && res[0]) || null
+      this._pickerPart = part
+      this._applyPickerTouch(part, t)
+    })
+  },
+
+  onPickerTouchMove(e) {
+    if (!this._pickerPart) return
+    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
+    this._applyPickerTouch(this._pickerPart, t)
+  },
+
+  // 松手：写回 field（应用颜色 + 持久化最近色），弹层保持打开可继续微调。
+  onPickerTouchEnd() {
+    if (!this._pickerPart) return
+    this._pickerPart = null
+    const target = this._colorPickerTarget || {}
+    if (!Number.isFinite(target.si) || !Number.isFinite(target.li) || !Number.isFinite(target.fi)) return
+    this._applyColorHex(target.si, target.li, target.fi, this._pickerHex)
+  },
+
+  // 触摸点 → 条上比例 [0,1] → 更新对应维度。rect 未就绪（查询未回）时忽略。
+  _applyPickerTouch(part, t) {
+    const rect = this._barRects && this._barRects[part]
+    if (!rect || !rect.width) return
+    const ratio = Math.max(0, Math.min(1, ((t.clientX || 0) - rect.left) / rect.width))
+    const cur = this._pickerHsv || { h: 0, s: 0, v: 100 }
+    // 色相 359° 封顶：ratio=1（最右）→ 359，避免回卷 0 跳到最左。
+    if (part === 'hue') this._setPickerHsv({ h: Math.min(359, ratio * 360), s: cur.s, v: cur.v })
+    else if (part === 'sat') this._setPickerHsv({ h: cur.h, s: ratio * 100, v: cur.v })
+    else if (part === 'val') this._setPickerHsv({ h: cur.h, s: cur.s, v: ratio * 100 })
   },
 
   // 弹层选色：hex → rgb 写入 target field → 持久化最近色 → 关闭弹层。

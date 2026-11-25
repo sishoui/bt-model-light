@@ -3,6 +3,7 @@
 // Coverage:
 //   - Factory default: build, validate, encode, decode round-trip.
 //   - Empty config: validate, encode (small blob), decode round-trip.
+//   - All pins off (group_count = 0 body, ADR-0028): validate / encode / decode OK.
 //   - Encode -> decode preserves every field (8 pins, groups, steps,
 //     layers, params) for a hand-built config.
 //   - Corruption detection: flip a byte in the body -> CRC error (0x01).
@@ -156,6 +157,25 @@ void test_empty_blob(void) {
     TEST_ASSERT_EQUAL_UINT8(ERR_INTERNAL_ERROR, config_decode(NULL, 0, &d));
 }
 
+// 小程序把"引脚灯带开关关闭"编码成该引脚 group_count=0（ADR-0028）：
+// 全部引脚关闭的 blob 必须 validate / encode / decode 全通过 ——
+// 关灯是合法配置，不是损坏配置。固件渲染侧见 test_composition 的 0 灯组用例。
+void test_all_pins_off_blob_roundtrip(void) {
+    device_config_t c;
+    config_init_empty(&c);
+    TEST_ASSERT_EQUAL_UINT8(0, config_validate(&c));
+    uint8_t buf[64];
+    uint8_t err = 0;
+    size_t n = config_encode(&c, buf, sizeof(buf), &err);
+    // body = 8 个引脚各自的 group_count 字节（都为 0）。
+    TEST_ASSERT_EQUAL_size_t(CONFIG_BLOB_OVERHEAD + PIN_COUNT, n);
+    device_config_t d;
+    TEST_ASSERT_EQUAL_UINT8(0, config_decode(buf, n, &d));
+    for (uint8_t pin = 0; pin < PIN_COUNT; pin++) {
+        TEST_ASSERT_EQUAL_UINT8(0, d.pins[pin].group_count);
+    }
+}
+
 // ---- validation rejections ----------------------------------------------
 
 void test_validate_led_end_lt_start(void) {
@@ -288,6 +308,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_version_mismatch);
     RUN_TEST(test_truncated_blob);
     RUN_TEST(test_empty_blob);
+    RUN_TEST(test_all_pins_off_blob_roundtrip);
     RUN_TEST(test_validate_led_end_lt_start);
     RUN_TEST(test_validate_led_sentinel_empty_group);
     RUN_TEST(test_sentinel_roundtrip);

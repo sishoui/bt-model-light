@@ -8,16 +8,23 @@
 // 运行环境约束：仅依赖 ES2017+ 标准 API 与全局 wx（不 import wx），
 // Jest 通过 wx-mock 注入（ADR-0012 第 2 层）。
 //
-// BLE 写特征分片上限：默认 ATT MTU 23 → 有效负载 20 字节。空口 MTU 协商在
-// 真机 smoke test 验证（frame-spec.md），JS 侧固定 20 字节分片是安全下界。
+// BLE 写特征分片上限：按协商后的 ATT MTU 自适应（ADR-0029）。
+// 固件 local MTU 提到 517；Android 由 wx.setBLEMTU(512) 协商 → 509 字节/包，
+// iOS 系统自动请求 185 → 182 字节/包，协商不到时退回 20 字节安全下界。
+// 空口 MTU/分包的物理正确性仍由真机 smoke test 覆盖（frame-spec.md）。
 
 'use strict'
 
 const { encodeFrame, FrameParser, PARSE_OK } = require('./frameParser')
 const { CMD, NOTIFY, BLE, PROTOCOL_VERSION, ERR } = require('./protocol_gen')
 
-// 单次 BLE 写的最大字节数（ATT MTU 23 的安全下界）。
+// 安全下界：ATT MTU 23 → 20 字节负载（分片降级后的兜底值）。
 const WRITE_CHUNK = 20
+// Android 主动请求的 ATT MTU（wx.setBLEMTU 上限 512）→ 509 字节负载。
+const MTU_REQUEST = 512
+// iOS 无 MTU API，系统自动请求 185 → 182 字节负载。乐观使用，
+// 平台实际收不下时由 sendCmd 首片降级兜底。
+const CHUNK_IOS = 182
 
 // 连接状态机（本模块内）：idle → scanning / connecting → connected → idle。
 // compatible 仅由 VERSION notify 置位（ADR-0009）。
@@ -33,6 +40,9 @@ function createBleClient() {
   let _compatible = true // 未协商前不阻断（连接后首发 GET_VERSION 再裁决）
   let _versionInfo = null // { protocol, firmware }
   let _seq = 0
+  // 当前写分片上限（字节）：connect 时按平台 MTU 能力确定一次（ADR-0029），
+  // 首片被平台拒时整会话退回 WRITE_CHUNK。
+  let _chunk = WRITE_CHUNK
   let _parser = new FrameParser()
   let _adapterOpen = false
   let _listenersRegistered = false // 是否已注册全局 notify/连接监听（与 _ensureAdapter 语义一致）
@@ -333,6 +343,9 @@ function createBleClient() {
       state: true,
     })
 
+    // 写分片上限按协商 MTU 定一次（安卓 setBLEMTU / iOS 乐观值 + 首片降级）。
+    await _negotiateMtu(deviceId)
+
     _connected = true
     for (const fn of _stateSubs) {
       try {
@@ -363,6 +376,7 @@ function createBleClient() {
     _versionInfo = null
     _parser.reset()
     _seq = 0
+    _chunk = WRITE_CHUNK // 分片上限随连接作废，下次连接重新协商
     for (const fn of _stateSubs) {
       try {
         fn({ connected: false })
@@ -385,8 +399,29 @@ function createBleClient() {
 
   // ---- 命令发送 ---------------------------------------------------------------
 
-  // 编帧 → 按 WRITE_CHUNK 切片 → 顺序写入写特征。
+  // 协商写分片上限（连接期调用一次，ADR-0029）：
+  //   - Android：wx.setBLEMTU(512) 成功 → 509 字节/包（协商值权威）；
+  //   - iOS / 无该 API / 协商失败：平台自己会把 MTU 谈上去，先用 182 乐观值，
+  //     平台实际收不下时（如固件是旧版、local MTU 仍为 23）由 sendCmd 首片降级。
+  async function _negotiateMtu(deviceId) {
+    const wx = _wx()
+    _chunk = CHUNK_IOS
+    if (typeof wx.setBLEMTU !== 'function') return
+    try {
+      await wx.setBLEMTU({ deviceId, mtu: MTU_REQUEST })
+      _chunk = MTU_REQUEST - 3
+    } catch (e) {
+      if (typeof console !== 'undefined' && console.debug) {
+        console.debug('[bleClient] setBLEMTU 失败，保持乐观分片', _chunk, e && e.errMsg)
+      }
+    }
+  }
+
+  // 编帧 → 按当前分片上限顺序写入写特征（同一时刻不并发，见 autoSync 单飞）。
   // 未连接 / 协议不兼容时 reject（ADR-0009：不兼容不下发命令）。
+  // 首片被平台拒（errMsg 多为超出单次写上限）说明实际 MTU 没到乐观值：
+  // 整帧退回 20 字节重发，并记住该上限。只在首片失败时降级——此时空口一个字节
+  // 都没发出去，整帧重发不会在固件流式解析器里留下半截帧；中途失败交给上层重试。
   async function sendCmd(cmd, payload) {
     if (!_connected || !_deviceId || !_writeCharId) {
       throw new Error('BLE 未连接')
@@ -397,14 +432,29 @@ function createBleClient() {
     const wx = _wx()
     const frame = encodeFrame(cmd, _seq, payload)
     _seq = (_seq + 1) & 0xff // uint8 回绕
-    for (let off = 0; off < frame.length; off += WRITE_CHUNK) {
-      const chunk = frame.slice(off, Math.min(off + WRITE_CHUNK, frame.length))
-      await wx.writeBLECharacteristicValue({
-        deviceId: _deviceId,
-        serviceId: _serviceId,
-        characteristicId: _writeCharId,
-        value: chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength),
-      })
+    let sent = 0
+    const writeAll = async (size) => {
+      sent = 0
+      for (let off = 0; off < frame.length; off += size) {
+        const chunk = frame.slice(off, Math.min(off + size, frame.length))
+        await wx.writeBLECharacteristicValue({
+          deviceId: _deviceId,
+          serviceId: _serviceId,
+          characteristicId: _writeCharId,
+          value: chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength),
+        })
+        sent += chunk.byteLength
+      }
+    }
+    try {
+      await writeAll(_chunk)
+    } catch (err) {
+      if (sent > 0 || _chunk <= WRITE_CHUNK) throw err
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[bleClient] 分片', _chunk, '被平台拒，退回', WRITE_CHUNK, err && err.errMsg)
+      }
+      _chunk = WRITE_CHUNK
+      await writeAll(_chunk)
     }
   }
 
@@ -448,12 +498,23 @@ function createBleClient() {
     get versionInfo() {
       return _versionInfo
     },
+    // 当前写分片上限（字节）：connect 时按 MTU 协商确定，降级后为 WRITE_CHUNK。
+    get chunk() {
+      return _chunk
+    },
   }
 }
 
 // ---- 单例 seam（跨页共享同一连接，测试可注入 fake） ---------------------------
 
-module.exports = { createBleClient, getCurrentBleClient, setCurrentBleClient, WRITE_CHUNK }
+module.exports = {
+  createBleClient,
+  getCurrentBleClient,
+  setCurrentBleClient,
+  WRITE_CHUNK,
+  MTU_REQUEST,
+  CHUNK_IOS,
+}
 
 // ---- 单例 seam（跨页共享同一连接，ADR-0023 的 getApp 方案；测试可注入 fake）。
 // 存全局 slot：loadPage 的 isolateModules 副本也能取到同一实例。

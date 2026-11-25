@@ -192,6 +192,10 @@ function createSimBleClient() {
     get versionInfo() {
       return _versionInfo
     },
+    // 模拟客户端不走真实 BLE：分片上限固定安全下界（与 bleClient.WRITE_CHUNK 同值）。
+    get chunk() {
+      return 20
+    },
   }
 }
 
