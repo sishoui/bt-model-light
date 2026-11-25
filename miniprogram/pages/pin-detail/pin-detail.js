@@ -123,13 +123,21 @@ function defaultLayer(effectId) {
   return makeLayer(effectId || EFF.SOLID, null)
 }
 
-function defaultStep() {
-  return { sid: uid(), duration: 5, transition: 0, loopMode: 1, layers: [defaultLayer(EFF.SOLID)] }
+// 阶段默认名：阶段一/二/…（上限 5，超出回退数字）。
+const CN_NUMS = ['一', '二', '三', '四', '五']
+function stageDefaultName(i) {
+  return '阶段' + (CN_NUMS[i] || String(i + 1))
+}
+
+// 阶段条分段宽度：最小长度(rpx) + 按时长比例分配剩余宽度（运行时测量容器宽）。
+
+function defaultStep(index) {
+  return { sid: uid(), name: stageDefaultName(index || 0), duration: 5, transition: 0, loopMode: 1, layers: [defaultLayer(EFF.SOLID)] }
 }
 
 function defaultGroup(name) {
   // 默认空态：ledStart == ledEnd == 255 哨兵（未选灯珠）。镜像 firmware config.cpp。
-  return { gid: uid(), name: name || '灯组 1', ledStart: 0xff, ledEnd: 0xff, steps: [defaultStep()] }
+  return { gid: uid(), name: name || '灯组 1', ledStart: 0xff, ledEnd: 0xff, steps: [defaultStep(0)] }
 }
 
 // ---- 灯珠拖选几何（#31） ----------------------------------------------------
@@ -170,8 +178,9 @@ function groupToVM(g, index) {
     name: g.name || `灯组 ${index + 1}`,
     ledStart: g.ledStart,
     ledEnd: g.ledEnd,
-    steps: (g.steps || []).map((s) => ({
+    steps: (g.steps || []).map((s, i) => ({
       sid: uid(),
+      name: s.name || stageDefaultName(i),
       duration: s.duration,
       transition: s.transition,
       loopMode: s.loopMode,
@@ -187,6 +196,7 @@ function vmToGroup(g) {
     ledStart: g.ledStart,
     ledEnd: g.ledEnd,
     steps: g.steps.map((s) => ({
+      name: s.name,
       duration: s.duration,
       transition: s.transition,
       loopMode: s.loopMode,
@@ -217,11 +227,21 @@ Page({
     inCancelZone: false,
     ledCells: [], // [{ i, state }] 渲染用（state: empty/selected/occupied/drag-*）
     ledPickerOpen: false, // 灯珠选择弹出层显隐
-    // 视图层级（#34）：steps = 步骤列表；detail = 某步详情。
-    view: 'steps',
+    // 当前选中的阶段下标（横向阶段条 + 下方详情单页）。
     activeStepSi: 0,
+    // 长按拖动排序态：dragIndex 为正在拖动的节点下标（null=未拖），dragX 为其当前位移(rpx)，
+    // hoverIndex 为当前悬停落点下标（拖动中其余节点据此实时避让）。
+    dragIndex: null,
+    dragX: 0,
+    hoverIndex: 0,
+    // 各节点相对 flex 基础位的位移(rpx)：拖动跟手 / 其余节点避让。
+    offsets: {},
+    // 各分段宽度(rpx)：按 duration 比例、带最小长度。
+    segW: [],
+    // 新增节点的进入动画标记（该下标播放一次 scale-in 后清除）。
+    enterIndex: -1,
     // 图层折叠状态（独立 data 字段，不污染 groups VM）。
-    // 键 "si-li"：仅在 detail 视图下使用；默认按图层数决定。
+    // 键 "si-li"：si = activeStepSi；默认按图层数决定。
     expandedLayers: {},
     // 颜色弹层（#33）。
     colorPickerOpen: false,
@@ -251,6 +271,11 @@ Page({
     const app = getApp()
     this._deviceId = (app && app.globalData && app.globalData.currentDeviceId) || null
     _uidSeq = 1
+    try {
+      this._winW = (wx.getSystemInfoSync() || {}).windowWidth || 375
+    } catch (e) {
+      this._winW = 375
+    }
     this._loadFromStore(Number.isFinite(pin) ? pin : 0)
     this.setData({ simMode: !!(app && app.globalData && app.globalData.simMode) })
     // 同步状态条订阅（autoSync 全局单例）；页面卸载时退订。
@@ -264,6 +289,10 @@ Page({
   onUnload() {
     if (this._offSync) this._offSync()
     this._syncUnloadGuard()
+  },
+
+  onReady() {
+    this._measureStage()
   },
 
   // 从 Storage 读该引脚配置 → 编辑态；无配置则初始化默认灯组。
@@ -291,7 +320,6 @@ Page({
       power: !!(pinEntry && pinEntry.power),
       groups,
       activeGroup: 0,
-      view: 'steps',
       activeStepSi: 0,
       dragging: false,
       dragRange: null,
@@ -315,21 +343,130 @@ Page({
 
   // ---- 视图导航 --------------------------------------------------------------
 
-  // 步骤列表 → 步骤详情：记录 activeStepSi，初始化该步图层折叠默认态。
-  onOpenStep(e) {
+  // 轻点阶段节点：选中该阶段，初始化其图层折叠默认态。
+  onSelectStage(e) {
+    if (this.data.dragIndex !== null) return // 拖动中忽略点击
     const si = Number(e.currentTarget.dataset.si)
     const group = this.data.groups[this.data.activeGroup]
     if (!group || !group.steps[si]) return
     this.setData({
-      view: 'detail',
       activeStepSi: si,
       expandedLayers: this._defaultExpandedLayers(group, si),
     })
   },
 
-  // 步骤详情 → 步骤列表（返回箭头或点当前 Tab）。
-  onBackToSteps() {
-    this.setData({ view: 'steps' })
+  // 测量阶段条容器宽度(px)，并按段时长比例(带最小长度)计算各段宽(rpx)。
+  _measureStage() {
+    if (typeof wx === 'undefined' || !wx.createSelectorQuery) return
+    const q = wx.createSelectorQuery().in(this)
+    q.select('.stage-inner').boundingClientRect((r) => {
+      if (r && r.width) {
+        this._stageW = r.width
+        this._recalcSegW()
+      }
+    })
+    q.exec()
+  },
+
+  // 段宽：最小 MIN(rpx)，其余按 duration 比例分配；总宽不足时全取最小（横向滚动）。
+  _recalcSegW() {
+    const steps = this.data.groups[this.data.activeGroup].steps
+    const n = steps.length || 1
+    const winW = this._winW || 375
+    const availPx = this._stageW || winW * 0.9
+    const availRpx = (availPx * 750) / winW
+    const MIN = 96
+    let widths
+    if (n * MIN >= availRpx) {
+      widths = []
+      for (let i = 0; i < n; i++) widths.push(MIN)
+    } else {
+      const total = steps.reduce((s, st) => s + (st.duration || 1), 0) || 1
+      const rem = availRpx - n * MIN
+      widths = steps.map((st) => MIN + (rem * (st.duration || 1)) / total)
+    }
+    this._segRpx = widths
+    this.setData({ segW: widths })
+  },
+
+  // 各段像素宽 / 累计起点(px)，供拖动使用。
+  _segLayoutPx() {
+    const winW = this._winW || 375
+    const k = winW / 750
+    const widths = (this._segRpx || []).map((w) => w * k)
+    const base = []
+    let acc = 0
+    for (let i = 0; i < widths.length; i++) {
+      base.push(acc)
+      acc += widths[i]
+    }
+    return { widths, base, total: acc }
+  },
+
+  // 拖动中按落点避让：被拖段跟手，其余按被拖段宽让位。
+  _recalcOffsets(dragX, hoverIndex) {
+    const dragIndex = this.data.dragIndex
+    const n = this.data.groups[this.data.activeGroup].steps.length
+    const { widths, base } = this._segLayoutPx()
+    const wDrag = widths[dragIndex] || 0
+    const off = {}
+    for (let si = 0; si < n; si++) {
+      if (dragIndex === null || dragIndex === si) {
+        off[si] = dragIndex === si ? dragX - base[si] : 0
+        continue
+      }
+      let d = 0
+      if (dragIndex < hoverIndex && si > dragIndex && si <= hoverIndex) d = -wDrag
+      else if (dragIndex > hoverIndex && si >= hoverIndex && si < dragIndex) d = wDrag
+      off[si] = d
+    }
+    return off
+  },
+
+  // 长按段：进入跟手拖动。
+  onStageLongPress(e) {
+    const si = Number(e.currentTarget.dataset.si)
+    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
+    this._dragStartClientX = t.clientX || 0
+    const { base } = this._segLayoutPx()
+    const startX = base[si] || 0
+    this.setData({ dragIndex: si, dragX: startX, hoverIndex: si, enterIndex: -1, offsets: this._recalcOffsets(startX, si) })
+    if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
+  },
+
+  onStageTouchMove(e) {
+    if (this.data.dragIndex === null) return
+    const t = e.touches && e.touches[0]
+    if (!t) return
+    const { widths, base, total } = this._segLayoutPx()
+    const wDrag = widths[this.data.dragIndex] || 0
+    const x = Math.max(0, Math.min(total - wDrag, (base[this.data.dragIndex] || 0) + (t.clientX - this._dragStartClientX)))
+    // 落点：被拖段中心落在哪一段区间。
+    const center = x + wDrag / 2
+    let hover = 0
+    for (let i = 0; i < widths.length; i++) {
+      if (center >= base[i]) hover = i
+    }
+    const changed = hover !== this.data.hoverIndex
+    this.setData({ dragX: x, hoverIndex: hover, offsets: this._recalcOffsets(x, hover) })
+    if (changed && wx.vibrateShort) wx.vibrateShort({ type: 'light' })
+  },
+
+  onStageTouchEnd() {
+    if (this.data.dragIndex === null) return
+    const from = this.data.dragIndex
+    const to = this.data.hoverIndex
+    if (to !== from) {
+      this._editActiveGroup((group, arr) => {
+        const moved = arr.splice(from, 1)[0]
+        arr.splice(to, 0, moved)
+      })
+      this.setData({
+        activeStepSi: to,
+        expandedLayers: this._defaultExpandedLayers(this.data.groups[this.data.activeGroup], to),
+      })
+    }
+    this.setData({ dragIndex: null, dragX: 0, offsets: {} })
   },
 
   onToggleLayer(e) {
@@ -453,13 +590,11 @@ Page({
   onTapGroup(e) {
     const index = Number(e.currentTarget.dataset.index)
     if (!this.data.groups[index]) return
-    // 点当前组 Tab：详情视图下回步骤列表（不重置其他状态）。
-    if (index === this.data.activeGroup) {
-      if (this.data.view !== 'steps') this.onBackToSteps()
-      return
-    }
-    this.setData({ activeGroup: index, view: 'steps', activeStepSi: 0, expandedLayers: {}, dragging: false, dragRange: null, inCancelZone: false })
+    // 点当前组 Tab：无操作（单页阶段条常驻，无返回列表语义）。
+    if (index === this.data.activeGroup) return
+    this.setData({ activeGroup: index, activeStepSi: 0, expandedLayers: {}, dragging: false, dragRange: null, inCancelZone: false })
     this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount, this._computeOccupied(index), null) })
+    if (wx.nextTick) wx.nextTick(() => this._measureStage())
   },
 
   onGroupNameInput(e) {
@@ -623,26 +758,53 @@ Page({
 
   onAddStep() {
     if (this.data.groups[this.data.activeGroup].steps.length >= LIMITS.stepsPerGroupMax) {
-      wx.showToast({ title: `每灯组最多 ${LIMITS.stepsPerGroupMax} 个步骤`, icon: 'none' })
+      wx.showToast({ title: `每灯组最多 ${LIMITS.stepsPerGroupMax} 个阶段`, icon: 'none' })
       return
     }
+    const newSi = this.data.groups[this.data.activeGroup].steps.length
     this._editActiveGroup((group, steps) => {
-      steps.push(defaultStep())
+      steps.push(defaultStep(newSi))
     })
-    // 列表页添加：留在列表，无图层键需要维护。
+    // 添加后选中新阶段并初始化其图层折叠默认态；新节点播放一次进入动画。
+    const group = this.data.groups[this.data.activeGroup]
+    this.setData({
+      activeStepSi: newSi,
+      enterIndex: newSi,
+      expandedLayers: this._defaultExpandedLayers(group, newSi),
+    })
+    setTimeout(() => {
+      if (this.data.enterIndex === newSi) this.setData({ enterIndex: -1 })
+    }, 300)
+    if (wx.nextTick) wx.nextTick(() => this._measureStage())
   },
 
   onDeleteStep(e) {
     const si = Number(e.currentTarget.dataset.si)
-    if (this.data.groups[this.data.activeGroup].steps.length <= 1) {
-      wx.showToast({ title: '至少保留一个步骤', icon: 'none' })
+    const steps = this.data.groups[this.data.activeGroup].steps
+    if (steps.length <= 1) {
+      wx.showToast({ title: '至少保留一个阶段', icon: 'none' })
       return
     }
-    this._editActiveGroup((group, steps) => {
-      steps.splice(si, 1)
+    this._editActiveGroup((group, arr) => {
+      arr.splice(si, 1)
     })
-    // 详情页删除当前步骤后回列表；expandedLayers 按剩余步骤重置默认。
-    this.setData({ view: 'steps', activeStepSi: 0, expandedLayers: {} })
+    // 删除后选中顺延：删中间选中原下一个（同下标），删尾选新的最后一个。
+    const nextLen = this.data.groups[this.data.activeGroup].steps.length
+    const nextSi = si < nextLen ? si : nextLen - 1
+    const group = this.data.groups[this.data.activeGroup]
+    this.setData({
+      activeStepSi: nextSi,
+      expandedLayers: this._defaultExpandedLayers(group, nextSi),
+    })
+    if (wx.nextTick) wx.nextTick(() => this._measureStage())
+  },
+
+  onStageNameInput(e) {
+    const si = Number(e.currentTarget.dataset.si)
+    const v = e.detail.value
+    this._editActiveGroup((group, steps) => {
+      steps[si] = Object.assign({}, steps[si], { name: v })
+    })
   },
 
   onDurationInput(e) {
@@ -651,6 +813,7 @@ Page({
     this._editActiveGroup((group, steps) => {
       steps[si] = Object.assign({}, steps[si], { duration: v })
     })
+    this._recalcSegW()
   },
 
   onTransitionChange(e) {
@@ -673,7 +836,7 @@ Page({
     const si = Number(e.currentTarget.dataset.si)
     const step = this.data.groups[this.data.activeGroup].steps[si]
     if (!step || step.layers.length >= LIMITS.layersPerStepMax) {
-      wx.showToast({ title: `每步骤最多 ${LIMITS.layersPerStepMax} 个图层`, icon: 'none' })
+      wx.showToast({ title: `每阶段最多 ${LIMITS.layersPerStepMax} 个图层`, icon: 'none' })
       return
     }
     this._editActiveGroup((group, steps) => {

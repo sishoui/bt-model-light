@@ -466,8 +466,8 @@ describe('pin-detail 页（#27）', () => {
     expect(savedLayer.params.brightness).toBe(100)
   })
 
-  // 视图导航 + 图层折叠（#33 / #34）。
-  test('默认视图为步骤列表；进入步骤详情初始化图层折叠默认态', () => {
+  // 阶段条导航 + 图层折叠（#33 / 横向阶段条单页）。
+  test('默认选中阶段一；onSelectStage 初始化图层折叠默认态', () => {
     saveDeviceConfig(dev.id, {
       version: 1,
       pins: [
@@ -493,18 +493,14 @@ describe('pin-detail 页（#27）', () => {
       ],
     })
     const page = load(0)
-    expect(page.data.view).toBe('steps')
-    // 进入步骤 0 详情：2 个图层 ≤2 全展开。
-    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
-    expect(page.data.view).toBe('detail')
+    expect(page.data.activeStepSi).toBe(0)
+    // 选中阶段 0：2 个图层 ≤2 全展开。
+    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
     expect(page.data.activeStepSi).toBe(0)
     expect(page.data.expandedLayers['0-0']).toBe(true)
     expect(page.data.expandedLayers['0-1']).toBe(true)
-    // 返回列表。
-    page.onBackToSteps()
-    expect(page.data.view).toBe('steps')
-    // 进入步骤 1 详情：1 个图层全展开。
-    page.onOpenStep({ currentTarget: { dataset: { si: 1 } } })
+    // 选中阶段 1：1 个图层全展开。
+    page.onSelectStage({ currentTarget: { dataset: { si: 1 } } })
     expect(page.data.activeStepSi).toBe(1)
     expect(page.data.expandedLayers['1-0']).toBe(true)
   })
@@ -535,22 +531,22 @@ describe('pin-detail 页（#27）', () => {
       ],
     })
     const page = load(0)
-    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
+    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
     expect(page.data.expandedLayers['0-0']).toBe(true)
     expect(page.data.expandedLayers['0-1']).toBe(false)
     expect(page.data.expandedLayers['0-2']).toBe(false)
   })
 
-  test('onOpenStep 不改变 groups VM、不触发同步', () => {
+  test('onSelectStage 不改变 groups VM、不触发同步', () => {
     const page = load(0)
-    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
+    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
     expect(page.data.groups[0].steps[0].duration).toBe(5) // VM 不变
     expect(page.data.syncState).toBe('idle') // 纯视图态不触发同步
   })
 
   test('onToggleLayer 翻转折叠键（si-li），不影响 groups VM、不触发同步', () => {
     const page = load(0)
-    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
+    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
     expect(page.data.expandedLayers['0-0']).toBe(true)
     page.onToggleLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
     expect(page.data.expandedLayers['0-0']).toBe(false)
@@ -558,35 +554,36 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.syncState).toBe('idle')
   })
 
-  test('切换灯组：回步骤列表并重置 activeStepSi/图层折叠', () => {
+  test('切换灯组：重置 activeStepSi/图层折叠；点当前组 Tab 无操作', () => {
     const page = load(0)
-    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
+    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
     page.onToggleLayer({ currentTarget: { dataset: { si: 0, li: 0 } } }) // 收起首层
     expect(page.data.expandedLayers['0-0']).toBe(false)
-    // 切到灯组 1：回列表、清折叠。
+    // 切到灯组 1：清折叠、回到阶段一。
     page.onTapGroup({ currentTarget: { dataset: { index: 1 } } })
     expect(page.data.activeGroup).toBe(1)
-    expect(page.data.view).toBe('steps')
     expect(page.data.activeStepSi).toBe(0)
     expect(page.data.expandedLayers).toEqual({})
-    // 点当前组 Tab：详情视图下回列表。
-    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
+    // 点当前组 Tab：无操作（单页阶段条常驻）。
     page.onTapGroup({ currentTarget: { dataset: { index: 1 } } })
-    expect(page.data.view).toBe('steps')
+    expect(page.data.activeGroup).toBe(1)
+    expect(page.data.activeStepSi).toBe(0)
   })
 
-  test('新增步骤留在列表；详情内删除当前步骤回列表', () => {
+  test('新增阶段选中新阶段；长按删除后选中顺延', () => {
     const page = load(0)
     page.onAddStep()
     page.onAddStep()
     expect(page.data.groups[0].steps).toHaveLength(3)
-    expect(page.data.view).toBe('steps') // 列表页添加不跳详情
-    // 进详情删当前步骤：回列表。
-    page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
+    expect(page.data.activeStepSi).toBe(2) // 添加后选中新阶段
+    // 长按删阶段 0：选中顺延到原阶段 1（同下标 0）。
     page.onDeleteStep({ currentTarget: { dataset: { si: 0 } } })
     expect(page.data.groups[0].steps).toHaveLength(2)
-    expect(page.data.view).toBe('steps')
-    expect(page.data.expandedLayers).toEqual({})
+    expect(page.data.activeStepSi).toBe(0)
+    // 删尾：选中新的最后一个。
+    page.onDeleteStep({ currentTarget: { dataset: { si: 1 } } })
+    expect(page.data.groups[0].steps).toHaveLength(1)
+    expect(page.data.activeStepSi).toBe(0)
   })
 
   // 颜色弹层（#33）。

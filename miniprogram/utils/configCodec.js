@@ -77,11 +77,11 @@ function validateConfig(config) {
       }
       const steps = Array.isArray(g.steps) ? g.steps : []
       if (steps.length < 1 || steps.length > LIMITS.stepsPerGroupMax) {
-        return { code: ERR.CONFIG_LIMIT_EXCEEDED, message: `步骤数需在 1~${LIMITS.stepsPerGroupMax}` }
+        return { code: ERR.CONFIG_LIMIT_EXCEEDED, message: `阶段数需在 1~${LIMITS.stepsPerGroupMax}` }
       }
       for (const s of steps) {
         if (!(s.duration >= LIMITS.stepDurationMin && s.duration <= LIMITS.stepDurationMax)) {
-          return { code: ERR.INVALID_PARAMETER, message: `步骤时长需在 ${LIMITS.stepDurationMin}~${LIMITS.stepDurationMax} 秒` }
+          return { code: ERR.INVALID_PARAMETER, message: `阶段时长需在 ${LIMITS.stepDurationMin}~${LIMITS.stepDurationMax} 秒` }
         }
         if (!(s.transition >= 0 && s.transition <= 2)) {
           return { code: ERR.INVALID_PARAMETER, message: '过渡模式非法' }
@@ -248,11 +248,11 @@ function decodeConfigBlob(bytes) {
       const ledEnd = inBytes[off++]
       const stepCount = inBytes[off++]
       if (stepCount < 1 || stepCount > LIMITS.stepsPerGroupMax) {
-        throw configError(ERR.CONFIG_LIMIT_EXCEEDED, '步骤数超限')
+        throw configError(ERR.CONFIG_LIMIT_EXCEEDED, '阶段数超限')
       }
       const steps = []
       for (let si = 0; si < stepCount; si++) {
-        if (off + 5 > bodyEnd) throw configError(ERR.INTERNAL_ERROR, '步骤头越界')
+        if (off + 5 > bodyEnd) throw configError(ERR.INTERNAL_ERROR, '阶段头越界')
         const duration = inBytes[off] | (inBytes[off + 1] << 8)
         const transition = inBytes[off + 2]
         const loopMode = inBytes[off + 3]

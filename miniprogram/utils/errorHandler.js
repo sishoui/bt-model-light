@@ -23,7 +23,7 @@ const ERROR_LOG_MAX = 50
 const PROTOCOL_MESSAGES = {
   [ERR.CRC_ERROR]: '数据校验失败，请重试',
   [ERR.UNSUPPORTED_COMMAND]: '设备固件不支持该操作，请升级固件',
-  [ERR.CONFIG_LIMIT_EXCEEDED]: '配置超出设备上限（灯珠/灯组/步骤/图层过多）',
+  [ERR.CONFIG_LIMIT_EXCEEDED]: '配置超出设备上限（灯珠/灯组/阶段/图层过多）',
   [ERR.INVALID_PARAMETER]: '参数无效，请检查后重试',
   [ERR.INVALID_STATE]: '设备当前状态不支持该操作',
   [ERR.BUFFER_OVERFLOW]: '数据量过大，设备无法处理',
