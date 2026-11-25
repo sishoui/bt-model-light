@@ -61,33 +61,44 @@
       </view>
     </view>
 
-  <!-- 步骤 / 图层 / 灯效（#34：步骤列表页 → 步骤详情页主从切换） -->
-  <block wx:if="{{view === 'steps'}}">
-    <view class="step-list">
-      <view
-        wx:for="{{groups[activeGroup].steps}}"
-        wx:key="sid"
-        wx:for-item="step"
-        wx:for-index="si"
-        class="step-row bt-pressable"
-        data-si="{{si}}"
-        bindtap="onOpenStep"
-      >
-        <view class="step-row__swatch" style="background-color: {{step.layers[0].hex}};"></view>
-        <text class="step-row__title">步骤 {{si + 1}} · {{step.duration}}s · {{step.layers[0].effectName}}</text>
-        <text class="step-row__arrow">›</text>
-      </view>
+  <!-- 阶段标题 + 添加（＋ 在标题右侧，满 5 禁用）；下方圆形节点步进条撑满居中 -->
+  <view class="stage-head">
+    <text class="stage-head__title">阶段</text>
+    <view
+      class="stage-add {{groups[activeGroup].steps.length >= stepsPerGroupMax ? 'stage-add--disabled' : ''}} bt-pressable"
+      bindtap="onAddStep"
+    >＋</view>
+  </view>
+  <scroll-view class="stage-bar__scroll" scroll-x enhanced show-scrollbar="{{false}}">
+    <view class="stage-inner">
+      <block wx:for="{{groups[activeGroup].steps}}" wx:key="sid" wx:for-item="step" wx:for-index="si">
+        <view
+          class="stage-seg {{activeStepSi === si ? 'stage-seg--active' : ''}} {{dragIndex === si ? 'stage-seg--drag' : ''}} {{enterIndex === si ? 'stage-seg--enter' : ''}}"
+          style="width: {{segW[si] || 0}}rpx; transform: translateX({{offsets[si] || 0}}px);"
+          data-si="{{si}}"
+          bindtap="onSelectStage"
+          bindlongpress="onStageLongPress"
+          catchtouchmove="onStageTouchMove"
+          bindtouchend="onStageTouchEnd"
+          bindtouchcancel="onStageTouchEnd"
+        >
+          <text class="stage-seg__num">{{si + 1}}</text>
+          <text class="stage-seg__name">{{step.name}}</text>
+          <text class="stage-seg__info">{{step.duration}}s</text>
+        </view>
+      </block>
     </view>
-    <view wx:if="{{groups[activeGroup].steps.length < stepsPerGroupMax}}" class="add-step bt-pressable" bindtap="onAddStep">＋ 添加步骤</view>
-  </block>
+  </scroll-view>
 
-  <block wx:elif="{{view === 'detail'}}">
-    <view class="step-detail">
-      <view class="step-detail__head">
-        <text class="step-detail__back" bindtap="onBackToSteps">‹ 返回</text>
-        <text class="step-detail__title">{{groups[activeGroup].name}} · 步骤 {{activeStepSi + 1}}</text>
-        <text wx:if="{{groups[activeGroup].steps.length > 1}}" class="step__del" data-si="{{activeStepSi}}" catchtap="onDeleteStep">删除</text>
-      </view>
+  <view class="step-detail">
+    <view class="step-detail__head">
+      <text class="step-detail__title">{{groups[activeGroup].name}} · {{groups[activeGroup].steps[activeStepSi].name}}</text>
+    </view>
+
+    <view class="row">
+      <text class="row__label">阶段名称</text>
+      <input class="row__input" value="{{groups[activeGroup].steps[activeStepSi].name}}" data-si="{{activeStepSi}}" bindinput="onStageNameInput" />
+    </view>
 
       <view class="row">
         <text class="row__label">时长(秒)</text>
@@ -159,7 +170,8 @@
 
       <view wx:if="{{groups[activeGroup].steps[activeStepSi].layers.length < layersPerStepMax}}" class="add-layer" data-si="{{activeStepSi}}" bindtap="onAddLayer">＋ 添加图层</view>
     </view>
-  </block>
+
+    <view wx:if="{{groups[activeGroup].steps.length > 1}}" class="del-stage bt-pressable" data-si="{{activeStepSi}}" catchtap="onDeleteStep">删除当前阶段</view>
   </block>
 
     <!-- 灯珠选择弹出层：全屏半透明遮罩 + 居中面板 -->
