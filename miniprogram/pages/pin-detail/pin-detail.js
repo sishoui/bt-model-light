@@ -1,7 +1,7 @@
 // 引脚配置详情页（ADR-0027 / #27 / T7）。
 //
-// 结构：顶部（图片/名称/开关）+ 灯组 Tab + 灯珠范围点选 + 步骤/图层编辑器
-// + 灯效下拉 + 参数表单联动（同页）。修改即推送：任何有效改动落盘 Storage 后
+// 结构：顶部（图片/名称/开关）+ 灯组 Tab（长按弹配置窗改名称/灯珠范围）
+// + 步骤/图层编辑器 + 灯效下拉 + 参数表单联动（同页）。修改即推送：任何有效改动落盘 Storage 后
 // 经 autoSync 防抖下发固件（WRITE_CONFIG + APPLY），无保存按钮。
 // 引脚固定 8 个（硬件不可增删），本页无删除引脚入口。
 //
@@ -226,9 +226,12 @@ Page({
     dragRange: null,
     inCancelZone: false,
     ledCells: [], // [{ i, state }] 渲染用（state: empty/selected/occupied/drag-*）
-    ledPickerOpen: false, // 灯珠选择弹出层显隐
+    // 灯组配置弹窗（长按灯组 Tab 打开）：名称 + 灯珠范围拖选内嵌其中。
+    groupConfigOpen: false,
     // 当前选中的阶段下标（横向阶段条 + 下方详情单页）。
     activeStepSi: 0,
+    // 气泡卡片箭头水平位置(rpx)：当前选中段中心相对 stage-inner 起点。
+    bubbleX: 0,
     // 长按拖动排序态：dragIndex 为正在拖动的节点下标（null=未拖），dragX 为其当前位移(rpx)，
     // hoverIndex 为当前悬停落点下标（拖动中其余节点据此实时避让）。
     dragIndex: null,
@@ -353,6 +356,7 @@ Page({
       activeStepSi: si,
       expandedLayers: this._defaultExpandedLayers(group, si),
     })
+    this._recalcBubbleX()
   },
 
   // 测量阶段条容器宽度(px)，并按段时长比例(带最小长度)计算各段宽(rpx)。
@@ -387,6 +391,22 @@ Page({
     }
     this._segRpx = widths
     this.setData({ segW: widths })
+    this._recalcBubbleX()
+  },
+
+  // 气泡箭头水平位置：当前选中段中心(rpx)。stage-inner 左右各 24rpx 外边距，
+  // 气泡卡片同样 24rpx 外边距，二者起点对齐，故段中心即箭头 left。
+  _recalcBubbleX() {
+    const widths = this._segRpx || []
+    const si = this.data.activeStepSi
+    if (!widths.length || si >= widths.length) {
+      this.setData({ bubbleX: 0 })
+      return
+    }
+    let x = 0
+    for (let i = 0; i < si; i++) x += widths[i]
+    x += widths[si] / 2
+    this.setData({ bubbleX: x })
   },
 
   // 各段像素宽 / 累计起点(px)，供拖动使用。
@@ -465,6 +485,7 @@ Page({
         activeStepSi: to,
         expandedLayers: this._defaultExpandedLayers(this.data.groups[this.data.activeGroup], to),
       })
+      this._recalcBubbleX()
     }
     this.setData({ dragIndex: null, dragX: 0, offsets: {} })
   },
@@ -587,14 +608,33 @@ Page({
 
   // ---- 灯组 Tab（固定 5 个，无新增/删除；tab 小字显示灯珠区间） -------------
 
-  onTapGroup(e) {
-    const index = Number(e.currentTarget.dataset.index)
+  // 切到指定灯组：重置阶段选中/图层折叠/拖选态，重建灯珠网格与气泡箭头。
+  _activateGroup(index) {
     if (!this.data.groups[index]) return
-    // 点当前组 Tab：无操作（单页阶段条常驻，无返回列表语义）。
     if (index === this.data.activeGroup) return
     this.setData({ activeGroup: index, activeStepSi: 0, expandedLayers: {}, dragging: false, dragRange: null, inCancelZone: false })
     this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount, this._computeOccupied(index), null) })
+    this._recalcBubbleX()
     if (wx.nextTick) wx.nextTick(() => this._measureStage())
+  },
+
+  onTapGroup(e) {
+    this._activateGroup(Number(e.currentTarget.dataset.index))
+  },
+
+  // 长按灯组 Tab：切到该组并弹出配置弹窗（名称 + 灯珠范围拖选内嵌，修改即推送）。
+  onGroupLongPress(e) {
+    const index = Number(e.currentTarget.dataset.index)
+    if (!this.data.groups[index]) return
+    this._activateGroup(index)
+    this.setData({ groupConfigOpen: true, dragging: false, dragRange: null, inCancelZone: false })
+    this.setData({ ledCells: this._buildLedCells(this.data.groups[this.data.activeGroup], this.data.ledCount, this._computeOccupied(this.data.activeGroup), null) })
+    if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
+  },
+
+  // 关闭灯组配置弹窗。
+  onCloseGroupConfig() {
+    this.setData({ groupConfigOpen: false })
   },
 
   onGroupNameInput(e) {
@@ -743,15 +783,6 @@ Page({
     this._markDirty()
   },
 
-  onOpenLedPicker() {
-    this.setData({ ledPickerOpen: true })
-  },
-
-  onCloseLedPicker() {
-    if (this.data.dragging) return // 拖选进行中不允许关闭，避免丢失
-    this.setData({ ledPickerOpen: false })
-  },
-
   noop() {},
 
   // ---- 步骤/图层编辑 ----------------------------------------------------------
@@ -772,6 +803,7 @@ Page({
       enterIndex: newSi,
       expandedLayers: this._defaultExpandedLayers(group, newSi),
     })
+    this._recalcBubbleX()
     setTimeout(() => {
       if (this.data.enterIndex === newSi) this.setData({ enterIndex: -1 })
     }, 300)
@@ -796,6 +828,7 @@ Page({
       activeStepSi: nextSi,
       expandedLayers: this._defaultExpandedLayers(group, nextSi),
     })
+    this._recalcBubbleX()
     if (wx.nextTick) wx.nextTick(() => this._measureStage())
   },
 

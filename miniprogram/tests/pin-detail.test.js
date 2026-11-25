@@ -167,6 +167,22 @@ describe('pin-detail 页（#27）', () => {
     expect(saved.pins.find((p) => p.pin === 0).groups[0].name).toBe('彩虹带')
   })
 
+  test('长按灯组 Tab：切到该组并弹出配置弹窗，关闭后复位', () => {
+    const page = load(0)
+    expect(page.data.groupConfigOpen).toBe(false)
+    page.onGroupLongPress({ currentTarget: { dataset: { index: 2 } } })
+    expect(page.data.groupConfigOpen).toBe(true)
+    expect(page.data.activeGroup).toBe(2)
+    // 弹窗内灯珠网格内嵌：打开时已按 activeGroup 构建，拖选态复位。
+    expect(page.data.ledCells.length).toBe(page.data.ledCount)
+    expect(page.data.dragging).toBe(false)
+    // 弹窗内改名复用 activeGroup 链路：输入即落盘。
+    page.onGroupNameInput({ currentTarget: { dataset: { index: 2 } }, detail: { value: '氛围组' } })
+    expect(page.data.groups[2].name).toBe('氛围组')
+    page.onCloseGroupConfig()
+    expect(page.data.groupConfigOpen).toBe(false)
+  })
+
   test('灯珠拖选：长按 1s 激活→move→end 写回区间 + 落盘 + 蓝框/浅蓝条渲染', () => {
     jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     const page = load(0)
