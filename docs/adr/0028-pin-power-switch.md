@@ -36,7 +36,7 @@ ADR-0027 给首页引脚卡片和引脚详情页顶部都安排了"引脚灯光�
 - `miniprogram/pages/home/home.js`：引脚卡片开关接 `onPinPowerChange`（校验 → 落盘 → `autoSync.schedule` → 刷新卡片）。
 - `miniprogram/pages/pin-detail/pin-detail.js`：顶部开关默认值改为"未显式关闭 = 开"，与卡片同口径；首次配置保存即写入默认开。
 - **固件 READ_CONFIG 回读时，关闭的引脚表现为"无灯组"**（`config_decode` 跳过 `group_count = 0` 的引脚，不进模型）。小程序目前不以 READ_CONFIG 为真相源；将来若接入，需要以 Storage 为准合并，不能把回读结果直接当配置。
-- 设备卡片上的"整体开关"（一键控制所有引脚）不在本 ADR 范围，仍是本地态，待后续决策。
+- 设备卡片上的"整体开关"（一键控制所有引脚）：先按 ADR-0031 实现为扇出到本 ADR 的 `pin.power`，真机试用后由 **ADR-0032** 改为**设备级总开关**（`SET_POWER`，不改引脚状态；关机时引脚区置灰不可操作）——本 ADR 的引脚开关语义不变。
 
 ## 备选
 

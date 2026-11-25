@@ -2,9 +2,26 @@
 // 结构：左上设备名称（→ 设备列表页）+ 设备卡片（图片/状态/整体开关/整体亮度）
 // + 引脚卡片列表（固定 8 个，硬件引脚不可增删；未配置引脚显示占位，点击进入配置）。
 // 引脚卡片点击进入引脚配置详情页。
+//
+// 整机开关/亮度（ADR-0031 / ADR-0032）：两者都是设备级状态（存设备记录、由
+// autoSync 断连补发），各下发一条 1 字节命令——开关 = SET_POWER（关 = 设备输出
+// 全黑，**各引脚状态不变**；关机时引脚卡片置灰不可操作），亮度 = SET_BRIGHTNESS
+// （固件输出级统一缩放，拖动实时下发、松手落盘）。
 
 const { getCurrentBleClient } = require('../../utils/bleClient')
-const { listDevices, getDeviceConfig, saveDevice, saveDeviceConfig } = require('../../utils/deviceStore')
+const {
+  listDevices,
+  getDeviceConfig,
+  saveDevice,
+  saveDeviceConfig,
+  clampBrightness,
+  getDevicePower,
+  saveDevicePower,
+  getDeviceBrightness,
+  saveDeviceBrightness,
+  BRIGHTNESS_DEFAULT,
+  POWER_DEFAULT,
+} = require('../../utils/deviceStore')
 const { friendlyMessage, logError } = require('../../utils/errorHandler')
 const { validateConfig } = require('../../utils/configCodec')
 const autoSync = require('../../utils/autoSync')
@@ -19,8 +36,12 @@ Page({
     // 设备卡片
     deviceName: '', // 左上标题；空串显示"未连接设备"
     connected: false, // BLE 连接状态
-    power: false, // 整体开关（本地态；固件联动随 T7 保存链路接入）
-    brightness: 128, // 整体亮度 0-255（本地态，同上）
+    // 整体开关 = 设备级总开关（ADR-0032）：落盘在设备记录，下发走 SET_POWER。
+    // 关 = 设备输出全黑；各引脚自己的开关状态不受影响，开机后按原状态恢复。
+    power: POWER_DEFAULT,
+    // 整体亮度 0-255（ADR-0031）：落盘在设备记录，下发走 SET_BRIGHTNESS。
+    // 255 = 不缩放，与固件默认一致——没设置过的设备显示的就是真实状态。
+    brightness: BRIGHTNESS_DEFAULT,
     img: '', // 设备图片（空串显示"暂无图片"占位）
     // 引脚卡片列表（固定 8 个硬件引脚，不可增删；未配置引脚为占位卡）。
     pins: [],
@@ -108,10 +129,16 @@ Page({
     let deviceName = ''
     let img = ''
     let pins = []
+    let power = POWER_DEFAULT
+    let brightness = this.data.brightness
     if (currentId) {
       const dev = listDevices().find((d) => d.id === currentId)
       deviceName = dev ? dev.name : ''
       img = (dev && dev.img) || ''
+      // 整机开关/亮度：设备记录上的值（缺省 开 / 255）。
+      // 亮度拖动中不覆盖，避免回弹（见 onBrightnessChanging）。
+      power = getDevicePower(currentId)
+      if (!this._draggingBrightness) brightness = getDeviceBrightness(currentId)
       // 固定 8 个引脚：硬件引脚不可增删，未配置的显示占位卡（点击进入配置）。
       const cfg = getDeviceConfig(currentId)
       const cfgPins = (cfg && Array.isArray(cfg.pins) ? cfg.pins : []).filter(
@@ -131,7 +158,7 @@ Page({
         })
       }
     }
-    this.setData({ deviceName, img, connected, pins })
+    this.setData({ deviceName, img, connected, pins, power, brightness })
   },
 
   // 左上设备名称 → 设备列表页（新增/切换）。
@@ -140,7 +167,9 @@ Page({
   },
 
   // 引脚卡片 → 引脚配置详情页（#27 / T7）。未配置引脚同样进入（首次配置）。
+  // 设备关机时引脚区整体不可操作（ADR-0032）：卡片置灰且点了没反应。
   onTapPin(e) {
+    if (!this.data.power) return
     const pin = e.currentTarget.dataset.pin
     wx.navigateTo({ url: `/pages/pin-detail/pin-detail?pin=${pin}` })
   },
@@ -148,7 +177,9 @@ Page({
   // 引脚卡片灯带开关（ADR-0028）：写 pin.power 落盘 Storage 后经 autoSync 下发。
   // 关 = 编码时该引脚不下发灯组（group_count=0）→ 固件清空该灯带；开 = 恢复原灯组配置。
   // 与引脚配置详情页顶部开关同一字段，两边状态经 Storage 共享。
+  // 设备关机时开关被 disabled（ADR-0032），这里的兜底保证即使被触发也不改状态。
   onPinPowerChange(e) {
+    if (!this.data.power) return
     const pin = Number(e.currentTarget.dataset.pin)
     const power = !!(e.detail && e.detail.value)
     const app = getApp()
@@ -174,22 +205,50 @@ Page({
     this._refresh()
   },
 
-  onPowerChange(e) {
-    this.setData({ power: e.detail.value })
-  },
-
+  // 整体亮度（ADR-0031）：松手落盘 Storage + 下发最终值（bindchange）。
   onBrightnessChange(e) {
-    this.setData({ brightness: e.detail.value })
+    this._draggingBrightness = false
+    this.setData({ brightness: clampBrightness(e.detail.value) })
+    this._sendBrightness(this.data.brightness, { persist: true })
   },
 
-  // 拖动过程中实时更新（slider bindchanging）。
+  // 拖动过程中实时下发（slider bindchanging）：不落盘，松手才写 Storage。
+  // autoSync 按"最新值待发"合并，拖动不会把空口塞满。
   onBrightnessChanging(e) {
-    this.setData({ brightness: e.detail.value })
+    this._draggingBrightness = true
+    this.setData({ brightness: clampBrightness(e.detail.value) })
+    this._sendBrightness(this.data.brightness)
   },
 
-  // 控制按钮“开关”：切换整体电源（复用 onPowerChange 写 data）。
+  // 控制按钮“开关”：设备级总开关（ADR-0032），**不改各引脚自己的状态**。
+  // 按钮文案是"要做的动作"：power=true（设备开着）→ 显示“关机” → 点一下关机。
   onTogglePower() {
-    this.onPowerChange({ detail: { value: !this.data.power } })
+    this._applyMasterPower(!this.data.power)
+  },
+
+  // 设备级总开关：关 = 下发 SET_POWER 0（固件输出全黑），各引脚的灯带开关与灯组
+  // 配置原样保留（开机后按原状态恢复）；开 = 下发 SET_POWER 1。
+  // 落盘在设备记录上，与整机亮度一样由 autoSync 补发。
+  _applyMasterPower(on) {
+    const currentId = this._currentDeviceId()
+    if (!currentId) return
+    const value = saveDevicePower(currentId, on)
+    autoSync.schedulePower(currentId, value)
+    this._refresh()
+  },
+
+  _currentDeviceId() {
+    const app = getApp()
+    return (app && app.globalData && app.globalData.currentDeviceId) || null
+  },
+
+  // 整机亮度下发；opts.persist 时先落盘（只有松手那次写 Storage）。
+  // 无当前设备时只更新界面：没有可落盘/可控的对象（不凭空造设备记录）。
+  _sendBrightness(value, opts) {
+    const currentId = this._currentDeviceId()
+    if (!currentId) return
+    if (opts && opts.persist) saveDeviceBrightness(currentId, value)
+    autoSync.scheduleBrightness(currentId, value)
   },
 
   // ---- 长按大图卡 → 编辑设备名 / 占位图 ------------------------------------

@@ -21,6 +21,7 @@
 #include "protocol_parser.h"
 #include "notify.h"
 #include "config_persist.h"
+#include "master_output.h"
 
 // ATT MTU 23 -> 20-byte notify/write chunk (frame-spec.md).
 #define BLE_CHUNK 20
@@ -190,8 +191,32 @@ static void handle_reset_default(uint8_t seq) {
     config_load_factory_default(sCfg);
     composition_init(sCfg, sPb);
     xSemaphoreGive(sCfgLock);
+    // 整机开关/亮度也属出厂态（ADR-0031/0032）：回开机 + 满亮度。
+    masterResetDefaults();
     stateMachineDispatch(FW_EVT_RESET_DEFAULT);
     notify_status(NOTIFY_STATUS_OK, CMD_RESET_DEFAULT, seq);
+}
+
+static void handle_set_brightness(uint8_t seq, const uint8_t *payload, size_t len) {
+    // payload: [brightness:1] 0~255，255 = 不缩放（frame-spec.md / ADR-0031）。
+    // 亮度是输出级缩放，不是状态迁移：任何状态可发（含 IDLE/CONNECTED）。
+    if (len != 1) {
+        notify_status(NOTIFY_STATUS_ERROR, ERR_INVALID_PARAMETER, seq);
+        return;
+    }
+    masterSetBrightness(payload[0]);
+    notify_status(NOTIFY_STATUS_OK, CMD_SET_BRIGHTNESS, seq);
+}
+
+static void handle_set_power(uint8_t seq, const uint8_t *payload, size_t len) {
+    // payload: [on:1] 0 = 关机（输出全黑）/ 1 = 开机（frame-spec.md / ADR-0032）。
+    // 只门控输出，不动配置与各引脚自己的开关状态；任何状态可发。
+    if (len != 1 || payload[0] > 1) {
+        notify_status(NOTIFY_STATUS_ERROR, ERR_INVALID_PARAMETER, seq);
+        return;
+    }
+    masterSetPower(payload[0] == 1);
+    notify_status(NOTIFY_STATUS_OK, CMD_SET_POWER, seq);
 }
 
 static void handle_get_pin_caps(uint8_t seq) {
@@ -222,6 +247,8 @@ static void dispatch_frame(const parsed_frame_t *fr) {
         case CMD_STOP:           handle_stop(fr->seq); break;
         case CMD_RESET_DEFAULT:  handle_reset_default(fr->seq); break;
         case CMD_GET_PIN_CAPS:   handle_get_pin_caps(fr->seq); break;
+        case CMD_SET_BRIGHTNESS: handle_set_brightness(fr->seq, pl, len); break;
+        case CMD_SET_POWER:      handle_set_power(fr->seq, pl, len); break;
         default:
             // Unknown command (incl. OTA 0xF0 which is reserved for v2).
             notify_status(NOTIFY_STATUS_ERROR, ERR_UNSUPPORTED_COMMAND, fr->seq);

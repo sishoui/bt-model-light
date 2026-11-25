@@ -1,4 +1,4 @@
 name,major,minor,released,notes
-protocol_version,1,0,2026-11-23,首版协议：TLV 帧 + 完整命令集 + 8 种效果
-firmware_version,0,1,2026-11-23,固件首版（与 protocol_version 同步发布）
-app_version,0,1,2026-11-23,小程序首版
+protocol_version,1,2,2026-11-26,新增 SET_POWER（0x0B）整机开关（ADR-0032）
+firmware_version,0,3,2026-11-26,整机开关门控 + 整机亮度输出级缩放（ADR-0031/0032）
+app_version,0,3,2026-11-26,首页整机开关/亮度接线 + 关机引脚置灰（ADR-0031/0032）

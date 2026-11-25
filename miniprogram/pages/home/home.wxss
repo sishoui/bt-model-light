@@ -192,6 +192,13 @@
   margin-right: 0;
 }
 
+/* 设备关机（整机开关 off，ADR-0032）：引脚卡片灰化 + 不可操作。
+   opacity 是主视觉；filter 不支持的机型上也不会退化成"看起来可点"。 */
+.pin-card--off {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+
 /* 未配置引脚：虚线边框占位卡（点击进入配置） */
 .pin-card--empty {
   background: transparent;

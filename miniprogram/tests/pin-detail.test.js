@@ -8,7 +8,7 @@
 const { loadPage, makeApp } = require('./pageHarness')
 const { createWxMock } = require('./wx-mock')
 const { flush } = require('./bleTestUtils')
-const { saveDevice, saveDeviceConfig, getDeviceConfig, resetDeviceStore } = require('../utils/deviceStore')
+const { saveDevice, saveDeviceConfig, saveDevicePower, getDeviceConfig, resetDeviceStore } = require('../utils/deviceStore')
 const { getRecentColors, resetRecentColors } = require('../utils/recentColors')
 const { setCurrentBleClient } = require('../utils/bleClient')
 const autoSync = require('../utils/autoSync')
@@ -156,6 +156,33 @@ describe('pin-detail 页（#27）', () => {
     expect(client.sendCmd.mock.calls.map((c) => c[0])).toEqual([CMD.WRITE_CONFIG, CMD.APPLY])
     // 关灯：blob 里该引脚不下发灯组 → 固件清空灯带。
     expect(decodeConfigBlob(Uint8Array.from(client.sendCmd.mock.calls[0][1])).pins).toEqual([])
+  })
+
+  test('设备关机（整机关 off）：顶部灯带开关置灰不可切换，点了不落盘不崩（ADR-0032）', async () => {
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [
+        {
+          pin: 0,
+          name: '客厅灯带',
+          configured: true,
+          groups: [
+            { name: '流水', ledStart: 0, ledEnd: 3, steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: EFF.SOLID, params: { color: [1, 1, 1], brightness: 10 } }] }] },
+          ],
+        },
+      ],
+    })
+    saveDevicePower(dev.id, false) // 设备关机
+
+    const page = load(0)
+    expect(page.data.masterPower).toBe(false) // WXML 据此 disabled
+    page.onPowerChange({ detail: { value: false } }) // 兜底：即使被触发也不改状态
+    expect(page.data.power).toBe(true) // 灯带开关状态照旧（pin 未显式关）
+    expect(getDeviceConfig(dev.id).pins[0].power).not.toBe(false)
+    await flush()
+    expect(client.sendCmd).not.toHaveBeenCalled()
   })
 
   test('灯组 Tab：onTapGroup 切换 activeGroup 并重建灯珠网格', () => {

@@ -19,7 +19,8 @@
       <input class="pin-head__name" value="{{pinName}}" placeholder="引脚名称" bindinput="onPinNameInput" />
       <view class="bt-row bt-row--between">
         <text class="bt-text--secondary">引脚 {{pin + 1}}</text>
-        <switch checked="{{power}}" color="#0088FF" bindchange="onPowerChange" />
+        <!-- 灯带开关：设备关机（整机开关 off，ADR-0032）时置灰不可切换 -->
+        <switch checked="{{power}}" disabled="{{!masterPower}}" color="#0088FF" bindchange="onPowerChange" />
       </view>
     </view>
   </view>

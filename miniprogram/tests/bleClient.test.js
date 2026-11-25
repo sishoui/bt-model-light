@@ -15,7 +15,7 @@
 
 const { installWxMock } = require('./wx-mock')
 const { encodeFrame, decodeFrame, PARSE_OK } = require('../utils/frameParser')
-const { CMD, ERR, NOTIFY, BLE } = require('../utils/protocol_gen')
+const { CMD, ERR, NOTIFY, BLE, PROTOCOL_VERSION, FIRMWARE_VERSION } = require('../utils/protocol_gen')
 const { createBleClient, WRITE_CHUNK, CHUNK_IOS } = require('../utils/bleClient')
 const { buildFrameBytes, statusFrame, notify, setupBle } = require('./bleTestUtils')
 
@@ -273,12 +273,16 @@ describe('bleClient', () => {
     client.onStatus(onStatus)
     await client.connect('dev-1')
 
-    // data: [protoMajor, protoMinor, fwMajor, fwMinor]
-    notify(wx, statusFrame(NOTIFY.VERSION, 0, 0, [1, 0, 0, 1]))
+    // data: [protoMajor, protoMinor, fwMajor, fwMinor]，取当前版本（versions.csv）——
+    // 协议升版不必改这份 fixture，"兼容/不兼容"的判定仍由下面的期望值锁住。
+    notify(wx, statusFrame(NOTIFY.VERSION, 0, 0, [
+      PROTOCOL_VERSION.major, PROTOCOL_VERSION.minor,
+      FIRMWARE_VERSION.major, FIRMWARE_VERSION.minor,
+    ]))
     expect(onStatus.mock.calls[0][0]).toEqual({
       type: 'version',
-      protocol: '1.0',
-      firmware: '0.1',
+      protocol: PROTOCOL_VERSION.string,
+      firmware: FIRMWARE_VERSION.string,
       compatible: true,
     })
     expect(client.versionKnown).toBe(true)

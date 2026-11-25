@@ -4,6 +4,7 @@
 //   - 设备列表：save（新增/去重）/ list / remove / current 设置
 //   - 损坏 Storage 容错（非 JSON / 结构不符 → 空表）
 //   - 每设备配置读写：getDeviceConfig / saveDeviceConfig
+//   - 整机开关 / 整机亮度（ADR-0031/0032）：缺省值与归一化
 //
 // bleClient 单例 seam 的注入/读取测试见 bleClient.test.js。
 
@@ -19,6 +20,13 @@ const {
   setCurrentDeviceId,
   getDeviceConfig,
   saveDeviceConfig,
+  getDevicePower,
+  saveDevicePower,
+  getDeviceBrightness,
+  saveDeviceBrightness,
+  clampBrightness,
+  BRIGHTNESS_DEFAULT,
+  POWER_DEFAULT,
 } = require('../utils/deviceStore')
 const { createBleClient, setCurrentBleClient } = require('../utils/bleClient')
 
@@ -112,6 +120,48 @@ describe('deviceStore', () => {
     const raw = wx.getStorageSync('device_config_dev-1')
     expect(JSON.parse(raw)).toEqual({ pins: [] })
     expect(getDeviceConfig('dev-1')).toEqual({ pins: [] })
+  })
+
+  // ---- 整机开关 / 整机亮度（ADR-0031 / ADR-0032） ---------------------------
+
+  test('整机开关/亮度缺省值：开 + 255（与固件默认一致），未设置不落字段', () => {
+    const d = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    expect(POWER_DEFAULT).toBe(true)
+    expect(getDevicePower(d.id)).toBe(true)
+    expect(getDeviceBrightness(d.id)).toBe(BRIGHTNESS_DEFAULT)
+    expect(getDeviceBrightness(d.id)).toBe(255)
+    expect(listDevices()[0].power).toBeUndefined()
+    expect(listDevices()[0].brightness).toBeUndefined()
+  })
+
+  test('saveDevicePower/Brightness 落盘并回读；不影响其他设备', () => {
+    const a = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    const b = saveDevice({ name: 'B', deviceId: 'dev-2' })
+    expect(saveDevicePower(a.id, false)).toBe(false)
+    expect(saveDeviceBrightness(a.id, 40)).toBe(40)
+    expect(getDevicePower(a.id)).toBe(false)
+    expect(getDeviceBrightness(a.id)).toBe(40)
+    expect(getDevicePower(b.id)).toBe(true)
+    expect(getDeviceBrightness(b.id)).toBe(255)
+  })
+
+  test('整机开关写入不碰各引脚的配置（引脚状态不变，ADR-0032）', () => {
+    const d = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    const cfg = { version: 1, pins: [{ pin: 0, configured: true, groups: [] }] }
+    saveDeviceConfig(d.id, cfg)
+    saveDevicePower(d.id, false)
+    expect(getDeviceConfig(d.id)).toEqual(cfg)
+  })
+
+  test('亮度归一化：越界/非数字回落默认，脏 Storage 读回不炸', () => {
+    expect(clampBrightness(300)).toBe(BRIGHTNESS_DEFAULT)
+    expect(clampBrightness('abc')).toBe(BRIGHTNESS_DEFAULT)
+    expect(clampBrightness(12.6)).toBe(13)
+    expect(clampBrightness(0)).toBe(0)
+    const d = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    wx.setStorageSync(KEY_DEVICES, JSON.stringify([{ id: d.id, name: 'A', brightness: -5 }]))
+    resetDeviceStore()
+    expect(getDeviceBrightness(d.id)).toBe(BRIGHTNESS_DEFAULT)
   })
 
   // bleClient 单例 seam 的注入/读取测试见 bleClient.test.js

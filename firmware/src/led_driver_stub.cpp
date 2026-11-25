@@ -8,6 +8,7 @@
 // Arduino build compiles led_driver.cpp and never sees this file.
 
 #include "led_driver.h"
+#include "master_output.h"   // 输出级整机开关门控 + 整机亮度缩放（ADR-0031/0032）
 
 #ifndef ARDUINO
 
@@ -20,7 +21,8 @@ bool ledInit() { return true; }
 
 void ledSetPixel(uint8_t pin, uint16_t idx, Rgb color) {
     if (pin >= PIN_COUNT || idx >= LEDS_PER_PIN_MAX) return;
-    sPixel[pin][idx] = color;
+    // 与真机驱动同一点门控/缩放（ADR-0031/0032），native 测试才能断言输出级行为。
+    sPixel[pin][idx] = masterApplyOutput(color);
     sPixelSet[pin][idx] = true;
 }
 

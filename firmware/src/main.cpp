@@ -48,6 +48,7 @@
 #include "ble_service.h"
 #include "factory_default.h"
 #include "boot_button.h"
+#include "master_output.h"
 #include "state_machine.h"
 #include "watchdog.h"
 
@@ -123,6 +124,8 @@ static void bootButtonTask(void *) {
             configPersistErase();
             config_load_factory_default(&sConfig);
             composition_init(&sConfig, sPlayback);
+            // 整机开关/亮度同属出厂态（ADR-0031/0032）：回开机 + 满亮度。
+            masterResetDefaults();
             // Back to IDLE: the frame loop shows factory-default visuals.
             // (If we were PLAYING, RESET_DEFAULT -> IDLE is legal; from
             // any other state it's a no-op or self-loop. Force to IDLE so

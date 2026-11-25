@@ -21,6 +21,8 @@ Single-context glossary for `bt-model-light`. Terms here are the canonical vocab
 | 合成 (Composition) | Two-layer rule: effect-layer pixel is non-black → use effect; else background. | "混合","叠加" |
 | 设备配置 (DeviceConfig) | The complete configuration of one device (8 pins → groups → steps → layers). | "配置文件" |
 | 引脚能力 (Pin capability) | Number of LEDs on a pin's strip (≤100). | "灯珠数" |
+| 整体开关 (Master power) | 设备卡片上的一键开关机：设备级状态（`SET_POWER`），关 = 设备输出全黑，**不改各引脚自己的灯带开关状态**；关机时引脚区置灰、不可点、开关不可切换，开机后各引脚按原状态恢复（ADR-0032）。 | "总开关","主开关"（指批量改引脚配置时，见 ADR-0031） |
+| 整体亮度 (Master brightness) | 设备卡片的亮度滑块（0-255）：经 `SET_BRIGHTNESS` 下发，固件在输出级对**所有引脚**统一缩放；255 = 不缩放。存小程序的设备记录、断连后补发，不落设备闪存（ADR-0031）。 | "全局亮度","总亮度" |
 | 出厂默认 (Factory default) | The built-in effect played when no config or config is corrupt. | "默认灯效" |
 
 ## Communication
