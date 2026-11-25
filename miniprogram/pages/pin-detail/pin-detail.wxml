@@ -1,7 +1,16 @@
 <!-- 引脚配置详情页（ADR-0027 / #27 / T7；灯珠拖选 #31）。
-     顶部图片/名称/开关 → 灯组 Tab → 灯珠范围拖选 → 步骤/图层/灯效编辑 → 保存。 -->
+     顶部图片/名称/开关 → 灯组 Tab → 灯珠范围拖选 → 步骤/图层/灯效编辑。
+     修改即推送（autoSync 防抖下发），无保存按钮。 -->
 <view class="page">
   <sim-banner wx:if="{{simMode}}" />
+
+  <!-- 同步状态条（autoSync 驱动）：syncing/synced/failed/local 四态，idle 不显示 -->
+  <view class="sync-bar sync-bar--{{syncState}}" bindtap="onSyncRetry">
+    <text class="sync-bar__text" wx:if="{{syncState === 'syncing'}}">同步中…</text>
+    <text class="sync-bar__text" wx:elif="{{syncState === 'synced'}}">已同步 · {{syncAt}}</text>
+    <text class="sync-bar__text" wx:elif="{{syncState === 'failed'}}">同步失败，点此重试</text>
+    <text class="sync-bar__text" wx:elif="{{syncState === 'local'}}">仅本机（未连接）</text>
+  </view>
 
   <!-- 顶部：图片 / 名称 / 开关 -->
   <view class="bt-card pin-head">
@@ -223,10 +232,5 @@
         </view>
       </view>
     </view>
-  </view>
-
-  <!-- 保存栏（功能层玻璃，.bt-glass 含降级） -->
-  <view class="save-bar bt-glass">
-    <button class="bt-btn bt-btn--primary bt-pressable save-bar__save" bindtap="onSave">保存</button>
   </view>
 </view>

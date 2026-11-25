@@ -1,19 +1,20 @@
 // 引脚配置详情页（ADR-0027 / #27 / T7）。
 //
 // 结构：顶部（图片/名称/开关）+ 灯组 Tab + 灯珠范围点选 + 步骤/图层编辑器
-// + 灯效下拉 + 参数表单联动（同页）。保存同时写 Storage + 下发固件 + APPLY。
+// + 灯效下拉 + 参数表单联动（同页）。修改即推送：任何有效改动落盘 Storage 后
+// 经 autoSync 防抖下发固件（WRITE_CONFIG + APPLY），无保存按钮。
 // 引脚固定 8 个（硬件不可增删），本页无删除引脚入口。
 //
-// 编辑态用页面 data（ADR-0023），与已保存态分离，dirty 标志驱动离开拦截。
+// 编辑态用页面 data（ADR-0023），与已保存态分离。离开拦截仅在同步在途
+// （防抖窗口 <500ms）时提示；同步状态经 autoSync.subscribe 驱动顶部状态条。
 // 灯效参数 schema 直接消费 protocol_gen 的 EFFECT_PARAMS（与固件 ADR-0018 同源），
 // 切换灯效即按 schema 重建参数表单。Storage 真相源经 configCodec 编码下发固件。
 
-const { getCurrentBleClient } = require('../../utils/bleClient')
 const { getDeviceConfig, saveDeviceConfig } = require('../../utils/deviceStore')
 const { encodeConfigBlob, validateConfig, effectName, clampInt } = require('../../utils/configCodec')
-const { friendlyMessage, logError } = require('../../utils/errorHandler')
 const { getRecentColors, pushRecentColor, rgbToHex, hexToRgb } = require('../../utils/recentColors')
-const { EFF, EFFECT_PARAMS, LIMITS, CMD } = require('../../utils/protocol_gen')
+const { EFF, EFFECT_PARAMS, LIMITS } = require('../../utils/protocol_gen')
+const autoSync = require('../../utils/autoSync')
 
 // ---- 静态选项（下拉 range / 文案） -------------------------------------------
 
@@ -231,7 +232,9 @@ Page({
       '#FF0000', '#FF8800', '#FFFF00', '#00FF00', '#00FFFF',
       '#0000FF', '#8000FF', '#FF69B4', '#FFDAB9', '#FFBF00', '#008080',
     ],
-    dirty: false,
+    // 同步状态条（autoSync 驱动）：state 为 syncing/synced/failed/local，idle 不显示。
+    syncState: 'idle',
+    syncAt: '',
     // 静态选项
     effectNames: EFFECT_NAMES,
     transitionOptions: TRANSITION_OPTIONS,
@@ -250,6 +253,16 @@ Page({
     _uidSeq = 1
     this._loadFromStore(Number.isFinite(pin) ? pin : 0)
     this.setData({ simMode: !!(app && app.globalData && app.globalData.simMode) })
+    // 同步状态条订阅（autoSync 全局单例）；页面卸载时退订。
+    this._offSync = autoSync.subscribe((snap) => {
+      this.setData({ syncState: snap.state, syncAt: snap.at })
+      this._syncUnloadGuard()
+    })
+    this._syncUnloadGuard()
+  },
+
+  onUnload() {
+    if (this._offSync) this._offSync()
     this._syncUnloadGuard()
   },
 
@@ -283,7 +296,6 @@ Page({
       dragging: false,
       dragRange: null,
       inCancelZone: false,
-      dirty: false,
     })
     // 初始灯珠网格按 activeGroup=0 渲染，含其他组占用灰显。
     this.setData({ ledCells: this._buildLedCells(groups[0], ledCount, this._computeOccupied(0), null) })
@@ -366,18 +378,50 @@ Page({
     return set
   },
 
-  // 标记编辑态（任何改动调用）；驱动离开拦截。
+  // 标记编辑态：组装配置 → 校验 → 落盘 Storage → 安排防抖下发（autoSync）。
+  // 校验/编码失败时静默跳过（编辑中间态的瞬时非法是常态，避免刷屏 Toast）。
   _markDirty() {
-    if (!this.data.dirty) this.setData({ dirty: true })
-    this._syncUnloadGuard()
+    if (!this._deviceId) return
+    const pinConfig = {
+      pin: this.data.pin,
+      configured: true,
+      name: this.data.pinName,
+      power: this.data.power,
+      img: this.data.img,
+      groups: this.data.groups.map(vmToGroup),
+    }
+    const base = getDeviceConfig(this._deviceId)
+    const pins = (base && Array.isArray(base.pins) ? base.pins : []).filter((p) => p && p.pin !== this.data.pin)
+    pins.push(pinConfig)
+    pins.sort((a, b) => a.pin - b.pin)
+    const config = { version: 1, pins }
+
+    const verr = validateConfig(config)
+    if (verr) return
+    let blob
+    try {
+      blob = encodeConfigBlob(config)
+    } catch (err) {
+      return
+    }
+    saveDeviceConfig(this._deviceId, config)
+    autoSync.schedule(this._deviceId, config)
   },
 
+  // 离开拦截：仅在同步在途（防抖窗口 <500ms 或下发中）时提示「正在同步」；
+  // 其余情况改动已落盘且 autoSync 全局存活，离开不丢数据，无需拦截。
   _syncUnloadGuard() {
-    // 有未保存改动时开启离开确认（真机 wx API；Jest mock 里为 no-op 桩）。
-    if (typeof wx !== 'undefined' && wx.enableAlertBeforeUnload) {
-      if (this.data.dirty) wx.enableAlertBeforeUnload({ message: '有未保存的修改，确定离开？' })
-      else wx.disableAlertBeforeUnload({})
+    if (typeof wx === 'undefined' || !wx.enableAlertBeforeUnload) return
+    if (this.data.syncState === 'syncing') {
+      wx.enableAlertBeforeUnload({ message: '正在同步，确定离开？' })
+    } else {
+      wx.disableAlertBeforeUnload({})
     }
+  },
+
+  // 状态条「失败·重试」点击 → 立即重发。
+  onSyncRetry() {
+    autoSync.retry()
   },
 
   // 替换 activeGroup 的 VM（不可变更新）：mutator 直接在克隆上改，返回后写回。
@@ -776,69 +820,4 @@ Page({
     return layer.fields[fi] || null
   },
 
-  // ---- 保存 -------------------------------------------------------------------
-
-  // 组装整设备配置（保留其他引脚），校验 → 写 Storage → 下发 WRITE_CONFIG + APPLY。
-  onSave() {
-    if (!this._deviceId) {
-      wx.showToast({ title: '未选择设备', icon: 'none' })
-      return
-    }
-    const pinConfig = {
-      pin: this.data.pin,
-      configured: true,
-      name: this.data.pinName,
-      power: this.data.power,
-      img: this.data.img,
-      groups: this.data.groups.map(vmToGroup),
-    }
-    const base = getDeviceConfig(this._deviceId)
-    const pins = (base && Array.isArray(base.pins) ? base.pins : []).filter((p) => p && p.pin !== this.data.pin)
-    pins.push(pinConfig)
-    pins.sort((a, b) => a.pin - b.pin)
-    const config = { version: 1, pins }
-
-    const verr = validateConfig(config)
-    if (verr) {
-      wx.showToast({ title: verr.message, icon: 'none' })
-      return
-    }
-    let blob
-    try {
-      blob = encodeConfigBlob(config)
-    } catch (err) {
-      wx.showToast({ title: (err && err.message) || '配置编码失败', icon: 'none' })
-      return
-    }
-
-    // Storage 为真相源：先落盘（即使 BLE 未连接也保住编辑）。
-    saveDeviceConfig(this._deviceId, config)
-    this.setData({ dirty: false })
-    this._syncUnloadGuard()
-
-    const client = getCurrentBleClient()
-    if (!client || !client.connected) {
-      // Storage 是真相源已落盘；固件需连接后重新保存才会同步（无自动补发）。
-      wx.vibrateShort({ type: 'light' })
-      wx.showToast({ title: '已保存到本机（设备未连接，连接后请重新保存以同步）', icon: 'none' })
-      return
-    }
-    this._pushToFirmware(client, blob)
-  },
-
-  // WRITE_CONFIG（配置 blob）→ APPLY（即时播放）。顺序下发，失败给 Toast。
-  async _pushToFirmware(client, blob) {
-    wx.showLoading({ title: '下发中' })
-    try {
-      await client.sendCmd(CMD.WRITE_CONFIG, Array.from(blob))
-      await client.sendCmd(CMD.APPLY, [])
-      wx.hideLoading()
-      wx.vibrateShort({ type: 'light' })
-      wx.showToast({ title: '已保存并应用', icon: 'success' })
-    } catch (err) {
-      wx.hideLoading()
-      logError(err, '下发配置')
-      wx.showToast({ title: `已保存到本地，下发失败：${friendlyMessage(err)}`, icon: 'none' })
-    }
-  },
 })

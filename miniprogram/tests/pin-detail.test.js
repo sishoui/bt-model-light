@@ -11,6 +11,7 @@ const { flush } = require('./bleTestUtils')
 const { saveDevice, saveDeviceConfig, getDeviceConfig, resetDeviceStore } = require('../utils/deviceStore')
 const { getRecentColors, resetRecentColors } = require('../utils/recentColors')
 const { setCurrentBleClient } = require('../utils/bleClient')
+const autoSync = require('../utils/autoSync')
 const { decodeConfigBlob } = require('../utils/configCodec')
 const { CMD, EFF } = require('../utils/protocol_gen')
 
@@ -42,6 +43,7 @@ describe('pin-detail 页（#27）', () => {
     resetDeviceStore()
     resetRecentColors()
     setCurrentBleClient(null)
+    autoSync.reset()
     dev = saveDevice({ name: 'BTLight_Test', deviceId: 'dev-1' })
     app = makeApp(dev.id)
   })
@@ -103,7 +105,7 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.groups[4].name).toBe('灯组 5')
     expect(page.data.groups[1].ledStart).toBe(0xff)
     expect(page.data.groups[1].ledEnd).toBe(0xff)
-    expect(page.data.dirty).toBe(false)
+    expect(page.data.syncState).toBe('idle')
   })
 
   test('无配置：默认 5 灯组 / 1 步骤 / 1 图层 / 常亮', () => {
@@ -121,7 +123,7 @@ describe('pin-detail 页（#27）', () => {
     }
     expect(page.data.activeGroup).toBe(0)
     expect(litCount(page)).toBe(0) // 默认全空
-    expect(page.data.dirty).toBe(false)
+    expect(page.data.syncState).toBe('idle')
   })
 
   test('灯组 Tab：onTapGroup 切换 activeGroup 并重建灯珠网格', () => {
@@ -150,22 +152,23 @@ describe('pin-detail 页（#27）', () => {
     const layer = page.data.groups[1].steps[0].layers[0]
     expect(layer.effect).toBe(EFF.BREATH)
     expect(fieldOf(layer, 'period').value).toBe(3000)
-    // 切换不动 groups VM、不置 dirty。
-    expect(page.data.dirty).toBe(false)
+    // 切换不动 groups VM、不触发同步。
+    expect(page.data.syncState).toBe('idle')
     // 越界 index 忽略。
     page.onTapGroup({ currentTarget: { dataset: { index: 9 } } })
     expect(page.data.activeGroup).toBe(1)
   })
 
-  test('重命名灯组：输入即改 name 并置 dirty', () => {
+  test('重命名灯组：输入即改 name 并落盘（修改即推送）', () => {
     const page = load(0)
     page.onGroupNameInput({ currentTarget: { dataset: { index: 0 } }, detail: { value: '彩虹带' } })
     expect(page.data.groups[0].name).toBe('彩虹带')
-    expect(page.data.dirty).toBe(true)
+    const saved = getDeviceConfig(dev.id)
+    expect(saved.pins.find((p) => p.pin === 0).groups[0].name).toBe('彩虹带')
   })
 
-  test('灯珠拖选：长按 1s 激活→move→end 写回区间 + 置 dirty + 蓝框/浅蓝条渲染', () => {
-    jest.useFakeTimers()
+  test('灯珠拖选：长按 1s 激活→move→end 写回区间 + 落盘 + 蓝框/浅蓝条渲染', () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     const page = load(0)
     // 注入网格几何：rect 600x600，10 列派生 100 格 rects（每格 60x60）。
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
@@ -184,13 +187,14 @@ describe('pin-detail 页（#27）', () => {
     expect(states[5]).toBe('drag-end')
     expect(states[3]).toBe('drag-mid')
     expect(states[4]).toBe('drag-mid')
-    // 松手：写回 [2,5] + 置 dirty + 拖选态清零。
+    // 松手：写回 [2,5] + 落盘 + 拖选态清零。
     page.onLedTouchEnd({ type: 'touchend' })
     expect(page.data.dragging).toBe(false)
     expect(page.data.groups[0].ledStart).toBe(2)
     expect(page.data.groups[0].ledEnd).toBe(5)
     expect(litCount(page)).toBe(4) // [2,5] 共 4 颗 selected
-    expect(page.data.dirty).toBe(true)
+    const saved = getDeviceConfig(dev.id)
+    expect(saved.pins.find((p) => p.pin === 0).groups[0].ledStart).toBe(2)
     jest.useRealTimers()
   })
 
@@ -203,11 +207,11 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.dragging).toBe(false)
     expect(page.data.groups[0].ledStart).toBe(0xff) // 仍是空态
     expect(page.data.groups[0].ledEnd).toBe(0xff)
-    expect(page.data.dirty).toBe(false)
+    expect(page.data.syncState).toBe('idle') // 未改配置不触发同步
   })
 
   test('灯珠拖选：长按 1s 激活（即使没移动）', () => {
-    jest.useFakeTimers()
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     const page = load(0)
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
     page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] })
@@ -222,7 +226,7 @@ describe('pin-detail 页（#27）', () => {
   })
 
   test('灯珠拖选：长按后松手（不移动）→ 选中单颗', () => {
-    jest.useFakeTimers()
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     const page = load(0)
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
     page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] }) // 格 2
@@ -235,7 +239,7 @@ describe('pin-detail 页（#27）', () => {
   })
 
   test('灯珠拖选：未长按（<1s）拖动不触发拖选，松手不改配置', () => {
-    jest.useFakeTimers()
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     const page = load(0)
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
     page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] })
@@ -276,7 +280,7 @@ describe('pin-detail 页（#27）', () => {
   })
 
   test('灯珠拖选：反向拖 [5→2] 同样区间 [2,5]', () => {
-    jest.useFakeTimers()
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     const page = load(0)
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
     wx.getSystemInfoSync = jest.fn(() => ({ windowHeight: 700 }))
@@ -309,7 +313,7 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.ledCells[4].state).toBe('occupied') // 4 是其他组占用
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
     // 从格 2 拖向格 5（4..5 被占用）→ 遇占用停止，区间保留 [2,3]。
-    jest.useFakeTimers()
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] }) // 格 2
     jest.advanceTimersByTime(1000) // 长按激活
     page.onLedTouchMove({ touches: [{ clientX: 210, clientY: 30 }] }) // 格 3（可扩）
@@ -338,7 +342,7 @@ describe('pin-detail 页（#27）', () => {
     // 模拟窗口高度 700（覆盖层取消区 = y > 700 - 40 = 660）。
     wx.getSystemInfoSync = jest.fn(() => ({ windowHeight: 700 }))
     const page = load(0) // 上次选中 [2,5]
-    jest.useFakeTimers()
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     page.onLedTouchStart({ touches: [{ clientX: 150, clientY: 30 }] }) // 格 2 起
     jest.advanceTimersByTime(1000) // 长按激活
     page.onLedTouchMove({ touches: [{ clientX: 330, clientY: 30 }] }) // 格 5
@@ -346,10 +350,10 @@ describe('pin-detail 页（#27）', () => {
     page.onLedTouchMove({ touches: [{ clientX: 300, clientY: 680 }] })
     expect(page.data.inCancelZone).toBe(true)
     page.onLedTouchEnd({ type: 'touchend' })
-    // 回滚：保留上次 [2,5]，不置 dirty。
+    // 回滚：保留上次 [2,5]，不落盘、不触发同步。
     expect(page.data.groups[0].ledStart).toBe(2)
     expect(page.data.groups[0].ledEnd).toBe(5)
-    expect(page.data.dirty).toBe(false)
+    expect(page.data.syncState).toBe('idle')
     jest.useRealTimers()
   })
 
@@ -372,14 +376,14 @@ describe('pin-detail 页（#27）', () => {
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
     wx.getSystemInfoSync = jest.fn(() => ({ windowHeight: 700 }))
     // 起点落在格 5（被 g1 占用）→ 长按后不进入 dragging。
-    jest.useFakeTimers()
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     page.onLedTouchStart({ touches: [{ clientX: 330, clientY: 30 }] })
     jest.advanceTimersByTime(1000)
     expect(page.data.dragging).toBe(false)
     jest.useRealTimers()
   })
 
-  test('清除本组灯珠：onClearLeds 设 255 空哨兵 + 置 dirty', () => {
+  test('清除本组灯珠：onClearLeds 设 255 空哨兵 + 落盘', () => {
     saveDeviceConfig(dev.id, {
       version: 1,
       pins: [
@@ -399,7 +403,8 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.groups[0].ledStart).toBe(0xff)
     expect(page.data.groups[0].ledEnd).toBe(0xff)
     expect(litCount(page)).toBe(0)
-    expect(page.data.dirty).toBe(true)
+    const saved = getDeviceConfig(dev.id)
+    expect(saved.pins.find((p) => p.pin === 0).groups[0].ledStart).toBe(0xff)
   })
 
   test('步骤：增到上限 5，删到下限 1', () => {
@@ -446,7 +451,7 @@ describe('pin-detail 页（#27）', () => {
     expect(fieldOf(layer, 'speed')).toBeDefined()
   })
 
-  test('参数输入：标量写入并置 dirty（rgb 不再走通道 input）', () => {
+  test('参数输入：标量写入并落盘（rgb 不再走通道 input）', () => {
     const page = load(0)
     const layer = page.data.groups[0].steps[0].layers[0]
     const brightFi = layer.fields.findIndex((f) => f.name === 'brightness')
@@ -456,7 +461,9 @@ describe('pin-detail 页（#27）', () => {
     expect(fieldOf(after, 'brightness').value).toBe(100)
     // rgb 通道写入已废弃：rgb 仅经颜色弹层 onColorSelected 修改。
     expect(fieldOf(after, 'color').value).toEqual([255, 255, 255])
-    expect(page.data.dirty).toBe(true)
+    const saved = getDeviceConfig(dev.id)
+    const savedLayer = saved.pins.find((p) => p.pin === 0).groups[0].steps[0].layers[0]
+    expect(savedLayer.params.brightness).toBe(100)
   })
 
   // 视图导航 + 图层折叠（#33 / #34）。
@@ -534,21 +541,21 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.expandedLayers['0-2']).toBe(false)
   })
 
-  test('onOpenStep 不改变 groups VM、不置 dirty', () => {
+  test('onOpenStep 不改变 groups VM、不触发同步', () => {
     const page = load(0)
     page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
     expect(page.data.groups[0].steps[0].duration).toBe(5) // VM 不变
-    expect(page.data.dirty).toBe(false) // 纯视图态不脏
+    expect(page.data.syncState).toBe('idle') // 纯视图态不触发同步
   })
 
-  test('onToggleLayer 翻转折叠键（si-li），不影响 groups VM、不置 dirty', () => {
+  test('onToggleLayer 翻转折叠键（si-li），不影响 groups VM、不触发同步', () => {
     const page = load(0)
     page.onOpenStep({ currentTarget: { dataset: { si: 0 } } })
     expect(page.data.expandedLayers['0-0']).toBe(true)
     page.onToggleLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
     expect(page.data.expandedLayers['0-0']).toBe(false)
     expect(page.data.groups[0].steps[0].layers[0].effect).toBe(EFF.SOLID)
-    expect(page.data.dirty).toBe(false)
+    expect(page.data.syncState).toBe('idle')
   })
 
   test('切换灯组：回步骤列表并重置 activeStepSi/图层折叠', () => {
@@ -602,7 +609,8 @@ describe('pin-detail 页（#27）', () => {
     const after = page.data.groups[0].steps[0].layers[0]
     expect(fieldOf(after, 'color').value).toEqual([255, 136, 0])
     expect(fieldOf(after, 'color').hex).toBe('#ff8800')
-    expect(page.data.dirty).toBe(true)
+    const saved = getDeviceConfig(dev.id)
+    expect(saved.pins.find((p) => p.pin === 0).groups[0].steps[0].layers[0].params.color).toEqual([255, 136, 0])
     expect(getRecentColors()[0]).toBe('#FF8800')
   })
 
@@ -615,7 +623,7 @@ describe('pin-detail 页（#27）', () => {
     expect(page._colorPickerTarget).toBeNull()
     expect(page.data.groups[0].steps[0].layers[0].fields.find((f) => f.name === 'color').value).toEqual([255, 255, 255])
     expect(getRecentColors()).toEqual([])
-    expect(page.data.dirty).toBe(false)
+    expect(page.data.syncState).toBe('idle')
   })
 
   // 最近使用色（#30）：选色写入 Storage + 重进页面回填。
@@ -628,8 +636,9 @@ describe('pin-detail 页（#27）', () => {
     })
     const after = page.data.groups[0].steps[0].layers[0]
     expect(fieldOf(after, 'color').value).toEqual([255, 136, 0])
-    expect(page.data.dirty).toBe(true)
-    // Storage 落盘：bt_recent_colors 首项为 '#FF8800'。
+    // Storage 落盘：配置与最近色均已写入。
+    const saved = getDeviceConfig(dev.id)
+    expect(saved.pins.find((p) => p.pin === 0).groups[0].steps[0].layers[0].params.color).toEqual([255, 136, 0])
     expect(getRecentColors()[0]).toBe('#FF8800')
   })
 
@@ -698,24 +707,16 @@ describe('pin-detail 页（#27）', () => {
     expect(colors.find((c) => c === '#000000')).toBeUndefined()
   })
 
-  test('保存：未连接 → 写 Storage + Toast，不发送命令', () => {
-    const page = load(0)
-    setCurrentBleClient(null)
-    page.onSave()
-    // Storage 真相源已写入。
-    const saved = getDeviceConfig(dev.id)
-    expect(saved.pins.find((p) => p.pin === 0).configured).toBe(true)
-    expect(wx.showToast).toHaveBeenCalled()
-    const arg = wx.showToast.mock.calls[wx.showToast.mock.calls.length - 1][0]
-    expect(arg.title).toContain('未连接')
-    expect(page.data.dirty).toBe(false)
-  })
+  // ---- 修改即推送（autoSync）：防抖合并 / 未连接落盘 / 连接后补发 ------------
 
-  test('保存：已连接 → 先 WRITE_CONFIG 后 APPLY，blob 可解码', async () => {
+  test('自动推送：已连接 → 防抖 500ms 后先 WRITE_CONFIG 后 APPLY，blob 可解码', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     const client = fakeClient(true)
     setCurrentBleClient(client)
     const page = load(0)
-    page.onSave()
+    page.onPinNameInput({ detail: { value: '新名' } })
+    expect(client.sendCmd).not.toHaveBeenCalled() // 防抖窗口内未下发
+    jest.advanceTimersByTime(500)
     await flush()
 
     expect(client.sendCmd).toHaveBeenCalledTimes(2)
@@ -723,24 +724,74 @@ describe('pin-detail 页（#27）', () => {
     const [cmd2] = client.sendCmd.mock.calls[1]
     expect(cmd1).toBe(CMD.WRITE_CONFIG)
     expect(cmd2).toBe(CMD.APPLY)
-    // blob 解回配置，pin 0 存在且灯组数一致。
     const decoded = decodeConfigBlob(Uint8Array.from(blob))
     expect(decoded.pins.find((p) => p.pin === 0).groups).toHaveLength(5)
-    expect(page.data.dirty).toBe(false)
+    expect(page.data.syncState).toBe('synced')
+    jest.useRealTimers()
   })
 
-  test('保存：校验失败（终点 < 起点）→ Toast，不写 Storage、不下发', () => {
+  test('自动推送：防抖合并——连续改动只下发一次最新快照', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+    const page = load(0)
+    // 连续三次参数改动（亮度 10 → 20 → 30），每次间隔 200ms < 防抖窗口。
+    const brightFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'brightness')
+    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '10' } })
+    jest.advanceTimersByTime(200)
+    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '20' } })
+    jest.advanceTimersByTime(200)
+    page.onParamInput({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '30' } })
+    jest.advanceTimersByTime(500)
+    await flush()
+
+    expect(client.sendCmd).toHaveBeenCalledTimes(2) // 仅一次 WRITE_CONFIG + APPLY
+    const [, blob] = client.sendCmd.mock.calls[0]
+    const decoded = decodeConfigBlob(Uint8Array.from(blob))
+    // blob 为最新快照：亮度 30（最后一次改动生效）。
+    const layer = decoded.pins.find((p) => p.pin === 0).groups[0].steps[0].layers[0]
+    expect(layer.params.brightness).toBe(30)
+    jest.useRealTimers()
+  })
+
+  test('自动推送：未连接 → 落盘 + 状态 local，不下发；连接后补发一次', async () => {
+    const client = fakeClient(false)
+    setCurrentBleClient(client)
+    const page = load(0)
+    page.onPinNameInput({ detail: { value: '新名' } })
+    // Storage 真相源已写入。
+    const saved = getDeviceConfig(dev.id)
+    expect(saved.pins.find((p) => p.pin === 0).name).toBe('新名')
+    expect(page.data.syncState).toBe('local')
+    expect(client.sendCmd).not.toHaveBeenCalled()
+
+    // 连接建立 → 补发（autoSync.onConnected 经 client 状态翻转触发）。
+    // 补发走 500ms 防抖（避开 connect 内 GET_VERSION 交错）。
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    client.connected = true
+    autoSync.onConnected()
+    jest.advanceTimersByTime(500)
+    await flush()
+    jest.useRealTimers()
+    expect(client.sendCmd).toHaveBeenCalledTimes(2)
+    expect(page.data.syncState).toBe('synced')
+  })
+
+  test('自动推送：校验失败（终点 < 起点）静默跳过，不写 Storage、不下发', async () => {
     const client = fakeClient(true)
     setCurrentBleClient(client)
     const page = load(0)
     page.setData({ 'groups[0].ledStart': 5, 'groups[0].ledEnd': 0 })
-    page.onSave()
-    expect(wx.showToast).toHaveBeenCalled()
-    expect(getDeviceConfig(dev.id)).toBeNull() // 未写
+    page.onGroupNameInput({ currentTarget: { dataset: { index: 0 } }, detail: { value: 'x' } })
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    jest.advanceTimersByTime(500)
+    await flush()
     expect(client.sendCmd).not.toHaveBeenCalled()
+    expect(getDeviceConfig(dev.id)).toBeNull() // 未写
+    jest.useRealTimers()
   })
 
-  test('保存：保留其他引脚配置', () => {
+  test('自动推送：保留其他引脚配置', () => {
     saveDeviceConfig(dev.id, {
       version: 1,
       pins: [
@@ -749,18 +800,44 @@ describe('pin-detail 页（#27）', () => {
       ],
     })
     const page = load(0)
-    page.onSave()
+    page.onPinNameInput({ detail: { value: '新名' } })
     const pins = getDeviceConfig(dev.id).pins
     expect(pins.map((p) => p.pin)).toEqual([0, 3]) // pin 3 原样保留
   })
 
-  test('dirty 时开启离开拦截，保存后解除', () => {
+  test('自动推送：下发失败静默重试 2 次后置 failed，点状态条重试立即重发', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    const client = fakeClient(true)
+    client.sendCmd = jest.fn(() => Promise.reject(new Error('timeout')))
+    setCurrentBleClient(client)
+    const page = load(0)
+    page.onPinNameInput({ detail: { value: '新名' } })
+    jest.advanceTimersByTime(500)
+    await flush()
+    expect(page.data.syncState).toBe('syncing') // 第 1 次失败，等待 1s 重试
+    jest.advanceTimersByTime(1000)
+    await flush()
+    jest.advanceTimersByTime(2000)
+    await flush()
+    expect(page.data.syncState).toBe('failed') // 重试用尽
+    // WRITE_CONFIG 首次即失败：每次尝试只调 1 次 sendCmd，3 次尝试 = 3 次调用。
+    expect(client.sendCmd).toHaveBeenCalledTimes(3)
+
+    // 点状态条重试：立即再发一轮。
+    client.sendCmd = jest.fn(() => Promise.resolve())
+    page.onSyncRetry()
+    await flush()
+    expect(client.sendCmd).toHaveBeenCalledTimes(2)
+    expect(page.data.syncState).toBe('synced')
+    jest.useRealTimers()
+  })
+
+  test('离开拦截：仅同步在途（syncing）时开启，local 不拦截', () => {
     const page = load(0)
     expect(wx.disableAlertBeforeUnload).toHaveBeenCalled() // onLoad 时 clean
-    page.onPinNameInput({ detail: { value: '新名' } })
-    expect(wx.enableAlertBeforeUnload).toHaveBeenCalled()
-    page.onSave() // 未连接也能落盘 → clean
-    expect(wx.disableAlertBeforeUnload).toHaveBeenCalled()
+    page.onPinNameInput({ detail: { value: '新名' } }) // 未连接 → local，不拦截
+    expect(wx.enableAlertBeforeUnload).not.toHaveBeenCalled()
+    expect(page.data.syncState).toBe('local')
   })
 
   // ---- 引脚固定 8 个：无删除入口 ----------------------------------------------

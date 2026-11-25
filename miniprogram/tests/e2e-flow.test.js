@@ -18,6 +18,7 @@ const { resetDeviceStore, listDevices, getDeviceConfig, getCurrentDeviceId } = r
 const { decodeConfigBlob } = require('../utils/configCodec')
 const { FrameParser, PARSE_OK, decodeFrame } = require('../utils/frameParser')
 const { setupBle, flush, statusFrame, notify } = require('./bleTestUtils')
+const autoSync = require('../utils/autoSync')
 const { CMD, NOTIFY, ERR } = require('../utils/protocol_gen')
 
 const DEVICE_LIST = '../pages/device-list/device-list'
@@ -114,6 +115,8 @@ describe('端到端全流程（#28 / T8）', () => {
     const pinPage = loadPage(PIN_DETAIL, app)
     pinPage.onLoad({ pin: '0' })
     // 改个引脚名 + 把灯珠区间拖选成 [2,4]（touchstart 格 2 → move 格 4 → end）。
+    // 先切 fake timers：后续所有 schedule 的防抖定时器都走 fake 时钟。
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     pinPage.onPinNameInput({ detail: { value: '客厅灯带' } })
     wx.__gridRect = { left: 0, top: 0, width: 600, height: 600 }
     wx.__cancelRect = null
@@ -122,8 +125,10 @@ describe('端到端全流程（#28 / T8）', () => {
     pinPage._activateDrag(150, 30) // 模拟长按 1s 后激活
     pinPage.onLedTouchMove({ touches: [{ clientX: 270, clientY: 30 }] }) // 格 4
     pinPage.onLedTouchEnd({ type: 'touchend' })
-    pinPage.onSave()
+    // 修改即推送：防抖 500ms 后自动下发。
+    jest.advanceTimersByTime(500)
     await flush()
+    jest.useRealTimers()
 
     // Storage 真相源已写入（未断线：connected 为 true，走下发）。
     const cfg = getDeviceConfig(listDevices()[0].id)
@@ -159,7 +164,7 @@ describe('端到端全流程（#28 / T8）', () => {
     expect(errLog[0].context).toBe('设备回传错误')
   })
 
-  test('未连接时保存：落盘本地但不下发，提示连接后重新保存（真相源语义）', async () => {
+  test('未连接时修改：落盘本地不下发，状态 local（连接后自动补发）', async () => {
     // 扫描到但不连接（直接构造一个未连接场景）：无 current 设备连接。
     setCurrentBleClient(createBleClient()) // connected=false
     app.globalData.currentDeviceId = null
@@ -172,14 +177,27 @@ describe('端到端全流程（#28 / T8）', () => {
 
     const pinPage = loadPage(PIN_DETAIL, app)
     pinPage.onLoad({ pin: '0' })
-    pinPage.onSave() // 未连接
+    pinPage.onPinNameInput({ detail: { value: '离线灯带' } }) // 未连接
 
     // 配置已落盘（Storage 真相源），但未写任何 BLE 命令。
     expect(getDeviceConfig(dev.id).pins.find((p) => p.pin === 0).configured).toBe(true)
+    expect(getDeviceConfig(dev.id).pins.find((p) => p.pin === 0).name).toBe('离线灯带')
     expect(wx.writeBLECharacteristicValue).not.toHaveBeenCalled()
-    const toastArg = wx.showToast.mock.calls[wx.showToast.mock.calls.length - 1][0]
-    expect(toastArg.title).toContain('未连接')
-    expect(pinPage.data.dirty).toBe(false)
+    expect(pinPage.data.syncState).toBe('local')
+
+    // 连接建立 → 防抖窗口后自动补发一次（WRITE_CONFIG + APPLY）。
+    // fake timers 下 connect 内部的重试等待会挂起，先真实连接再切 fake。
+    const client = getCurrentBleClient()
+    await client.connect('dev-offline') // 真实连接流程（write/notify 特征就绪）
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    autoSync.onConnected()
+    jest.advanceTimersByTime(500) // 补发防抖窗口（避开 connect 内 GET_VERSION 交错）
+    await flush()
+    jest.useRealTimers()
+    // 补发帧：WRITE_CONFIG + APPLY（GET_VERSION 在连接时已发出，不在断言范围）。
+    const saved = writtenFrames(wx).filter((f) => f.cmd !== CMD.GET_VERSION)
+    expect(saved.map((f) => f.cmd)).toEqual([CMD.WRITE_CONFIG, CMD.APPLY])
+    expect(pinPage.data.syncState).toBe('synced')
   })
 
   // 防御：decodeFrame 对完整帧 sanity（e2e 用的 FrameParser 与 decodeFrame 同源）。

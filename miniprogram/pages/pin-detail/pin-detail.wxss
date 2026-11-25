@@ -475,27 +475,28 @@
   color: var(--bt-color-accent);
 }
 
-/* 固定保存栏：玻璃材质走 .bt-glass 工具类（含降级），此处只管布局 */
-.save-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 10;
-  padding: 16rpx 32rpx;
-  display: flex;
-  gap: 16rpx;
+/* 同步状态条（autoSync 驱动，嵌在页面顶部）：四态小字，failed 可点重试 */
+.sync-bar {
+  padding: 8rpx 32rpx;
+  font-size: 24rpx;
+  line-height: 1.4;
+  color: var(--bt-color-label-secondary);
 }
 
-.save-bar .bt-btn {
-  text-align: center;
-  font-size: 28rpx;
-  height: 64rpx;
-  line-height: 64rpx;
+.sync-bar--syncing {
+  color: var(--bt-color-accent);
 }
 
-.save-bar__save {
-  flex: 1;
+.sync-bar--synced {
+  color: var(--bt-color-label-secondary);
+}
+
+.sync-bar--failed {
+  color: var(--bt-color-danger);
+}
+
+.sync-bar--local {
+  color: var(--bt-color-label-tertiary);
 }
 /* 灯珠选择弹出层（#31） */
 .led-picker-mask {
