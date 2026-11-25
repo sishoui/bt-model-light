@@ -44,8 +44,9 @@
           <view wx:else class="pin-card__placeholder">
             <text class="pin-card__placeholder-text">{{item.pin + 1}}</text>
           </view>
-          <!-- 右上 开关（仅已配置引脚展示；catchtap 阻止冒泡触发卡片跳转） -->
-          <switch wx:if="{{item.configured}}" class="pin-card__switch" checked="{{item.power}}" color="#0088FF" catchtap="noop" />
+          <!-- 右上 灯带开关（仅已配置引脚展示）：开关该引脚灯带；catchtap 阻止冒泡触发卡片跳转 -->
+          <switch wx:if="{{item.configured}}" class="pin-card__switch" data-pin="{{item.pin}}"
+            checked="{{item.power}}" color="#0088FF" catchtap="noop" bindchange="onPinPowerChange" />
           <!-- 底部名称条（引脚号 + 名称） -->
           <view class="pin-card__name-bar">
             <text class="pin-card__name">{{item.name}}</text>

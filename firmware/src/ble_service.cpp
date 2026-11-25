@@ -290,6 +290,12 @@ void bleServiceBegin(device_config_t *cfg,
              BLE_NAME_PREFIX, mac[4], mac[5]);
 
     BLEDevice::init(name);
+    // 空口 MTU：框架默认 local MTU 23 → 小程序只能 20 字节/包，整份配置要
+    // 30+ 包（每包等一个 ATT 响应，约 1~2s）。提到 517（框架上限，ADR-0029）：
+    // 安卓由小程序 wx.setBLEMTU(512) 协商到 512 → 509 字节/包（2 包发完），
+    // iOS 系统自动请求 185 → 182 字节/包；旧小程序固定 20 字节分包不受影响。
+    BLEDevice::setMTU(517);
+
     BLEServer *server = BLEDevice::createServer();
     server->setCallbacks(new ServerCallbacks());
 

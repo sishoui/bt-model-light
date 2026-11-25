@@ -340,7 +340,9 @@ Page({
       ledCount,
       img: (pinEntry && pinEntry.img) || '',
       pinName: (pinEntry && pinEntry.name) || `引脚 ${pin + 1}`,
-      power: !!(pinEntry && pinEntry.power),
+      // 灯带开关：只有显式 power === false 才算关（老配置无该字段 → 开，ADR-0028）；
+      // 首次配置保存时写入该默认值，与 home 引脚卡片开关同口径。
+      power: !pinEntry || pinEntry.power !== false,
       groups,
       activeGroup: 0,
       activeStepSi: 0,
@@ -556,9 +558,10 @@ Page({
     return set
   },
 
-  // 标记编辑态：组装配置 → 校验 → 落盘 Storage → 安排防抖下发（autoSync）。
+  // 标记编辑态：组装配置 → 校验 → 落盘 Storage → 安排下发（autoSync）。
+  // opts.immediate：离散动作（灯带开关）跳过防抖立即发；输入框/滑块保持防抖合并。
   // 校验/编码失败时静默跳过（编辑中间态的瞬时非法是常态，避免刷屏 Toast）。
-  _markDirty() {
+  _markDirty(opts) {
     if (!this._deviceId) return
     const pinConfig = {
       pin: this.data.pin,
@@ -583,7 +586,7 @@ Page({
       return
     }
     saveDeviceConfig(this._deviceId, config)
-    autoSync.schedule(this._deviceId, config)
+    autoSync.schedule(this._deviceId, config, opts)
   },
 
   // 离开拦截：仅在同步在途（防抖窗口 <500ms 或下发中）时提示「正在同步」；
@@ -623,7 +626,8 @@ Page({
 
   onPowerChange(e) {
     this.setData({ power: e.detail.value })
-    this._markDirty()
+    // 灯带开关是离散动作：跳过防抖立即下发（ADR-0029）。
+    this._markDirty({ immediate: true })
   },
 
   // ---- 灯组 Tab（固定 5 个，无新增/删除；tab 小字显示灯珠区间） -------------

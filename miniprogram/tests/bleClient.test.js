@@ -2,8 +2,8 @@
 //
 // 覆盖（ADR-0012 第 2 层：BLE 协议边界，调用顺序与参数断言）：
 //   - scanDevices：前缀过滤 / RSSI 去重合并 / stop 停止发现 / adapter 关闭
-//   - connect：服务+特征发现 / 特征缺失报错 / notify 订阅 / GET_VERSION 首发
-//   - sendCmd：帧编码 / 20B 分包 / seq 递增 / 未连接拒绝
+//   - connect：服务+特征发现 / 特征缺失报错 / notify 订阅 / MTU 协商 / GET_VERSION 首发
+//   - sendCmd：帧编码 / 按协商 MTU 分包 / 首片被拒降级 20B / seq 递增 / 未连接拒绝
 //   - notify：任意分片重组 / STATUS_NOTIFY 解析（版本兼容 / 错误 / 状态）
 //   - 版本不兼容：状态机进入 incompatible
 //   - disconnect：关闭连接 + 状态复位
@@ -16,7 +16,7 @@
 const { installWxMock } = require('./wx-mock')
 const { encodeFrame, decodeFrame, PARSE_OK } = require('../utils/frameParser')
 const { CMD, ERR, NOTIFY, BLE } = require('../utils/protocol_gen')
-const { createBleClient, WRITE_CHUNK } = require('../utils/bleClient')
+const { createBleClient, WRITE_CHUNK, CHUNK_IOS } = require('../utils/bleClient')
 const { buildFrameBytes, statusFrame, notify, setupBle } = require('./bleTestUtils')
 
 // 把 Uint8Array 切成固定长度分片，模拟 BLE 任意分包。
@@ -154,22 +154,25 @@ describe('bleClient', () => {
 
   // ---- sendCmd --------------------------------------------------------------
 
-  test('sendCmd 编帧并按 20 字节分包写入，seq 从 0 单调递增', async () => {
+  test('sendCmd 按协商 MTU 分包（setBLEMTU 成功 → 509B/包），seq 从 0 单调递增', async () => {
     await client.connect('dev-1')
+    // connect 期协商：请求 512（wx.setBLEMTU 上限）→ 负载 512-3 = 509。
+    expect(wx.setBLEMTU).toHaveBeenCalledWith({ deviceId: 'dev-1', mtu: 512 })
+    expect(client.chunk).toBe(509)
     wx.writeBLECharacteristicValue.mockClear()
 
-    // 30 字节 payload → 37 字节整帧 → 2 次写入（20 + 17）。
-    const payload = new Uint8Array(30).fill(0x5a)
+    // 600 字节 payload → 607 字节整帧 → 2 次写入（509 + 98）。
+    const payload = new Uint8Array(600).fill(0x5a)
     await client.sendCmd(CMD.WRITE_CONFIG, payload)
 
     expect(wx.writeBLECharacteristicValue).toHaveBeenCalledTimes(2)
-    expect(writtenFrame(0).byteLength).toBe(20)
-    expect(writtenFrame(1).byteLength).toBe(17)
+    expect(writtenFrame(0).byteLength).toBe(509)
+    expect(writtenFrame(1).byteLength).toBe(98)
 
     // 重组两次写入 = 一个合法帧。
-    const joined = new Uint8Array(37)
+    const joined = new Uint8Array(607)
     joined.set(new Uint8Array(writtenFrame(0)), 0)
-    joined.set(new Uint8Array(writtenFrame(1)), 20)
+    joined.set(new Uint8Array(writtenFrame(1)), 509)
     const out = { cmd: 0, seq: 0, payload: null }
     expect(decodeFrame(joined, out)).toBe(PARSE_OK)
     expect(out.cmd).toBe(CMD.WRITE_CONFIG)
@@ -180,6 +183,70 @@ describe('bleClient', () => {
     const out2 = { cmd: 0, seq: 0, payload: null }
     decodeFrame(writtenFrame(2), out2)
     expect(out2.seq).toBe(2)
+  })
+
+  test('无 setBLEMTU（iOS）：先用 182 乐观分片', async () => {
+    wx.setBLEMTU = undefined // iOS 无该 API
+    await client.connect('dev-1')
+    expect(client.chunk).toBe(CHUNK_IOS)
+    wx.writeBLECharacteristicValue.mockClear()
+
+    // 200 字节 payload → 207 字节整帧 → 2 次写入（182 + 25）。
+    await client.sendCmd(CMD.WRITE_CONFIG, new Uint8Array(200).fill(0x7b))
+    expect(wx.writeBLECharacteristicValue).toHaveBeenCalledTimes(2)
+    expect(writtenFrame(0).byteLength).toBe(CHUNK_IOS)
+    expect(writtenFrame(1).byteLength).toBe(207 - CHUNK_IOS)
+  })
+
+  test('首片被平台拒（MTU 没到位）：整帧退回 20B 重发，并保持该会话上限', async () => {
+    await client.connect('dev-1')
+    expect(client.chunk).toBe(509)
+    // 平台只收得下 20B（旧固件 local MTU 仍为 23）：大包一律拒绝。
+    const write = wx.writeBLECharacteristicValue
+    write.mockClear()
+    write.mockImplementation((arg) => {
+      const n = arg.value.byteLength
+      return n > WRITE_CHUNK
+        ? Promise.reject(new Error('exceed max data length'))
+        : Promise.resolve({})
+    })
+
+    // 30 字节 payload → 37 字节整帧：首片 37B 被拒（空口未发）→ 退回 20B 重发。
+    const payload = new Uint8Array(30).fill(0x11)
+    await client.sendCmd(CMD.WRITE_CONFIG, payload)
+
+    // 首次失败的 37B 尝试 + 降级后的 20 + 17。
+    expect(write).toHaveBeenCalledTimes(3)
+    expect(writtenFrame(1).byteLength).toBe(WRITE_CHUNK)
+    expect(writtenFrame(2).byteLength).toBe(17)
+    const joined = new Uint8Array(37)
+    joined.set(new Uint8Array(writtenFrame(1)), 0)
+    joined.set(new Uint8Array(writtenFrame(2)), 20)
+    const out = { cmd: 0, seq: 0, payload: null }
+    expect(decodeFrame(joined, out)).toBe(PARSE_OK)
+    expect(out.payload).toEqual(payload)
+    expect(client.chunk).toBe(WRITE_CHUNK) // 会话内不再试探大包
+
+    // 后续命令直接用 20B，不再有失败尝试。
+    write.mockClear()
+    await client.sendCmd(CMD.APPLY, [])
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(writtenFrame(0).byteLength).toBe(7)
+  })
+
+  test('中途失败不降级重发（避免半截帧污染固件解析流）', async () => {
+    await client.connect('dev-1')
+    let call = 0
+    const write = wx.writeBLECharacteristicValue
+    write.mockClear()
+    write.mockImplementation(() => {
+      call++
+      return call === 2 ? Promise.reject(new Error('GATT busy')) : Promise.resolve({})
+    })
+    // 600 字节 → 2 片：第 2 片失败 → 直接抛错，不整帧重发。
+    await expect(client.sendCmd(CMD.WRITE_CONFIG, new Uint8Array(600))).rejects.toThrow(/GATT busy/)
+    expect(write).toHaveBeenCalledTimes(2)
+    expect(client.chunk).toBe(509)
   })
 
   test('sendCmd 未连接时抛错', async () => {

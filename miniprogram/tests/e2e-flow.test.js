@@ -14,7 +14,7 @@
 const { loadPage, makeApp } = require('./pageHarness')
 const { installWxMock } = require('./wx-mock')
 const { createBleClient, setCurrentBleClient, getCurrentBleClient } = require('../utils/bleClient')
-const { resetDeviceStore, listDevices, getDeviceConfig, getCurrentDeviceId } = require('../utils/deviceStore')
+const { resetDeviceStore, listDevices, getDeviceConfig, saveDeviceConfig, getCurrentDeviceId } = require('../utils/deviceStore')
 const { decodeConfigBlob } = require('../utils/configCodec')
 const { FrameParser, PARSE_OK, decodeFrame } = require('../utils/frameParser')
 const { setupBle, flush, statusFrame, notify } = require('./bleTestUtils')
@@ -213,5 +213,59 @@ describe('端到端全流程（#28 / T8）', () => {
     expect(decodeFrame(writtenByteStream(wx), out)).toBe(PARSE_OK)
     expect(out.cmd).toBe(CMD.GET_VERSION)
     expect(frames).toHaveLength(1)
+  })
+
+  // 首页引脚卡片灯带开关（ADR-0028）：关 = 该引脚不下发灯组 → 固件清空灯带。
+  test('首页引脚开关：关 → WRITE_CONFIG blob 该引脚无灯组 + APPLY，Storage 保留灯组', async () => {
+    const listPage = loadPage(DEVICE_LIST, app)
+    listPage.onShow()
+    await listPage.onTapFound({
+      currentTarget: { dataset: { deviceId: 'dev-e2e', name: 'BTLight_A1B2' } },
+    })
+    await flush()
+
+    // 该引脚已配置（老配置无 power 字段 → 开关默认开）。
+    const devId = getCurrentDeviceId()
+    saveDeviceConfig(devId, {
+      version: 1,
+      pins: [
+        {
+          pin: 0,
+          configured: true,
+          name: '客厅灯带',
+          groups: [
+            {
+              ledStart: 0,
+              ledEnd: 9,
+              steps: [
+                {
+                  duration: 5,
+                  transition: 0,
+                  loopMode: 1,
+                  layers: [{ effect: 1, params: { color: [1, 2, 3], brightness: 200 } }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    wx.writeBLECharacteristicValue.mockClear() // 只看开关这条链路
+
+    const homePage = loadPage(HOME, app)
+    homePage.onShow()
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    homePage.onPinPowerChange({ currentTarget: { dataset: { pin: 0 } }, detail: { value: false } })
+    jest.advanceTimersByTime(500)
+    await flush()
+    jest.useRealTimers()
+
+    const frames = writtenFrames(wx).filter((f) => f.cmd !== CMD.GET_VERSION)
+    expect(frames.map((f) => f.cmd)).toEqual([CMD.WRITE_CONFIG, CMD.APPLY])
+    // blob 里 pin0 无灯组 → 固件 composition 清空该灯带（真灭）。
+    expect(decodeConfigBlob(Uint8Array.from(frames[0].payload)).pins).toEqual([])
+    // Storage 真相源仍保留灯组配置（开关只是不下发，不删配置）。
+    expect(getDeviceConfig(devId).pins[0].power).toBe(false)
+    expect(getDeviceConfig(devId).pins[0].groups).toHaveLength(1)
   })
 })

@@ -11,7 +11,9 @@
 //   图层 = effect_id(1) + param_len(1) + params(param_len)
 //
 // 配置对象（Storage 真相源 / 页面模型）在 wire 字段之外还带 UI 元数据
-// （pin.name / pin.power / pin.configured / group.name），编码时忽略。
+// （pin.name / pin.configured / group.name），编码时忽略。
+// 例外：pin.power（灯带开关，ADR-0028）为 false 时该引脚不下发灯组
+// （group_count=0），固件侧即"无灯组"→ 清空该灯带；Storage 里灯组配置完整保留。
 //
 // 仅依赖 ES2017+ 标准 API 与 protocol_gen / frameParser（均不依赖 wx），
 // Jest 与小程序运行时双端可用（同 frameParser.js 约束）。
@@ -177,7 +179,10 @@ function encodeConfigBlob(config) {
   const body = []
   for (let pin = 0; pin < PIN_COUNT; pin++) {
     const entry = srcPins.find((p) => p && p.pin === pin)
-    const groups = entry && Array.isArray(entry.groups) ? entry.groups : []
+    // 灯带开关关闭的引脚（power === false，ADR-0028）不下发灯组：
+    // group_count=0 是固件已有的"该引脚无内容"语义，渲染时整条灯带清空。
+    // 只有显式 false 才算关（老配置无该字段 → 保持"配好就亮"）。
+    const groups = entry && entry.power !== false && Array.isArray(entry.groups) ? entry.groups : []
     body.push(groups.length & 0xff)
     for (const g of groups) {
       body.push(g.ledStart & 0xff, g.ledEnd & 0xff)

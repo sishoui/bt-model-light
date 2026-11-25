@@ -123,7 +123,39 @@ describe('pin-detail 页（#27）', () => {
     }
     expect(page.data.activeGroup).toBe(0)
     expect(litCount(page)).toBe(0) // 默认全空
+    // 首次配置的引脚灯带开关默认开（ADR-0028：只有显式关才不下发灯组）。
+    expect(page.data.power).toBe(true)
     expect(page.data.syncState).toBe('idle')
+  })
+
+  test('老配置无 power 字段：顶部灯带开关默认开（切页不误灭灯，ADR-0028）', () => {
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [
+        {
+          pin: 0,
+          name: '客厅灯带',
+          configured: true,
+          groups: [
+            { name: '流水', ledStart: 0, ledEnd: 3, steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: EFF.SOLID, params: { color: [1, 1, 1], brightness: 10 } }] }] },
+          ],
+        },
+      ],
+    })
+    const page = load(0)
+    expect(page.data.power).toBe(true)
+  })
+
+  test('顶部灯带开关：立即下发（不等防抖）WRITE_CONFIG + APPLY（ADR-0029）', async () => {
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+    const page = load(0)
+    page.onPowerChange({ detail: { value: false } })
+    // 不推进任何定时器：微任务走完即已下发（离散动作跳过 500ms 防抖）。
+    await flush()
+    expect(client.sendCmd.mock.calls.map((c) => c[0])).toEqual([CMD.WRITE_CONFIG, CMD.APPLY])
+    // 关灯：blob 里该引脚不下发灯组 → 固件清空灯带。
+    expect(decodeConfigBlob(Uint8Array.from(client.sendCmd.mock.calls[0][1])).pins).toEqual([])
   })
 
   test('灯组 Tab：onTapGroup 切换 activeGroup 并重建灯珠网格', () => {

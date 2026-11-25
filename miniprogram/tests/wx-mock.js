@@ -67,6 +67,9 @@ function createWxMock() {
   wx.notifyBLECharacteristicValueChange = _asyncMock({})
   wx.readBLECharacteristicValue = _asyncMock({})
   wx.writeBLECharacteristicValue = _asyncMock({})
+  // 安卓 MTU 协商（ADR-0029）：默认成功；测试可 mockImplementation 成 reject
+  // 模拟 iOS/不支持的分支，或让 writeBLECharacteristicValue 拒绝大包模拟降级。
+  wx.setBLEMTU = _asyncMock({ mtu: 512 })
 
   // ---- 事件监听（回调注册，mock 记录注册的回调以便测试触发） ----
   // 每个 on* 保存最后一次注册的回调；测试可通过 wx.__trigger(name, ...args) 触发。
