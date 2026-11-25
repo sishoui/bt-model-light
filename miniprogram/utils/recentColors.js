@@ -88,6 +88,43 @@ function rgbToHex(rgb) {
   return '#' + c(rgb[0]) + c(rgb[1]) + c(rgb[2])
 }
 
+// HSV ↔ RGB 转换（颜色弹层三维选色：色相/饱和度/亮度条拖动）。
+// h: [0,360)，s/v: [0,100]（弹层与 UI 的显示单位）；rgb 分量 [0,255]。
+// 极简无校验入口，非法输入由调用方保证不传入；hsvToRgb 对越界值做归一。
+function hsvToRgb(h, s, v) {
+  const sn = Math.max(0, Math.min(100, Number(s) || 0)) / 100
+  const vn = Math.max(0, Math.min(100, Number(v) || 0)) / 100
+  const hn = ((Number(h) || 0) % 360 + 360) % 360
+  const c = vn * sn
+  const x = c * (1 - Math.abs((hn / 60) % 2 - 1))
+  const m = vn - c
+  let r = 0
+  let g = 0
+  let b = 0
+  if (hn < 60) { r = c; g = x } else if (hn < 120) { r = x; g = c } else if (hn < 180) { g = c; b = x } else if (hn < 240) { g = x; b = c } else if (hn < 300) { r = x; b = c } else { r = c; b = x }
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)]
+}
+
+// rgb → { h, s, v }（h 四舍五入取整 [0,360]，s/v 取整 [0,100]）。
+// 灰度（max===min）色相记 0，与 HSV 数学定义一致（灰/黑/白无彩色相）。
+function rgbToHsv(rgb) {
+  if (!Array.isArray(rgb) || rgb.length < 3) return null
+  const r = Math.max(0, Math.min(255, Number(rgb[0]) || 0)) / 255
+  const g = Math.max(0, Math.min(255, Number(rgb[1]) || 0)) / 255
+  const b = Math.max(0, Math.min(255, Number(rgb[2]) || 0)) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const d = max - min
+  let h = 0
+  if (d !== 0) {
+    if (max === r) h = 60 * (((g - b) / d) % 6)
+    else if (max === g) h = 60 * ((b - r) / d + 2)
+    else h = 60 * ((r - g) / d + 4)
+  }
+  if (h < 0) h += 360
+  return { h: Math.round(h) % 360, s: Math.round((max === 0 ? 0 : d / max) * 100), v: Math.round(max * 100) }
+}
+
 module.exports = {
   STORAGE_KEY_RECENT_COLORS,
   MAX_RECENT_COLORS,
@@ -96,5 +133,7 @@ module.exports = {
   resetRecentColors,
   hexToRgb,
   rgbToHex,
+  hsvToRgb,
+  rgbToHsv,
   normalizeHex,
 }

@@ -12,7 +12,7 @@
 
 const { getDeviceConfig, saveDeviceConfig } = require('../../utils/deviceStore')
 const { encodeConfigBlob, validateConfig, effectName, clampInt } = require('../../utils/configCodec')
-const { getRecentColors, pushRecentColor, rgbToHex, hexToRgb } = require('../../utils/recentColors')
+const { getRecentColors, pushRecentColor, rgbToHex, hexToRgb, hsvToRgb, rgbToHsv } = require('../../utils/recentColors')
 const { EFF, EFFECT_PARAMS, LIMITS } = require('../../utils/protocol_gen')
 const autoSync = require('../../utils/autoSync')
 
@@ -250,11 +250,11 @@ Page({
     colorPickerOpen: false,
     colorPickerTarget: null, // 目标 field 定位（si/li/fi），随 setData 同步给 WXML
     recentColors: [],
-    colorPalette: [
-      '#000000', '#FFFFFF', '#808080', '#404040', '#C0C0C0',
-      '#FF0000', '#FF8800', '#FFFF00', '#00FF00', '#00FFFF',
-      '#0000FF', '#8000FF', '#FF69B4', '#FFDAB9', '#FFBF00', '#008080',
-    ],
+    // HSV 三维选色状态：h[0,360), s/v [0,100]；pickerHex 当前预览 hex；
+    // pickerUi 为拖动条派生的 UI（位置 + 渐变端点）。
+    pickerHsv: { h: 0, s: 0, v: 100 },
+    pickerHex: '#FFFFFF',
+    pickerUi: { huePos: '0%', satPos: '0%', valPos: '100%', satFrom: '#FFFFFF', satTo: '#FF0000', valFrom: '#000000', valTo: '#FF0000' },
     // 同步状态条（autoSync 驱动）：state 为 syncing/synced/failed/local，idle 不显示。
     syncState: 'idle',
     syncAt: '',
@@ -958,6 +958,7 @@ Page({
 
   // ---- 颜色弹层（#33） ---------------------------------------------------------
   // rgb 色块点击：打开弹层，定位到目标 field，把最近色带入弹层。
+  // HSV 初值取目标 field 当前颜色（弹层打开即三维度可拖）。
   onOpenColorPicker(e) {
     const ds = e.currentTarget.dataset
     const si = Number(ds.si)
@@ -965,7 +966,73 @@ Page({
     const fi = Number(ds.fi)
     this._locateField(si, li, fi)
     this._colorPickerTarget = { si, li, fi }
+    const field = this._locateField(si, li, fi)
+    const hsv = (field && field.value && rgbToHsv(field.value)) || { h: 0, s: 0, v: 100 }
+    this._setPickerHsv(hsv)
     this.setData({ colorPickerOpen: true, colorPickerTarget: { si, li, fi }, recentColors: getRecentColors() })
+  },
+
+  // HSV → 弹层 UI 派生：当前 hex 预览 + 三条位置/渐变端点。单一计算点，
+  // 打开初始化与拖动更新共用，避免两处漂移。
+  _setPickerHsv(hsv) {
+    const h = Math.round(((Number(hsv.h) || 0) % 360 + 360) % 360)
+    const s = Math.round(Math.max(0, Math.min(100, Number(hsv.s) || 0)))
+    const v = Math.round(Math.max(0, Math.min(100, Number(hsv.v) || 0)))
+    const hex = rgbToHex(hsvToRgb(h, s, v)).toUpperCase()
+    const ui = {
+      huePos: (h / 360) * 100 + '%',
+      satPos: s + '%',
+      valPos: v + '%',
+      satFrom: rgbToHex(hsvToRgb(h, 0, v)).toUpperCase(),
+      satTo: rgbToHex(hsvToRgb(h, 100, v)).toUpperCase(),
+      valFrom: '#000000',
+      valTo: rgbToHex(hsvToRgb(h, s, 100)).toUpperCase(),
+    }
+    this._pickerHsv = { h, s, v }
+    this._pickerHex = hex
+    this.setData({ pickerHsv: { h, s, v }, pickerHex: hex, pickerUi: ui })
+  },
+
+  // 拖动条触摸：start 记录条 rect（后续 move 复用），move 按 clientX 反查比例。
+  // 三条共用一套处理，data-part 区分（hue/sat/val）。
+  onPickerTouchStart(e) {
+    const part = e.currentTarget.dataset.part
+    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
+    const query = wx.createSelectorQuery()
+    query.in(this)
+    query.select('.picker-bar--' + part).boundingClientRect()
+    query.exec((res) => {
+      this._barRects = this._barRects || {}
+      this._barRects[part] = (res && res[0]) || null
+      this._pickerPart = part
+      this._applyPickerTouch(part, t)
+    })
+  },
+
+  onPickerTouchMove(e) {
+    if (!this._pickerPart) return
+    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
+    this._applyPickerTouch(this._pickerPart, t)
+  },
+
+  // 松手：写回 field（应用颜色 + 持久化最近色），弹层保持打开可继续微调。
+  onPickerTouchEnd() {
+    if (!this._pickerPart) return
+    this._pickerPart = null
+    const target = this._colorPickerTarget || {}
+    if (!Number.isFinite(target.si) || !Number.isFinite(target.li) || !Number.isFinite(target.fi)) return
+    this._applyColorHex(target.si, target.li, target.fi, this._pickerHex)
+  },
+
+  // 触摸点 → 条上比例 [0,1] → 更新对应维度。rect 未就绪（查询未回）时忽略。
+  _applyPickerTouch(part, t) {
+    const rect = this._barRects && this._barRects[part]
+    if (!rect || !rect.width) return
+    const ratio = Math.max(0, Math.min(1, ((t.clientX || 0) - rect.left) / rect.width))
+    const cur = this._pickerHsv || { h: 0, s: 0, v: 100 }
+    if (part === 'hue') this._setPickerHsv({ h: ratio * 360, s: cur.s, v: cur.v })
+    else if (part === 'sat') this._setPickerHsv({ h: cur.h, s: ratio * 100, v: cur.v })
+    else if (part === 'val') this._setPickerHsv({ h: cur.h, s: cur.s, v: ratio * 100 })
   },
 
   // 弹层选色：hex → rgb 写入 target field → 持久化最近色 → 关闭弹层。

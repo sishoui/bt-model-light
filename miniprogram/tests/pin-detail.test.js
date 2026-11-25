@@ -720,6 +720,109 @@ describe('pin-detail 页（#27）', () => {
     expect(colors.find((c) => c === '#000000')).toBeUndefined()
   })
 
+  // ---- HSV 三维选色（色相/饱和度/亮度拖动条） --------------------------------
+
+  test('onOpenColorPicker：HSV 初值取目标 field 当前颜色', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    // 默认色为白 [255,255,255] → h0 s0 v100。
+    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
+    expect(page.data.pickerHsv).toEqual({ h: 0, s: 0, v: 100 })
+    expect(page.data.pickerHex).toBe('#FFFFFF')
+  })
+
+  test('拖动色相条：clientX 比例 → 色相/预览 hex 更新，松手才写回 field', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
+    // 条 rect：left 0 width 360（与 wx-mock __gridRect 同构）。
+    wx.__gridRect = { left: 0, top: 0, width: 360, height: 64 }
+    // 先饱和度拖满（s0 时色相不可见，白色下拖色相仍是白）。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 360, clientY: 0 }] })
+    page.onPickerTouchEnd()
+    // 色相拖到 50% → 180（青），s100 v100 → #00FFFF。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 180, clientY: 0 }] })
+    expect(page.data.pickerHsv.h).toBe(180)
+    expect(page.data.pickerHex).toBe('#00FFFF')
+    // 拖动中未松手：field 未写回（仍是上一步的饱和红）。
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([255, 0, 0])
+    page.onPickerTouchEnd()
+    // 松手：写回 field + 最近色。
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([0, 255, 255])
+    expect(getRecentColors()[0]).toBe('#00FFFF')
+  })
+
+  test('拖动饱和度/亮度条：比例 → s/v 更新，三色联动预览', () => {
+    const page = load(0)
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
+    wx.__gridRect = { left: 0, top: 0, width: 360, height: 48 }
+    // 色相拖到 0（红），饱和度拖到 100% → #FF0000。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 0, clientY: 0 }] })
+    page.onPickerTouchEnd()
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 360, clientY: 0 }] })
+    expect(page.data.pickerHsv.s).toBe(100)
+    expect(page.data.pickerHex).toBe('#FF0000')
+    // 亮度拖到 50% → #800000。
+    page.onPickerTouchEnd()
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'val' } }, touches: [{ clientX: 180, clientY: 0 }] })
+    expect(page.data.pickerHsv.v).toBe(50)
+    expect(page.data.pickerHex).toBe('#800000')
+    page.onPickerTouchEnd()
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([128, 0, 0])
+  })
+
+  test('三维度以个位数为最小单位：拖动比例 → 四舍五入取整', () => {
+    const page = load(0)
+    wx.__gridRect = { left: 0, top: 0, width: 360, height: 56 }
+    // 色相 137.52°（clientX 275.12 不可行，用 275/360*360=275 → 用分数比例模拟非整数）。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 137.52, clientY: 0 }] })
+    expect(page.data.pickerHsv.h).toBe(138)
+    expect(page.data.pickerHsv.h % 1).toBe(0)
+    // 饱和度 49.5% → 50。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 178.2, clientY: 0 }] })
+    expect(page.data.pickerHsv.s).toBe(50)
+    expect(page.data.pickerHsv.s % 1).toBe(0)
+    // 亮度 33.3% → 33。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'val' } }, touches: [{ clientX: 119.88, clientY: 0 }] })
+    expect(page.data.pickerHsv.v).toBe(33)
+    expect(page.data.pickerHsv.v % 1).toBe(0)
+  })
+
+  test('拖动条越界触摸点：比例钳制 [0,1]，不抛异常', () => {
+    const page = load(0)
+    wx.__gridRect = { left: 100, top: 0, width: 200, height: 48 }
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: -50, clientY: 0 }] })
+    expect(page.data.pickerHsv.h).toBe(0)
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 9999, clientY: 0 }] })
+    // 比例钳到 1 → 360°，归一后等价 0°；s0 v100 下颜色仍为白。
+    expect(page.data.pickerHsv.h).toBe(0)
+    expect(page.data.pickerHex).toBe('#FFFFFF')
+  })
+
+  test('rect 未就绪时拖动忽略（查询未回不崩）', () => {
+    const page = load(0)
+    wx.__gridRect = null
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 180, clientY: 0 }] })
+    expect(page.data.pickerHsv).toEqual({ h: 0, s: 0, v: 100 })
+    // move/end 无 active part：安全返回。
+    expect(() => page.onPickerTouchMove({ touches: [{ clientX: 0 }] })).not.toThrow()
+    expect(() => page.onPickerTouchEnd()).not.toThrow()
+  })
+
+  test('色相条渐变端点：s/v 联动（satTo/valTo 随当前维度变化）', () => {
+    const page = load(0)
+    wx.__gridRect = { left: 0, top: 0, width: 360, height: 48 }
+    // v=100 s=0：sat 渐变 白→红，val 渐变 黑→白（s0 时最亮即白）。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 0, clientY: 0 }] })
+    expect(page.data.pickerUi.satFrom).toBe('#FFFFFF')
+    expect(page.data.pickerUi.satTo).toBe('#FF0000')
+    expect(page.data.pickerUi.valTo).toBe('#FFFFFF')
+    // s=50：valTo 变浅红 #FF8080。
+    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 180, clientY: 0 }] })
+    expect(page.data.pickerUi.valTo).toBe('#FF8080')
+  })
+
   // ---- 修改即推送（autoSync）：防抖合并 / 未连接落盘 / 连接后补发 ------------
 
   test('自动推送：已连接 → 防抖 500ms 后先 WRITE_CONFIG 后 APPLY，blob 可解码', async () => {

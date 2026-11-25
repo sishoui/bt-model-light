@@ -515,28 +515,81 @@
   background: var(--bt-color-bg-input);
 }
 
-.color-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16rpx;
-  margin-top: 8rpx;
+/* HSV 选色：预览色块 + 三条拖动条（色相加粗渐变，饱和度/亮度随当前色相渐变） */
+.picker-preview {
+  height: 96rpx;
+  border-radius: 16rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
 }
 
-.color-cell {
+.picker-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 28rpx;
+}
+
+.picker-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.picker-bar-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.picker-bar-label {
+  font-size: 26rpx;
+  line-height: 36rpx;
+  color: var(--bt-color-label-secondary);
+}
+
+.picker-bar-value {
+  font-size: 26rpx;
+  line-height: 36rpx;
+  font-weight: 600;
+  color: var(--bt-color-label);
+}
+
+.picker-bar {
+  position: relative;
   width: 100%;
-  aspect-ratio: 1;
-  border-radius: 12rpx;
+  height: 40rpx;
+  border-radius: 999rpx;
   box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
+}
+
+/* 色相条：加粗 + 全色相彩虹渐变（红→黄→绿→青→蓝→品红→红） */
+.picker-bar--hue {
+  height: 56rpx;
+  background: linear-gradient(to right, #FF0000 0%, #FFFF00 16.67%, #00FF00 33.33%, #00FFFF 50%, #0000FF 66.67%, #FF00FF 83.33%, #FF0000 100%);
+}
+
+.picker-dot {
+  position: absolute;
+  top: 50%;
+  width: 36rpx;
+  height: 36rpx;
+  margin-left: -18rpx;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.35), 0 0 0 2rpx rgba(255, 255, 255, 0.9);
+  pointer-events: none;
 }
 
 .color-cell--recent {
   width: 80rpx;
   height: 80rpx;
   flex: 0 0 auto;
+  border-radius: 12rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
 }
 
 .recent-colors {
-  margin-top: 16rpx;
+  margin-top: 24rpx;
 }
 
 .recent-colors__title {
