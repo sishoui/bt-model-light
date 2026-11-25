@@ -10,6 +10,9 @@
 //   - Two-layer composition: animation non-black wins (ADR-0020).
 //   - Two-layer composition: animation black -> background shows.
 //   - composition_render_all touches only pins with groups.
+//   - Second group (led_start > 0) renders its animation layer in
+//     group-local coordinates (regression: absolute pixel index made the
+//     animation layer of any group not starting at LED 0 go dark).
 
 #include <unity.h>
 #include "composition.h"
@@ -18,8 +21,21 @@
 
 #include <string.h>
 
+// Native-only pixel readback from led_driver_stub.cpp.
+void ledTestReset(void);
+bool ledTestGetPixel(uint8_t pin, uint16_t idx, Rgb *out);
+
 extern "C" void setUp(void) {}
 extern "C" void tearDown(void) {}
+
+// Fill a SOLID layer's packed params (color + brightness).
+static void set_solid_layer(config_layer_t *l, uint8_t r, uint8_t g, uint8_t b,
+                            uint8_t brightness) {
+    l->effect_id = EFF_SOLID;
+    l->param_len = (uint8_t)config_effect_param_size(EFF_SOLID);
+    l->params[0] = r; l->params[1] = g; l->params[2] = b;
+    l->params[3] = brightness;
+}
 
 // Build a config with a single group on pin 0, N steps, given loop mode.
 static void build_group(device_config_t *c, uint8_t nsteps, uint8_t loop_mode,
@@ -235,6 +251,84 @@ void test_two_layer_anim_black_bg_shows(void) {
     TEST_ASSERT_TRUE(1);
 }
 
+// ---- second group renders in group-local coordinates ----------------------
+//
+// Regression: composition used to pass the absolute strip index as the
+// effect pixel while led_cnt was the group length. Group 0 (start = 0)
+// worked by coincidence; a second group starting at LED 4 rendered its
+// animation layer all-black, so only the background layer showed.
+//
+// Layout: group 0 covers LEDs 0..1 (SOLID red, sanity), group 1 covers
+// LEDs 4..7 with bg SOLID red + anim MARQUEE (led_count 1, gap 1). At t=0
+// the marquee head sits at group-local cell 0, so only relative pixel 0
+// (absolute LED 4) is lit green; relative pixels 1..3 are black and the
+// red background shows through.
+void test_second_group_anim_local_coords(void) {
+    device_config_t c;
+    config_init_empty(&c);
+    config_pin_t *p = &c.pins[0];
+    p->group_count = 2;
+
+    config_group_t *g0 = &p->groups[0];
+    g0->led_start = 0;
+    g0->led_end = 1;
+    g0->step_count = 1;
+    config_step_t *s0 = &g0->steps[0];
+    s0->duration = 5;
+    s0->transition = CONFIG_TRANSITION_NONE;
+    s0->loop_mode = CONFIG_LOOP_LOOP;
+    s0->layer_count = 1;
+    set_solid_layer(&s0->layers[0], 255, 0, 0, 255);
+
+    config_group_t *g1 = &p->groups[1];
+    g1->led_start = 4;
+    g1->led_end = 7;
+    g1->step_count = 1;
+    config_step_t *s1 = &g1->steps[0];
+    s1->duration = 5;
+    s1->transition = CONFIG_TRANSITION_NONE;
+    s1->loop_mode = CONFIG_LOOP_LOOP;
+    s1->layer_count = 2;
+    set_solid_layer(&s1->layers[0], 255, 0, 0, 255);
+    config_layer_t *anim = &s1->layers[1];
+    anim->effect_id = EFF_MARQUEE;
+    anim->param_len = (uint8_t)config_effect_param_size(EFF_MARQUEE);
+    anim->params[0] = 0;   anim->params[1] = 255; anim->params[2] = 0;   // green
+    anim->params[3] = 255; // brightness
+    anim->params[4] = 50;  // speed
+    anim->params[5] = 0;   // direction: forward
+    anim->params[6] = 1;   // led_count
+    anim->params[7] = 1;   // gap
+
+    group_playback_t pb[PIN_COUNT][GROUPS_PER_PIN_MAX];
+    composition_init(&c, pb);
+    uint32_t ticks[GROUPS_PER_PIN_MAX] = {0};
+    ledTestReset();
+    composition_render_pin(0, LEDS_PER_PIN_MAX, &c, pb[0], ticks);
+
+    Rgb px;
+    // Group 0 sanity: SOLID red on LEDs 0..1.
+    TEST_ASSERT_TRUE(ledTestGetPixel(0, 0, &px));
+    TEST_ASSERT_EQUAL_UINT8(255, px.r);
+    TEST_ASSERT_EQUAL_UINT8(0, px.g);
+    TEST_ASSERT_EQUAL_UINT8(0, px.b);
+    // Uncovered LEDs stay black.
+    TEST_ASSERT_TRUE(ledTestGetPixel(0, 2, &px));
+    TEST_ASSERT_EQUAL_UINT8(0, px.r);
+    // Group 1: animation layer (green) wins at relative pixel 0 = LED 4.
+    TEST_ASSERT_TRUE(ledTestGetPixel(0, 4, &px));
+    TEST_ASSERT_EQUAL_UINT8(0, px.r);
+    TEST_ASSERT_EQUAL_UINT8(255, px.g);
+    TEST_ASSERT_EQUAL_UINT8(0, px.b);
+    // Relative pixels 1..3: animation black -> red background shows.
+    for (uint16_t i = 5; i <= 7; i++) {
+        TEST_ASSERT_TRUE(ledTestGetPixel(0, i, &px));
+        TEST_ASSERT_EQUAL_UINT8(255, px.r);
+        TEST_ASSERT_EQUAL_UINT8(0, px.g);
+        TEST_ASSERT_EQUAL_UINT8(0, px.b);
+    }
+}
+
 // ---- render_all touches only pins with groups ---------------------------
 
 void test_render_all_touched_count(void) {
@@ -268,6 +362,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_render_blacks_uncovered);
     RUN_TEST(test_two_layer_anim_wins);
     RUN_TEST(test_two_layer_anim_black_bg_shows);
+    RUN_TEST(test_second_group_anim_local_coords);
     RUN_TEST(test_render_all_touched_count);
     RUN_TEST(test_render_all_empty_config);
     return UNITY_END();

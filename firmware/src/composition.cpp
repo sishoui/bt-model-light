@@ -173,11 +173,15 @@ void composition_render_pin(uint8_t pin, uint16_t led_cnt,
         uint8_t tscale = transition_scale(s->transition, elapsed_ms);
 
         for (uint16_t i = 0; i < len; i++) {
-            uint16_t pixel = (uint16_t)(start + i);
-            Rgb c = render_step_pixel(s, pixel, len, t);
+            // Effects render in group-local coordinates: pixel in [0, len)
+            // pairs with led_cnt = len (see effects.cpp). Passing the
+            // absolute strip index here mis-rendered every group that does
+            // not start at LED 0 (animation layer went dark, only the
+            // background layer showed).
+            Rgb c = render_step_pixel(s, i, len, t);
             if (tscale != 255) c = scale_rgb_local(c, tscale);
             // Last group covering this pixel wins (groups may overlap).
-            ledSetPixel(pin, pixel, c);
+            ledSetPixel(pin, (uint16_t)(start + i), c);
         }
     }
 }
