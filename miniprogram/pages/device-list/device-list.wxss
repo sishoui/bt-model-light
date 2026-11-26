@@ -164,3 +164,21 @@
   padding: 48rpx 32rpx;
   text-align: center;
 }
+/* RSSI 信号曲线：一排细柱（高=信号强度百分比），占行内固定宽度。
+   扫描每次上报追加一根，40 根封顶（环形缓冲）。 */
+.rssi-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2rpx;
+  width: 160rpx;
+  height: 48rpx;
+  margin-right: 16rpx;
+  flex-shrink: 0;
+}
+
+.rssi-spark__bar {
+  flex: 1;
+  min-width: 2rpx;
+  background: var(--bt-color-success);
+  border-radius: 2rpx 2rpx 0 0;
+}

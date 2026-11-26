@@ -73,6 +73,51 @@
     </view>
   </scroll-view>
 
+  <!-- 阶段时间轴图（泳道甘特）：按 duration 比例的总时长条 + 每段内图层子条 +
+       过渡斜纹区间。与上方分段条互补：分段条管选中/拖排序，这里看整体节奏构成。 -->
+  <view wx:if="{{timeline.length}}" class="timeline">
+    <view class="timeline__head">
+      <text class="timeline__title">时间轴</text>
+      <text class="timeline__total">{{timelineTotal}}s · {{timeline.length}} 阶段</text>
+    </view>
+    <view class="timeline__track">
+      <view
+        wx:for="{{timeline}}"
+        wx:key="si"
+        wx:for-item="seg"
+        class="timeline__seg {{seg.active ? 'timeline__seg--active' : ''}}"
+        style="left: {{seg.x * 100}}%; width: {{seg.w * 100}}%;"
+        data-si="{{seg.si}}"
+        bindtap="onSelectStage"
+      >
+        <!-- 段内图层子条：每层一条横条，颜色取灯效主题色 -->
+        <view class="timeline__layers">
+          <view
+            wx:for="{{seg.layers}}"
+            wx:key="li"
+            wx:for-item="ly"
+            class="timeline__layer"
+            style="background-color: {{ly.color}}; width: {{100 / seg.layers.length}}%;"
+          ></view>
+        </view>
+        <!-- 过渡区间：段尾斜纹（可选过渡/循环模式时出现） -->
+        <view
+          wx:if="{{seg.transW > 0}}"
+          class="timeline__trans"
+          style="left: {{(seg.transX - seg.x) / seg.w * 100}}%; width: {{seg.transW / seg.w * 100}}%;"
+        ></view>
+        <text class="timeline__label">{{seg.duration}}s</text>
+      </view>
+    </view>
+    <!-- 图例：当前灯组用到的灯效 -->
+    <view wx:if="{{timelineLegend.length}}" class="timeline__legend">
+      <view wx:for="{{timelineLegend}}" wx:key="effect" class="timeline__legend-item">
+        <view class="timeline__legend-dot" style="background-color: {{item.color}};"></view>
+        <text class="timeline__legend-text">{{item.name}}</text>
+      </view>
+    </view>
+  </view>
+
   <!-- 阶段详情气泡卡片：箭头指向当前选中阶段（left 由 JS 按段中心算出） -->
   <view class="step-bubble" style="--bubble-x: {{bubbleX}}rpx;">
     <view class="step-bubble__arrow"></view>
@@ -106,107 +151,49 @@
         </view>
       </view>
 
-      <!-- 图层 -->
-      <view
-        wx:for="{{groups[activeGroup].steps[activeStepSi].layers}}"
-        wx:key="lid"
-        wx:for-item="layer"
-        wx:for-index="li"
-        class="layer"
-      >
-        <view class="bt-row bt-row--between layer__head" data-si="{{activeStepSi}}" data-li="{{li}}" bindtap="onToggleLayer">
-          <text class="layer__title">图层 {{li + 1}}{{groups[activeGroup].steps[activeStepSi].layers.length > 1 ? (li === 0 ? '（背景）' : '（动效）') : ''}} · {{layer.effectName}}</text>
-          <view class="bt-row layer__head-actions">
-            <text class="layer__arrow">{{expandedLayers[activeStepSi + '-' + li] ? '▼' : '▶'}}</text>
-            <text wx:if="{{groups[activeGroup].steps[activeStepSi].layers.length > 1}}" class="step__del" data-si="{{activeStepSi}}" data-li="{{li}}" catchtap="onDeleteLayer">删除</text>
+      <!-- 图层：两列卡片只读展示（图层序 + 灯效 + 色块 + 关键参数摘要），
+           点卡片在弹窗里改灯效/参数/删除。 -->
+      <view class="layer-grid">
+        <view
+          wx:for="{{groups[activeGroup].steps[activeStepSi].layers}}"
+          wx:key="lid"
+          wx:for-item="layer"
+          wx:for-index="li"
+          class="layer-card bt-pressable"
+          data-si="{{activeStepSi}}"
+          data-li="{{li}}"
+          bindtap="onOpenLayerEditor"
+        >
+          <view class="layer-card__top">
+            <text class="layer-card__title">图层 {{li + 1}}{{groups[activeGroup].steps[activeStepSi].layers.length > 1 ? (li === 0 ? ' · 背景' : ' · 动效') : ''}}</text>
+            <text class="layer-card__arrow">›</text>
           </view>
+          <view class="layer-card__mid">
+            <view
+              class="layer-card__swatch {{layer.swatch ? '' : 'layer-card__swatch--none'}}"
+              style="{{layer.swatch ? 'background-color: ' + layer.swatch + ';' : ''}}"
+            ></view>
+            <text class="layer-card__effect">{{layer.effectName}}</text>
+          </view>
+          <!-- 渐变色带：多色灯效（彩虹/双色渐变/流星等）一眼可见；单色灯效不显示 -->
+          <view
+            wx:if="{{layer.gradientCss}}"
+            class="layer-card__gradient"
+            style="background-image: {{layer.gradientCss}};"
+          ></view>
+          <text class="layer-card__summary">{{layer.summary || '默认参数'}}</text>
         </view>
 
-        <block wx:if="{{expandedLayers[activeStepSi + '-' + li]}}">
-          <picker class="row__picker layer__effect" mode="selector" range="{{effectNames}}" data-si="{{activeStepSi}}" data-li="{{li}}" bindchange="onEffectChange">
-            <view>灯效：{{layer.effectName}}</view>
-          </picker>
-
-          <!-- 参数表单：按 effect schema 渲染 -->
-          <view
-            wx:for="{{layer.fields}}"
-            wx:key="name"
-            wx:for-item="fld"
-            wx:for-index="fi"
-            class="row param"
-          >
-            <text class="row__label">{{fld.label}}</text>
-            <!-- u8 / u16：连续量走滑块；离散/枚举走选择器；其余走数字输入 -->
-            <block wx:if="{{fld.type === 'rgb'}}">
-              <view
-                class="color-swatch"
-                style="background-color: {{fld.hex}};"
-                data-si="{{activeStepSi}}"
-                data-li="{{li}}"
-                data-fi="{{fi}}"
-                bindtap="onOpenColorPicker"
-              ></view>
-            </block>
-            <view
-              wx:elif="{{fld.options}}"
-              class="param-radio"
-              data-si="{{activeStepSi}}"
-              data-li="{{li}}"
-              data-fi="{{fi}}"
-            >
-              <view
-                wx:for="{{fld.options}}"
-                wx:key="*this"
-                wx:for-item="opt"
-                wx:for-index="oi"
-                class="param-radio__item {{fld.displayValue === oi ? 'param-radio__item--on' : ''}}"
-                data-si="{{activeStepSi}}"
-                data-li="{{li}}"
-                data-fi="{{fi}}"
-                data-oi="{{oi}}"
-                bindtap="onParamOptionTap"
-              >{{opt}}</view>
-            </view>
-            <block wx:elif="{{fld.slider}}">
-              <slider
-                class="param-slider__bar"
-                min="{{fld.min}}"
-                max="{{fld.max}}"
-                step="1"
-                value="{{fld.value}}"
-                activeColor="#0088FF"
-                block-size="20"
-                data-si="{{activeStepSi}}"
-                data-li="{{li}}"
-                data-fi="{{fi}}"
-                bindchanging="onParamChanging"
-                bindchange="onParamChange"
-              />
-              <input
-                class="row__input row__input--num row__slider-input"
-                type="number"
-                value="{{fld.value}}"
-                data-si="{{activeStepSi}}"
-                data-li="{{li}}"
-                data-fi="{{fi}}"
-                bindinput="onParamInput"
-              />
-            </block>
-            <input
-              wx:else
-              class="row__input row__input--num"
-              type="number"
-              value="{{fld.value}}"
-              data-si="{{activeStepSi}}"
-              data-li="{{li}}"
-              data-fi="{{fi}}"
-              bindinput="onParamInput"
-            />
-          </view>
-        </block>
+        <view
+          wx:if="{{groups[activeGroup].steps[activeStepSi].layers.length < layersPerStepMax}}"
+          class="layer-card layer-card--add bt-pressable"
+          data-si="{{activeStepSi}}"
+          bindtap="onAddLayer"
+        >
+          <text class="layer-card__plus">＋</text>
+          <text class="layer-card__add-text">添加图层</text>
+        </view>
       </view>
-
-      <view wx:if="{{groups[activeGroup].steps[activeStepSi].layers.length < layersPerStepMax}}" class="add-layer" data-si="{{activeStepSi}}" bindtap="onAddLayer">＋ 添加图层</view>
     </view>
 
     <view wx:if="{{groups[activeGroup].steps.length > 1}}" class="del-stage bt-pressable" data-si="{{activeStepSi}}" catchtap="onDeleteStep">删除当前阶段</view>
@@ -269,6 +256,121 @@
           ></view>
         </view>
       </view>
+    </view>
+  </view>
+
+  <!-- 图层配置弹窗（点两列卡片打开）：灯效下拉 + schema 参数表单 + 删除图层。
+       颜色弹层 z-index 更高，可在本弹窗之上叠开，选完色回落到本弹窗继续编辑。 -->
+  <view wx:if="{{layerEditorOpen}}" class="layer-editor-mask" catchtouchmove="noop">
+    <view class="layer-editor-backdrop" bindtap="onCloseLayerEditor"></view>
+    <view class="layer-editor-panel">
+      <view class="layer-editor-head">
+        <text class="layer-editor-title">图层 {{layerEditorLi + 1}} · {{groups[activeGroup].steps[layerEditorSi].layers[layerEditorLi].effectName}}</text>
+        <text class="layer-editor-close" bindtap="onCloseLayerEditor">✕</text>
+      </view>
+
+      <picker class="row__picker layer-editor__effect" mode="selector" range="{{effectNames}}" data-si="{{layerEditorSi}}" data-li="{{layerEditorLi}}" bindchange="onEffectChange">
+        <view>灯效：{{groups[activeGroup].steps[layerEditorSi].layers[layerEditorLi].effectName}}</view>
+      </picker>
+
+      <!-- 迷你波形预览（canvas 2d）：按当前灯效 + 参数采样一条亮度曲线，
+           调参即时重绘——"所见即所调"。SOLID 是一条平线，BLINK 是方波，等等。 -->
+      <view class="wave-preview">
+        <view class="wave-preview__head">
+          <text class="wave-preview__title">波形预览</text>
+          <text class="wave-preview__hint">亮度随时间</text>
+        </view>
+        <canvas
+          type="2d"
+          class="wave-canvas"
+          id="wave-canvas"
+          data-key="{{waveCanvasKey}}"
+        ></canvas>
+      </view>
+
+      <!-- 参数表单：按 effect schema 渲染（u8/u16 连续量走滑块，枚举走胶囊，rgb 走色块弹层） -->
+      <view
+        wx:for="{{groups[activeGroup].steps[layerEditorSi].layers[layerEditorLi].fields}}"
+        wx:key="name"
+        wx:for-item="fld"
+        wx:for-index="fi"
+        class="row param"
+      >
+        <text class="row__label">{{fld.label}}</text>
+        <block wx:if="{{fld.type === 'rgb'}}">
+          <view
+            class="color-swatch"
+            style="background-color: {{fld.hex}};"
+            data-si="{{layerEditorSi}}"
+            data-li="{{layerEditorLi}}"
+            data-fi="{{fi}}"
+            bindtap="onOpenColorPicker"
+          ></view>
+        </block>
+        <view
+          wx:elif="{{fld.options}}"
+          class="param-radio"
+          data-si="{{layerEditorSi}}"
+          data-li="{{layerEditorLi}}"
+          data-fi="{{fi}}"
+        >
+          <view
+            wx:for="{{fld.options}}"
+            wx:key="*this"
+            wx:for-item="opt"
+            wx:for-index="oi"
+            class="param-radio__item {{fld.displayValue === oi ? 'param-radio__item--on' : ''}}"
+            data-si="{{layerEditorSi}}"
+            data-li="{{layerEditorLi}}"
+            data-fi="{{fi}}"
+            data-oi="{{oi}}"
+            bindtap="onParamOptionTap"
+          >{{opt}}</view>
+        </view>
+        <block wx:elif="{{fld.slider}}">
+          <slider
+            class="param-slider__bar"
+            min="{{fld.min}}"
+            max="{{fld.max}}"
+            step="1"
+            value="{{fld.value}}"
+            activeColor="#0088FF"
+            block-size="20"
+            data-si="{{layerEditorSi}}"
+            data-li="{{layerEditorLi}}"
+            data-fi="{{fi}}"
+            bindchanging="onParamChanging"
+            bindchange="onParamChange"
+          />
+          <input
+            class="row__input row__input--num row__slider-input"
+            type="number"
+            value="{{fld.value}}"
+            data-si="{{layerEditorSi}}"
+            data-li="{{layerEditorLi}}"
+            data-fi="{{fi}}"
+            bindinput="onParamInput"
+          />
+        </block>
+        <input
+          wx:else
+          class="row__input row__input--num"
+          type="number"
+          value="{{fld.value}}"
+          data-si="{{layerEditorSi}}"
+          data-li="{{layerEditorLi}}"
+          data-fi="{{fi}}"
+          bindinput="onParamInput"
+        />
+      </view>
+
+      <view
+        wx:if="{{groups[activeGroup].steps[layerEditorSi].layers.length > 1}}"
+        class="layer-editor__del bt-pressable"
+        data-si="{{layerEditorSi}}"
+        data-li="{{layerEditorLi}}"
+        bindtap="onDeleteLayer"
+      >删除该图层</view>
     </view>
   </view>
 

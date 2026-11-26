@@ -176,7 +176,10 @@ function createBleClient() {
         const device = {
           name: displayName,
           deviceId: d.deviceId,
+          // RSSI = 本次扫描会话内的最大值（稳定展示用，取历史最强便于判断"能否连上"）。
           RSSI: prev ? Math.max(prev.RSSI, rssi) : rssi,
+          // rssi = 本次上报的原始值（瞬时），供页面画信号强度曲线。
+          rssi: rssi,
         }
         found.set(d.deviceId, device)
         if (typeof opts.onFound === 'function') opts.onFound(device)

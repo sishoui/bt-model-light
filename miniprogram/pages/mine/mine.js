@@ -7,6 +7,10 @@ const { isSimModeEnabled, setSimModeEnabled } = require('../../utils/simMode')
 const { setCurrentBleClient, createBleClient } = require('../../utils/bleClient')
 const { createSimBleClient, SIM_DEVICE_ID } = require('../../utils/mockBleClient')
 const { getErrorLog, clearErrorLog } = require('../../utils/errorHandler')
+const charts = require('../../utils/chartHelpers')
+
+// 错误分布柱状图窗口：最近 7 天。
+const ERROR_CHART_DAYS = 7
 
 // 关于/帮助弹层内容（v1 静态文案；后续接 docs/ 链接）。
 const HELP_TEXT =
@@ -25,6 +29,12 @@ Page({
     simModeEnabled: false,
     // 本地日志条数（onShow 刷新）。
     errorLogCount: 0,
+    // 错误分布柱状图（最近 7 天）：[{label, count, pct}]，pct 为柱高百分比。
+    errorBuckets: [],
+    errorChartMax: 0,
+    // 日志弹层（点「本地日志」打开）：柱状图 + 最近条目列表。
+    logPanelOpen: false,
+    logRecent: [],
   },
 
   onShow() {
@@ -32,6 +42,15 @@ Page({
       simModeEnabled: isSimModeEnabled(),
       errorLogCount: getErrorLog().length,
     })
+    this._refreshErrorChart()
+  },
+
+  // 错误分布：error_log → 最近 7 天桶 → 柱高百分比（max 归一）。
+  _refreshErrorChart() {
+    const buckets = charts.aggregateErrorLog(getErrorLog(), ERROR_CHART_DAYS)
+    const max = buckets.reduce((m, b) => Math.max(m, b.count), 0)
+    for (const b of buckets) b.pct = max > 0 ? Math.round((b.count / max) * 100) : 0
+    this.setData({ errorBuckets: buckets, errorChartMax: max })
   },
 
   // ---- 设置 ------------------------------------------------------------------
@@ -81,6 +100,7 @@ Page({
           const app = getApp()
           if (app && app.globalData) app.globalData.currentDeviceId = null
           this.setData({ errorLogCount: 0 })
+          this._refreshErrorChart() // 日志清空 → 柱状图归零
           wx.showToast({ title: '已清除', icon: 'success' })
         } catch (err) {
           wx.showToast({ title: `清除失败：${err}`, icon: 'none' })
@@ -97,18 +117,22 @@ Page({
       wx.showModal({ title: '本地日志', content: '暂无错误日志', showCancel: false })
       return
     }
-    // 取最近 10 条，格式化为可读文本。
-    const recent = log.slice(-10).reverse()
-    const lines = recent.map((e) => {
-      const ts = new Date(e.ts).toLocaleString()
-      return `[${ts}] ${e.context || ''}\n  code=${e.code} ${e.message}`
-    })
-    wx.showModal({
-      title: `本地日志（最近 ${recent.length}/${log.length} 条）`,
-      content: lines.join('\n\n'),
-      showCancel: false,
-    })
+    // 最近 10 条（倒序，最新在上），弹层内渲染为列表。
+    const recent = log.slice(-10).reverse().map((e) => ({
+      ts: new Date(e.ts).toLocaleString(),
+      context: e.context || '',
+      code: e.code,
+      message: e.message,
+    }))
+    this._refreshErrorChart()
+    this.setData({ logPanelOpen: true, logRecent: recent })
   },
+
+  onCloseLogPanel() {
+    this.setData({ logPanelOpen: false })
+  },
+
+  noop() {},
 
   // ---- 关于 ------------------------------------------------------------------
 

@@ -15,6 +15,7 @@ const { encodeConfigBlob, validateConfig, effectName, clampInt } = require('../.
 const { getRecentColors, pushRecentColor, rgbToHex, hexToRgb, hsvToRgb, rgbToHsv } = require('../../utils/recentColors')
 const { EFF, EFFECT_PARAMS, LIMITS } = require('../../utils/protocol_gen')
 const autoSync = require('../../utils/autoSync')
+const charts = require('../../utils/chartHelpers')
 
 // ---- 静态选项（下拉 range / 文案） -------------------------------------------
 
@@ -127,6 +128,33 @@ function fieldsToParams(fields) {
   return out
 }
 
+// ---- 图层卡片摘要（两列卡片只读展示，详情在弹窗里编辑） ---------------------
+
+// 摘要取这两个参数：各灯效都有、最常用；半屏宽的卡片只放得下两项。
+const SUMMARY_PARAMS = ['brightness', 'speed']
+
+// 字段 → 卡片摘要：首个 rgb 字段作色块，关键参数拼一行文案。
+function buildLayerCard(fields) {
+  const color = fields.find((f) => f.type === 'rgb')
+  const parts = []
+  for (const name of SUMMARY_PARAMS) {
+    const f = fields.find((fd) => fd.name === name && fd.type !== 'rgb')
+    if (f) parts.push(`${f.label} ${f.value}`)
+  }
+  return { swatch: color ? color.hex : null, summary: parts.join(' · ') }
+}
+
+// 图层 VM 的卡片摘要重算（字段改动后调用）：色板摘要 + 渐变色带 + 迷你波形。
+function refreshLayerCard(layer) {
+  const base = Object.assign({}, layer, buildLayerCard(layer.fields || []))
+  // 渐变色带：RAINBOW/DUAL_GRADIENT/METEOR 等多色灯效在卡片底部画一条
+  // CSS linear-gradient，让效果一眼可见（SOLID/BLINK 返回 null 不画）。
+  base.gradientCss = charts.layerGradientCss(base.effect, base.fields || [])
+  // 迷你波形：随字段实时更新（canvas 只负责画）。
+  base.wave = charts.sampleWaveform(base.effect, base.fields || [], charts.WAVE_SAMPLES)
+  return base
+}
+
 // ---- 默认模型 + VM 转换 -----------------------------------------------------
 
 let _uidSeq = 1
@@ -134,9 +162,25 @@ function uid() {
   return _uidSeq++
 }
 
-// 图层 VM：effectName 供 WXML 直接显示（避免依赖 EFF id 连续假设的下标运算）。
+// 图层 VM：effectName 供 WXML 直接显示（避免依赖 EFF id 连续假设的下标运算）；
+// swatch/summary 供两列卡片只读展示（详见弹窗编辑）。
 function makeLayer(effectId, params, lid) {
-  return { lid: lid || uid(), effect: effectId, effectName: EFFECT_LABELS[effectId] || `效果 ${effectId}`, fields: buildParamFields(effectId, params) }
+  const fields = buildParamFields(effectId, params)
+  const card = buildLayerCard(fields)
+  return Object.assign(
+    {
+      lid: lid || uid(),
+      effect: effectId,
+      effectName: EFFECT_LABELS[effectId] || `效果 ${effectId}`,
+      fields,
+      swatch: card.swatch,
+      summary: card.summary,
+      // 渐变色带 CSS（多色灯效用，单色返回 null）。
+      gradientCss: charts.layerGradientCss(effectId, fields),
+      // 迷你波形：字段一改就重算（canvas 只负责画）。
+      wave: charts.sampleWaveform(effectId, fields, charts.WAVE_SAMPLES),
+    },
+  )
 }
 
 function defaultLayer(effectId) {
@@ -263,11 +307,17 @@ Page({
     offsets: {},
     // 各分段宽度(rpx)：按 duration 比例、带最小长度。
     segW: [],
+    // 阶段时间轴图（泳道甘特）：steps 的归一化时间窗 + 图层子段 + 过渡区间。
+    // 由 _refreshTimeline 在 groups/activeGroup/activeStepSi 变化时重算。
+    timeline: [],
+    // 迷你波形 canvas：当前图层编辑弹窗目标的波形点列（重绘触发器）。
+    waveCanvasKey: 0,
     // 新增节点的进入动画标记（该下标播放一次 scale-in 后清除）。
     enterIndex: -1,
-    // 图层折叠状态（独立 data 字段，不污染 groups VM）。
-    // 键 "si-li"：si = activeStepSi；默认按图层数决定。
-    expandedLayers: {},
+    // 图层配置弹窗：卡片只读展示，点开弹窗改灯效/参数。target 为定位（si/li）。
+    layerEditorOpen: false,
+    layerEditorSi: 0,
+    layerEditorLi: 0,
     // 颜色弹层（#33）。
     colorPickerOpen: false,
     colorPickerTarget: null, // 目标 field 定位（si/li/fi），随 setData 同步给 WXML
@@ -356,33 +406,20 @@ Page({
     })
     // 初始灯珠网格按 activeGroup=0 渲染，含其他组占用灰显。
     this.setData({ ledCells: this._buildLedCells(groups[0], ledCount, this._computeOccupied(0), null) })
-  },
-
-  // 图层折叠默认策略：图层数 ≤2 全展开；>2 首层展开、其余收起。
-  // 键 si-li（si = activeStepSi）。进入步骤详情时调用。
-  _defaultExpandedLayers(group, si) {
-    const step = group && group.steps && group.steps[si]
-    const count = step ? step.layers.length : 0
-    const map = {}
-    for (let li = 0; li < count; li++) {
-      map[`${si}-${li}`] = count <= 2 || li === 0
-    }
-    return map
+    this._refreshTimeline()
   },
 
   // ---- 视图导航 --------------------------------------------------------------
 
-  // 轻点阶段节点：选中该阶段，初始化其图层折叠默认态。
+  // 轻点阶段节点：选中该阶段（图层卡片随之切到该阶段）。
   onSelectStage(e) {
     if (this.data.dragIndex !== null) return // 拖动中忽略点击
     const si = Number(e.currentTarget.dataset.si)
     const group = this.data.groups[this.data.activeGroup]
     if (!group || !group.steps[si]) return
-    this.setData({
-      activeStepSi: si,
-      expandedLayers: this._defaultExpandedLayers(group, si),
-    })
+    this.setData({ activeStepSi: si, layerEditorOpen: false })
     this._recalcBubbleX()
+    this._refreshTimeline()
   },
 
   // 测量阶段条容器宽度(px)，并按段时长比例(带最小长度)计算各段宽(rpx)。
@@ -507,21 +544,25 @@ Page({
         const moved = arr.splice(from, 1)[0]
         arr.splice(to, 0, moved)
       })
-      this.setData({
-        activeStepSi: to,
-        expandedLayers: this._defaultExpandedLayers(this.data.groups[this.data.activeGroup], to),
-      })
+      this.setData({ activeStepSi: to, layerEditorOpen: false })
       this._recalcBubbleX()
     }
     this.setData({ dragIndex: null, dragX: 0, offsets: {} })
   },
 
-  onToggleLayer(e) {
+  // 点图层卡片：打开该图层的配置弹窗（灯效 + 参数表单都在弹窗里）。
+  onOpenLayerEditor(e) {
     const si = Number(e.currentTarget.dataset.si)
     const li = Number(e.currentTarget.dataset.li)
-    const key = `${si}-${li}`
-    const next = Object.assign({}, this.data.expandedLayers, { [key]: !this.data.expandedLayers[key] })
-    this.setData({ expandedLayers: next })
+    const step = this.data.groups[this.data.activeGroup].steps[si]
+    if (!step || !step.layers[li]) return
+    this.setData({ layerEditorOpen: true, layerEditorSi: si, layerEditorLi: li })
+    // 弹窗渲染完成后画一次波形（canvas 节点在 wx:if 内，必须等下一帧）。
+    if (wx.nextTick) wx.nextTick(() => this._drawLayerWave())
+  },
+
+  onCloseLayerEditor() {
+    this.setData({ layerEditorOpen: false })
   },
 
   // 灯珠网格渲染模型：按 state 渲染（空/选中/占用/拖选起终/拖选中间）。
@@ -618,7 +659,94 @@ Page({
     group.steps = steps
     groups[this.data.activeGroup] = group
     this.setData({ groups })
+    this._refreshTimeline()
+    // 图层弹窗开着时，任何字段变更都可能改变波形 → 统一在此重绘一次。
+    if (this.data.layerEditorOpen && wx.nextTick) wx.nextTick(() => this._drawLayerWave())
     if (!(opts && opts.silent)) this._markDirty()
+  },
+
+  // 阶段时间轴图数据（泳道甘特）：当前灯组的 steps → 归一化时间窗 + 图层子段。
+  // 与横向分段条互补：分段条用于选中/拖排序，时间轴图用于看"总时长比例 + 图层构成"。
+  _refreshTimeline() {
+    const group = this.data.groups[this.data.activeGroup]
+    if (!group) {
+      this.setData({ timeline: [], timelineTotal: 0, timelineLegend: [] })
+      return
+    }
+    const timeline = charts.buildTimeline(group.steps || [])
+    // 选中态：时间轴图里当前阶段高亮。
+    const si = this.data.activeStepSi
+    let total = 0
+    const seen = {}
+    const legend = []
+    for (const seg of timeline) {
+      seg.active = seg.si === si
+      total += seg.duration
+      for (const ly of seg.layers) {
+        if (seen[ly.effect]) continue
+        seen[ly.effect] = true
+        legend.push({
+          effect: ly.effect,
+          name: EFFECT_LABELS[ly.effect] || `效果 ${ly.effect}`,
+          color: ly.color,
+        })
+      }
+    }
+    this.setData({ timeline, timelineTotal: Math.round(total * 10) / 10, timelineLegend: legend })
+  },
+
+  // 迷你波形 canvas：把当前编辑图层的 wave 点列画到 2d canvas 上。
+  // 页面只有一个 wave canvas（图层弹窗内），每次字段变动后重绘。
+  _drawLayerWave() {
+    if (typeof wx === 'undefined' || !wx.createSelectorQuery) return
+    const step = this.data.groups[this.data.activeGroup] &&
+      this.data.groups[this.data.activeGroup].steps[this.data.layerEditorSi]
+    const layer = step && step.layers && step.layers[this.data.layerEditorLi]
+    const pts = (layer && layer.wave) || []
+    if (!pts.length) return
+    this.setData({ waveCanvasKey: (this.data.waveCanvasKey || 0) + 1 })
+    const query = wx.createSelectorQuery().in(this)
+    query.select('.wave-canvas').fields({ node: true, size: true })
+    query.exec((res) => {
+      const info = res && res[0]
+      if (!info || !info.node) return
+      const canvas = info.node
+      const ctx = canvas.getContext('2d')
+      const dpr = (wx.getSystemInfoSync && wx.getSystemInfoSync().pixelRatio) || 2
+      const w = info.width || 300
+      const h = info.height || 80
+      canvas.width = w * dpr
+      canvas.height = h * dpr
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.scale(dpr, dpr)
+      // 基线网格（3 条水平线）
+      ctx.strokeStyle = 'rgba(60,60,67,0.12)'
+      ctx.lineWidth = 1
+      for (let i = 1; i < 4; i++) {
+        const y = (h / 4) * i
+        ctx.beginPath()
+        ctx.moveTo(0, y)
+        ctx.lineTo(w, y)
+        ctx.stroke()
+      }
+      // 波形：折线 + 下方半透明填充。
+      const color = charts.effectColor(layer.effect)
+      const px = (p) => p.x * w
+      const py = (p) => h - 4 - p.y * (h - 8)
+      ctx.beginPath()
+      ctx.moveTo(px(pts[0]), py(pts[0]))
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(px(pts[i]), py(pts[i]))
+      ctx.strokeStyle = color
+      ctx.lineWidth = 2
+      ctx.lineJoin = 'round'
+      ctx.stroke()
+      // 填充（同色 15% 透明）。
+      ctx.lineTo(w, h)
+      ctx.lineTo(0, h)
+      ctx.closePath()
+      ctx.fillStyle = color + '26'
+      ctx.fill()
+    })
   },
 
   // ---- 顶部 -------------------------------------------------------------------
@@ -637,13 +765,14 @@ Page({
 
   // ---- 灯组选择（固定 5 个，无新增/删除；下拉框内显示灯珠区间） ---------------
 
-  // 切到指定灯组：重置阶段选中/图层折叠/拖选态，重建灯珠网格与气泡箭头。
+  // 切到指定灯组：重置阶段选中/图层弹窗/拖选态，重建灯珠网格与气泡箭头。
   _activateGroup(index) {
     if (!this.data.groups[index]) return
     if (index === this.data.activeGroup) return
-    this.setData({ activeGroup: index, activeStepSi: 0, expandedLayers: {}, dragging: false, dragRange: null, inCancelZone: false })
+    this.setData({ activeGroup: index, activeStepSi: 0, layerEditorOpen: false, dragging: false, dragRange: null, inCancelZone: false })
     this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount, this._computeOccupied(index), null) })
     this._recalcBubbleX()
+    this._refreshTimeline()
     if (wx.nextTick) wx.nextTick(() => this._measureStage())
   },
 
@@ -823,14 +952,10 @@ Page({
     this._editActiveGroup((group, steps) => {
       steps.push(defaultStep(newSi))
     })
-    // 添加后选中新阶段并初始化其图层折叠默认态；新节点播放一次进入动画。
-    const group = this.data.groups[this.data.activeGroup]
-    this.setData({
-      activeStepSi: newSi,
-      enterIndex: newSi,
-      expandedLayers: this._defaultExpandedLayers(group, newSi),
-    })
+    // 添加后选中新阶段；新节点播放一次进入动画。
+    this.setData({ activeStepSi: newSi, enterIndex: newSi, layerEditorOpen: false })
     this._recalcBubbleX()
+    this._refreshTimeline() // 选中态变了，时间轴高亮需重算
     setTimeout(() => {
       if (this.data.enterIndex === newSi) this.setData({ enterIndex: -1 })
     }, 300)
@@ -850,12 +975,9 @@ Page({
     // 删除后选中顺延：删中间选中原下一个（同下标），删尾选新的最后一个。
     const nextLen = this.data.groups[this.data.activeGroup].steps.length
     const nextSi = si < nextLen ? si : nextLen - 1
-    const group = this.data.groups[this.data.activeGroup]
-    this.setData({
-      activeStepSi: nextSi,
-      expandedLayers: this._defaultExpandedLayers(group, nextSi),
-    })
+    this.setData({ activeStepSi: nextSi, layerEditorOpen: false })
     this._recalcBubbleX()
+    this._refreshTimeline() // 选中态变了，时间轴高亮需重算
     if (wx.nextTick) wx.nextTick(() => this._measureStage())
   },
 
@@ -922,11 +1044,6 @@ Page({
     this._editActiveGroup((group, steps) => {
       steps[si] = Object.assign({}, steps[si], { layers: steps[si].layers.concat([defaultLayer(EFF.SOLID)]) })
     })
-    // 新图层折叠态：总数 ≤2 展开（与默认策略一致），>2 收起。
-    const newCount = this.data.groups[this.data.activeGroup].steps[si].layers.length
-    const expandedLayers = Object.assign({}, this.data.expandedLayers)
-    expandedLayers[`${si}-${newCount - 1}`] = newCount <= 2
-    this.setData({ expandedLayers })
   },
 
   onDeleteLayer(e) {
@@ -942,25 +1059,7 @@ Page({
       layers.splice(li, 1)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
-    // 重建该 step 的 layer 键。
-    const oldLayers = this.data.expandedLayers || {}
-    const newLayers = Object.assign({}, oldLayers)
-    // 移除被删图层键
-    delete newLayers[`${si}-${li}`]
-    // 重新编号后续图层
-    const count = this.data.groups[this.data.activeGroup].steps[si].layers.length
-    const tmp = {}
-    for (let j = 0; j < count; j++) {
-      const srcLi = j < li ? j : j + 1
-      if (oldLayers[`${si}-${srcLi}`] !== undefined) tmp[`${si}-${j}`] = oldLayers[`${si}-${srcLi}`]
-    }
-    // 清理该 step 所有旧层键后写入新键
-    for (const k of Object.keys(newLayers)) {
-      if (k.startsWith(`${si}-`)) delete newLayers[k]
-    }
-    Object.assign(newLayers, tmp)
-    if (newLayers[`${si}-0`] === undefined) newLayers[`${si}-0`] = true
-    this.setData({ expandedLayers: newLayers })
+    this.setData({ layerEditorOpen: false })
   },
 
   // 切换灯效：重建该图层参数表单（schema 联动，ADR-0018）。
@@ -998,7 +1097,7 @@ Page({
       f.value = clamp(raw, f.min, f.max)
       fields[fi] = f
       layer.fields = fields
-      layers[li] = layer
+      layers[li] = refreshLayerCard(layer)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
   },
@@ -1020,7 +1119,7 @@ Page({
       f.value = raw
       fields[fi] = f
       layer.fields = fields
-      layers[li] = layer
+      layers[li] = refreshLayerCard(layer)
       steps[si] = Object.assign({}, steps[si], { layers })
     }, { silent: true })
   },
@@ -1046,7 +1145,7 @@ Page({
       f.value = clamp(raw, f.min, f.max)
       fields[fi] = f
       layer.fields = fields
-      layers[li] = layer
+      layers[li] = refreshLayerCard(layer)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
   },
@@ -1070,7 +1169,7 @@ Page({
       f.displayValue = oi
       fields[fi] = f
       layer.fields = fields
-      layers[li] = layer
+      layers[li] = refreshLayerCard(layer)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
   },
@@ -1190,7 +1289,7 @@ Page({
       f.hex = rgbToHex(rgb)
       fields[fi] = f
       layer.fields = fields
-      layers[li] = layer
+      layers[li] = refreshLayerCard(layer)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
     const hexStr = rgbToHex(rgb)

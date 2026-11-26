@@ -81,4 +81,64 @@ describe('mine 页（#25）', () => {
     expect(arg.title).toBe('帮助')
     expect(arg.content.length).toBeGreaterThan(10)
   })
+
+  // ---- 错误分布柱状图 ---------------------------------------------------------
+
+  function seedLog(entries) {
+    wx.setStorageSync('error_log', JSON.stringify(entries))
+  }
+
+  test('onShow 聚合最近 7 天错误：桶数 7、pct 按峰值归一', () => {
+    const now = Date.now()
+    const DAY = 86400000
+    seedLog([
+      { ts: now - 1000, message: 'a' },
+      { ts: now - 2000, message: 'b' },
+      { ts: now - DAY - 1000, message: 'c' },
+    ])
+    const page = loadPage(MINE, app)
+    page.onShow()
+    expect(page.data.errorBuckets).toHaveLength(7)
+    expect(page.data.errorChartMax).toBe(2)
+    // 今天峰值 → pct=100；昨天 1/2 → 50；其余 0
+    expect(page.data.errorBuckets[6].pct).toBe(100)
+    expect(page.data.errorBuckets[6].count).toBe(2)
+    expect(page.data.errorBuckets[5].pct).toBe(50)
+    expect(page.data.errorBuckets[0].pct).toBe(0)
+  })
+
+  test('无日志时柱状图全零（不崩、不画假柱）', () => {
+    const page = loadPage(MINE, app)
+    page.onShow()
+    expect(page.data.errorChartMax).toBe(0)
+    expect(page.data.errorBuckets.every((b) => b.count === 0 && b.pct === 0)).toBe(true)
+  })
+
+  test('打开日志弹层：柱状图 + 最近条目（倒序，最多 10 条）', () => {
+    const now = Date.now()
+    // 真实日志按时间顺序追加（旧在前）；这里 0 号最旧、11 号最新。
+    const entries = []
+    for (let i = 0; i < 12; i++) {
+      entries.push({ ts: now - (11 - i) * 1000, context: '扫描设备', code: 10001, message: `错误 ${i}` })
+    }
+    seedLog(entries)
+    const page = loadPage(MINE, app)
+    page.onShow()
+    page.onViewErrorLog()
+    expect(page.data.logPanelOpen).toBe(true)
+    expect(page.data.logRecent).toHaveLength(10) // 截断到 10 条
+    expect(page.data.logRecent[0].message).toBe('错误 11') // 最新在上
+    expect(page.data.logRecent[0].context).toBe('扫描设备')
+    expect(page.data.logRecent[0].ts).toBeTruthy()
+    page.onCloseLogPanel()
+    expect(page.data.logPanelOpen).toBe(false)
+  })
+
+  test('无日志点「本地日志」：仍是 showModal 提示，不打开空弹层', () => {
+    const page = loadPage(MINE, app)
+    page.onViewErrorLog()
+    expect(page.data.logPanelOpen).toBe(false)
+    expect(wx.showModal).toHaveBeenCalled()
+    expect(wx.showModal.mock.calls[0][0].content).toBe('暂无错误日志')
+  })
 })

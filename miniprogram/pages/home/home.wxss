@@ -136,10 +136,21 @@
   left: 0;
   right: 0;
   bottom: 0;
+  padding: 8rpx 24rpx 16rpx;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* 亮度历史 sparkline：横跨条宽，高度压缩成"山形"叠在滑块上方 */
+.brightness-spark {
+  display: block;
+  width: 100%;
+  height: 56rpx;
+  margin-bottom: 4rpx;
+}
+
+.hero-card__brightness-row {
   display: flex;
   align-items: center;
-  padding: 16rpx 24rpx;
-  background: rgba(0, 0, 0, 0.4);
 }
 
 .hero-card__brightness-label {

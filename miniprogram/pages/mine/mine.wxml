@@ -41,3 +41,46 @@
     </view>
   </view>
 </view>
+
+<!-- 本地日志弹层：错误分布柱状图（最近 7 天）+ 最近条目列表。
+     图表用纯 CSS 柱（高度百分比），无需 canvas，滚动更轻。 -->
+<view wx:if="{{logPanelOpen}}" class="log-mask" bindtap="onCloseLogPanel">
+  <view class="log-panel" catchtap="noop">
+    <view class="log-panel__head">
+      <text class="log-panel__title">本地日志</text>
+      <text class="log-panel__close" bindtap="onCloseLogPanel">✕</text>
+    </view>
+
+    <!-- 柱状图：最近 7 天，柱高按最大计数归一 -->
+    <view class="log-chart">
+      <view class="log-chart__head">
+        <text class="log-chart__title">近 7 天错误分布</text>
+        <text class="log-chart__total">共 {{errorLogCount}} 条 · 峰值 {{errorChartMax}}</text>
+      </view>
+      <view class="log-chart__bars">
+        <view wx:for="{{errorBuckets}}" wx:key="label" class="log-chart__col">
+          <text class="log-chart__count">{{item.count || ''}}</text>
+          <view class="log-chart__bar-wrap">
+            <view
+              class="log-chart__bar {{item.count ? '' : 'log-chart__bar--empty'}}"
+              style="height: {{item.pct}}%;"
+            ></view>
+          </view>
+          <text class="log-chart__label">{{item.label}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 最近条目 -->
+    <text class="log-list__title">最近 {{logRecent.length}} 条</text>
+    <scroll-view class="log-list" scroll-y>
+      <view wx:for="{{logRecent}}" wx:key="ts" class="log-item">
+        <view class="log-item__head">
+          <text class="log-item__ts">{{item.ts}}</text>
+          <text wx:if="{{item.context}}" class="log-item__ctx">{{item.context}}</text>
+        </view>
+        <text class="log-item__msg">{{item.message}}</text>
+      </view>
+    </scroll-view>
+  </view>
+</view>

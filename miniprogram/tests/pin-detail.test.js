@@ -542,8 +542,8 @@ describe('pin-detail 页（#27）', () => {
     expect(savedLayer.params.brightness).toBe(100)
   })
 
-  // 阶段条导航 + 图层折叠（#33 / 横向阶段条单页）。
-  test('默认选中阶段一；onSelectStage 初始化图层折叠默认态', () => {
+  // 阶段条导航（#33 / 横向阶段条单页）。
+  test('默认选中阶段一；onSelectStage 切换即可', () => {
     saveDeviceConfig(dev.id, {
       version: 1,
       pins: [
@@ -570,18 +570,16 @@ describe('pin-detail 页（#27）', () => {
     })
     const page = load(0)
     expect(page.data.activeStepSi).toBe(0)
-    // 选中阶段 0：2 个图层 ≤2 全展开。
     page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
     expect(page.data.activeStepSi).toBe(0)
-    expect(page.data.expandedLayers['0-0']).toBe(true)
-    expect(page.data.expandedLayers['0-1']).toBe(true)
-    // 选中阶段 1：1 个图层全展开。
     page.onSelectStage({ currentTarget: { dataset: { si: 1 } } })
     expect(page.data.activeStepSi).toBe(1)
-    expect(page.data.expandedLayers['1-0']).toBe(true)
+    // 阶段只影响视图：VM 与同步态都不动。
+    expect(page.data.groups[0].steps[1].duration).toBe(6)
+    expect(page.data.syncState).toBe('idle')
   })
 
-  test('图层数 >2 时：首层展开、其余收起', () => {
+  test('图层卡片摘要：rgb 参数出色块，亮度/速度拼摘要文案', () => {
     saveDeviceConfig(dev.id, {
       version: 1,
       pins: [
@@ -596,9 +594,8 @@ describe('pin-detail 页（#27）', () => {
               ledEnd: 3,
               steps: [
                 { duration: 5, transition: 0, loopMode: 1, layers: [
-                  { effect: EFF.SOLID, params: { color: [1, 1, 1] } },
-                  { effect: EFF.BREATH, params: { period: 3000 } },
-                  { effect: EFF.BLINK, params: {} },
+                  { effect: EFF.SOLID, params: { color: [255, 136, 0], brightness: 200 } },
+                  { effect: EFF.RAINBOW, params: { brightness: 128, speed: 40 } },
                 ] },
               ],
             },
@@ -607,43 +604,78 @@ describe('pin-detail 页（#27）', () => {
       ],
     })
     const page = load(0)
-    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
-    expect(page.data.expandedLayers['0-0']).toBe(true)
-    expect(page.data.expandedLayers['0-1']).toBe(false)
-    expect(page.data.expandedLayers['0-2']).toBe(false)
+    const [l0, l1] = page.data.groups[0].steps[0].layers
+    // 常亮：有 color → 色块 + 亮度摘要（常亮无 speed，只有一项）。
+    expect(l0.swatch).toBe('#ff8800')
+    expect(l0.summary).toBe('亮度 200')
+    // 彩虹渐变：无 rgb 参数 → 无色块 + 亮度/速度两项摘要。
+    expect(l1.swatch).toBeNull()
+    expect(l1.summary).toBe('亮度 128 · 速度 40')
   })
 
-  test('onSelectStage 不改变 groups VM、不触发同步', () => {
+  test('点图层卡片打开配置弹窗，关闭后收起', () => {
     const page = load(0)
-    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
-    expect(page.data.groups[0].steps[0].duration).toBe(5) // VM 不变
-    expect(page.data.syncState).toBe('idle') // 纯视图态不触发同步
+    page.onAddLayer({ currentTarget: { dataset: { si: 0 } } }) // 两个图层
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 1 } } })
+    expect(page.data.layerEditorOpen).toBe(true)
+    expect(page.data.layerEditorSi).toBe(0)
+    expect(page.data.layerEditorLi).toBe(1)
+    page.onCloseLayerEditor()
+    expect(page.data.layerEditorOpen).toBe(false)
+    // 越界定位不打开（防误点空白）。
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 9 } } })
+    expect(page.data.layerEditorOpen).toBe(false)
   })
 
-  test('onToggleLayer 翻转折叠键（si-li），不影响 groups VM、不触发同步', () => {
+  test('弹窗内改参数：卡片摘要随字段重算，不关弹窗', () => {
     const page = load(0)
-    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
-    expect(page.data.expandedLayers['0-0']).toBe(true)
-    page.onToggleLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    expect(page.data.expandedLayers['0-0']).toBe(false)
-    expect(page.data.groups[0].steps[0].layers[0].effect).toBe(EFF.SOLID)
-    expect(page.data.syncState).toBe('idle')
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    const brightFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'brightness')
+    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '77' } })
+    expect(page.data.groups[0].steps[0].layers[0].summary).toBe('亮度 77')
+    expect(page.data.layerEditorOpen).toBe(true) // 弹窗保持打开可继续调
   })
 
-  test('切换灯组：重置 activeStepSi/图层折叠；重选当前组无操作', () => {
+  test('弹窗内选色：卡片色块同步更新', () => {
     const page = load(0)
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
+    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
+    page.onColorSelected({ currentTarget: { dataset: { hex: '#12AB34' } }, detail: { value: '#12AB34' } })
+    expect(page.data.groups[0].steps[0].layers[0].swatch).toBe('#12ab34')
+  })
+
+  test('弹窗内切换灯效：卡片灯效名与摘要跟着换 schema', () => {
+    const page = load(0)
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    // 常亮 → 彩虹渐变（无 rgb 参数）。
+    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 0 } }, detail: { value: 4 } })
+    const layer = page.data.groups[0].steps[0].layers[0]
+    expect(layer.effectName).toBe('彩虹渐变')
+    expect(layer.swatch).toBeNull()
+    expect(page.data.layerEditorOpen).toBe(true)
+  })
+
+  test('弹窗内删除图层：关弹窗、图层数减一，不触发同步以外的副作用', () => {
+    const page = load(0)
+    page.onAddLayer({ currentTarget: { dataset: { si: 0 } } })
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 1 } } })
+    page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 1 } } })
+    expect(page.data.groups[0].steps[0].layers).toHaveLength(1)
+    expect(page.data.layerEditorOpen).toBe(false)
+  })
+
+  test('切换灯组/阶段/增删阶段时弹窗收起（避免定位到已不存在的图层）', () => {
+    const page = load(0)
+    page.onAddStep()
+    page.onAddLayer({ currentTarget: { dataset: { si: 1 } } })
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 1, li: 1 } } })
     page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
-    page.onToggleLayer({ currentTarget: { dataset: { si: 0, li: 0 } } }) // 收起首层
-    expect(page.data.expandedLayers['0-0']).toBe(false)
-    // 切到灯组 1：清折叠、回到阶段一。
+    expect(page.data.layerEditorOpen).toBe(false)
+
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
     page.onGroupPick({ detail: { value: 1 } })
-    expect(page.data.activeGroup).toBe(1)
-    expect(page.data.activeStepSi).toBe(0)
-    expect(page.data.expandedLayers).toEqual({})
-    // 下拉再选当前组：无操作（单页阶段条常驻）。
-    page.onGroupPick({ detail: { value: 1 } })
-    expect(page.data.activeGroup).toBe(1)
-    expect(page.data.activeStepSi).toBe(0)
+    expect(page.data.layerEditorOpen).toBe(false)
   })
 
   test('新增阶段选中新阶段；长按删除后选中顺延', () => {
@@ -1022,5 +1054,80 @@ describe('pin-detail 页（#27）', () => {
     const page = load(0)
     expect(page.onDeletePin).toBeUndefined()
     expect(page.data.configured).toBeUndefined()
+  })
+
+  // ---- 图表（时间轴 / 渐变色带 / 波形） ---------------------------------------
+
+  test('时间轴：加载后按 duration 生成归一化段，总时长与图例正确', () => {
+    const page = load(0)
+    // 默认 1 阶段 5s。
+    expect(page.data.timeline).toHaveLength(1)
+    expect(page.data.timeline[0].x).toBe(0)
+    expect(page.data.timeline[0].w).toBeCloseTo(1, 5)
+    expect(page.data.timelineTotal).toBe(5)
+    expect(page.data.timeline[0].active).toBe(true)
+    expect(page.data.timelineLegend).toHaveLength(1)
+    expect(page.data.timelineLegend[0].name).toBe('常亮')
+  })
+
+  test('时间轴：新增阶段与改时长后段宽按比例重算', () => {
+    const page = load(0)
+    page.onAddStep() // 阶段一 5s + 阶段二 5s
+    expect(page.data.timeline).toHaveLength(2)
+    expect(page.data.timeline[0].w).toBeCloseTo(0.5, 5)
+    expect(page.data.timelineTotal).toBe(10)
+    // 阶段二改成 15s → 5/20 与 15/20
+    page.onDurationChange({ currentTarget: { dataset: { si: 1 } }, detail: { value: 15 } })
+    expect(page.data.timeline[0].w).toBeCloseTo(0.25, 5)
+    expect(page.data.timeline[1].w).toBeCloseTo(0.75, 5)
+    expect(page.data.timelineTotal).toBe(20)
+  })
+
+  test('时间轴：选中阶段高亮切换；切组后用新组的阶段重建', () => {
+    const page = load(0)
+    page.onAddStep()
+    expect(page.data.timeline[0].active).toBe(false)
+    expect(page.data.timeline[1].active).toBe(true) // 新增后选中新阶段 si=1
+    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
+    expect(page.data.timeline[0].active).toBe(true)
+    expect(page.data.timeline[1].active).toBe(false)
+  })
+
+  test('时间轴：切组后重建（不同组阶段数不同）', () => {
+    const page = load(0)
+    page.onAddStep() // 组 0 变 2 阶段
+    expect(page.data.timeline).toHaveLength(2)
+    page.onGroupPick({ detail: { value: 1 } }) // 组 1 仍是默认 1 阶段
+    expect(page.data.timeline).toHaveLength(1)
+  })
+
+  test('渐变色带：彩虹有渐变、常亮无', () => {
+    const page = load(0)
+    const solid = page.data.groups[0].steps[0].layers[0]
+    expect(solid.gradientCss).toBeNull()
+    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 0 } }, detail: { value: 4 } }) // 彩虹
+    expect(page.data.groups[0].steps[0].layers[0].gradientCss).toContain('linear-gradient')
+  })
+
+  test('波形：每个图层都带定长点列，切换灯效后形状变化', () => {
+    const page = load(0)
+    const solidWave = page.data.groups[0].steps[0].layers[0].wave
+    expect(solidWave.length).toBeGreaterThan(8)
+    const flat = solidWave.every((p) => Math.abs(p.y - solidWave[0].y) < 1e-9)
+    expect(flat).toBe(true) // 常亮是平线
+    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 0 } }, detail: { value: 2 } }) // 闪烁
+    const blink = page.data.groups[0].steps[0].layers[0].wave
+    expect(new Set(blink.map((p) => p.y)).size).toBeGreaterThan(1) // 方波有高低
+  })
+
+  test('波形：改参数后重算（亮度降低 → 波形整体压低）', () => {
+    const page = load(0)
+    const layer0 = page.data.groups[0].steps[0].layers[0]
+    const before = layer0.wave[Math.floor(layer0.wave.length / 2)].y
+    const briFi = layer0.fields.findIndex((f) => f.name === 'brightness')
+    expect(briFi).toBeGreaterThanOrEqual(0)
+    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: briFi } }, detail: { value: 0 } })
+    const after = page.data.groups[0].steps[0].layers[0].wave
+    expect(after[Math.floor(after.length / 2)].y).toBeLessThan(before)
   })
 })

@@ -24,11 +24,20 @@
       {{power ? '关机' : '开机'}}
     </view>
     <view class="hero-card__brightness" catchtap="noop">
-      <text class="hero-card__brightness-label">亮度</text>
-      <slider class="hero-card__brightness-slider" min="0" max="255" value="{{brightness}}"
-        activeColor="#ffffff" backgroundColor="rgba(255,255,255,0.3)" block-size="16"
-        catchtap="noop" bindchanging="onBrightnessChanging" bindchange="onBrightnessChange" />
-      <text class="hero-card__brightness-value">{{brightness}}</text>
+      <!-- 亮度历史 sparkline：最近若干次松手值的折线（至少 2 点才画），
+           叠在亮度条上方做成"调节轨迹"。 -->
+      <canvas
+        wx:if="{{brightnessHist.length >= 2}}"
+        type="2d"
+        class="brightness-spark"
+      ></canvas>
+      <view class="hero-card__brightness-row">
+        <text class="hero-card__brightness-label">亮度</text>
+        <slider class="hero-card__brightness-slider" min="0" max="255" value="{{brightness}}"
+          activeColor="#ffffff" backgroundColor="rgba(255,255,255,0.3)" block-size="16"
+          catchtap="noop" bindchanging="onBrightnessChanging" bindchange="onBrightnessChange" />
+        <text class="hero-card__brightness-value">{{brightness}}</text>
+      </view>
     </view>
   </view>
 

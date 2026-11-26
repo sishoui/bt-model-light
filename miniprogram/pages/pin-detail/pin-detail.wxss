@@ -387,9 +387,125 @@
   color: var(--bt-color-label-tertiary);
 }
 
-.stage-seg__dot--enter {
-  animation: stage-node-in 0.22s ease;
+/* 阶段时间轴图（泳道甘特）：总时长条 + 段内图层子条 + 过渡斜纹。
+   与分段条不同，这是只读可视化：宽度按 duration 真实比例，点段=选中。 */
+.timeline {
+  margin: 16rpx 24rpx 0;
+  padding: 16rpx;
+  background: var(--bt-color-bg-elevated);
+  border-radius: 16rpx;
 }
+
+.timeline__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+
+.timeline__title {
+  font-size: 24rpx;
+  line-height: 32rpx;
+  font-weight: 600;
+  color: var(--bt-color-label-secondary);
+}
+
+.timeline__total {
+  font-size: 22rpx;
+  line-height: 30rpx;
+  color: var(--bt-color-label-tertiary);
+}
+
+/* 轨道：相对定位，段按 left/width 百分比铺满 */
+.timeline__track {
+  position: relative;
+  height: 64rpx;
+  background: var(--bt-color-bg-input);
+  border-radius: 10rpx;
+  overflow: hidden;
+}
+
+.timeline__seg {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 6rpx;
+  box-sizing: border-box;
+  border-right: 2rpx solid var(--bt-color-bg-elevated);
+  transition: background 0.2s ease;
+}
+
+.timeline__seg--active {
+  background: rgba(0, 136, 255, 0.14);
+}
+
+/* 段内图层子条：横排堆叠，颜色=灯效主题色 */
+.timeline__layers {
+  display: flex;
+  height: 22rpx;
+  border-radius: 6rpx;
+  overflow: hidden;
+}
+
+.timeline__layer {
+  height: 100%;
+}
+
+/* 过渡区间：段尾斜纹（半透明白/黑交替，透明底叠在子条上） */
+.timeline__trans {
+  position: absolute;
+  top: 6rpx;
+  bottom: 6rpx;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.55) 0,
+    rgba(255, 255, 255, 0.55) 4rpx,
+    rgba(0, 0, 0, 0.12) 4rpx,
+    rgba(0, 0, 0, 0.12) 8rpx
+  );
+  border-radius: 4rpx;
+  pointer-events: none;
+}
+
+.timeline__label {
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  line-height: 26rpx;
+  color: var(--bt-color-label-tertiary);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 图例：当前灯组用到的灯效色点 + 名称 */
+.timeline__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx 20rpx;
+  margin-top: 12rpx;
+}
+
+.timeline__legend-item {
+  display: flex;
+  align-items: center;
+}
+
+.timeline__legend-dot {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 4rpx;
+  margin-right: 8rpx;
+}
+
+.timeline__legend-text {
+  font-size: 22rpx;
+  line-height: 30rpx;
+  color: var(--bt-color-label-tertiary);
+}
+
 
 .stage-seg--enter {
   animation: stage-seg-in 0.22s ease;
@@ -400,17 +516,6 @@
     opacity: 0;
   }
   to {
-    opacity: 1;
-  }
-}
-
-@keyframes stage-node-in {
-  from {
-    transform: scale(0.4);
-    opacity: 0;
-  }
-  to {
-    transform: scale(1);
     opacity: 1;
   }
 }
@@ -513,26 +618,231 @@
   border-radius: 16rpx;
 }
 
-/* 图层（卡内嵌块：elevated 卡内用 grouped 底，同心圆角） */
-.layer {
+/* 图层两列卡片网格：每阶段最多 2 层，卡片与「添加」按钮同尺寸同一行。
+   与 home 的 4 列网格同法：margin 实现列间距（不依赖 flex gap，老内核也稳）。 */
+.layer-grid {
+  display: flex;
+  flex-wrap: wrap;
   margin-top: 16rpx;
+}
+
+.layer-card {
+  /* border-box：虚线占位卡边框计入宽度，两列不换行 */
+  box-sizing: border-box;
+  width: calc((100% - 16rpx) / 2);
+  margin-right: 16rpx;
+  margin-bottom: 16rpx;
+  min-height: 168rpx;
   padding: 16rpx;
+  background: var(--bt-color-bg-input);
+  border-radius: 16rpx;
+  display: flex;
+  flex-direction: column;
+}
+
+.layer-card:nth-child(2n) {
+  margin-right: 0;
+}
+
+.layer-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.layer-card__title {
+  font-size: 24rpx;
+  line-height: 34rpx;
+  color: var(--bt-color-label-secondary);
+}
+
+.layer-card__arrow {
+  font-size: 28rpx;
+  line-height: 34rpx;
+  color: var(--bt-color-label-tertiary);
+}
+
+.layer-card__mid {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 8rpx;
+}
+
+/* 首个 rgb 参数作色块预览：图层没有颜色参数时退化为描边方块 */
+.layer-card__swatch {
+  flex: 0 0 auto;
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 10rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
+}
+
+.layer-card__swatch--none {
+  background: var(--bt-color-bg-elevated);
+  box-shadow: inset 0 0 0 2rpx var(--bt-color-gray-4);
+}
+
+.layer-card__effect {
+  flex: 1;
+  min-width: 0;
+  font-size: 30rpx;
+  line-height: 40rpx;
+  font-weight: 600;
+  color: var(--bt-color-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 渐变色带：多色灯效在卡片上直接展示配色（彩虹/双色/流星）。
+   高度 12rpx 的细条，圆角与卡片内层同心。 */
+.layer-card__gradient {
+  height: 12rpx;
+  margin-top: 10rpx;
+  border-radius: 6rpx;
+}
+
+.layer-card__summary {
+  margin-top: auto;
+  padding-top: 8rpx;
+  font-size: 22rpx;
+  line-height: 30rpx;
+  color: var(--bt-color-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 添加图层占位卡：虚线边框，与图层卡同尺寸 */
+.layer-card--add {
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 2rpx dashed var(--bt-color-accent);
+}
+
+.layer-card__plus {
+  font-size: 40rpx;
+  line-height: 48rpx;
+  color: var(--bt-color-accent);
+}
+
+.layer-card__add-text {
+  margin-top: 4rpx;
+  font-size: 24rpx;
+  line-height: 34rpx;
+  color: var(--bt-color-accent);
+}
+
+/* 图层配置弹窗（点图层卡片打开）：z-index 低于颜色弹层（200），
+   色块选色时可叠开在它之上。 */
+.layer-editor-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.layer-editor-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.layer-editor-panel {
+  position: relative;
+  width: 90vw;
+  max-width: 720rpx;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--bt-color-bg-elevated);
+  border-radius: 28rpx;
+  padding: 24rpx;
+  box-shadow: 0 24rpx 64rpx rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+}
+
+.layer-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.layer-editor-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 32rpx;
+  line-height: 44rpx;
+  font-weight: 700;
+  color: var(--bt-color-label);
+}
+
+.layer-editor-close {
+  flex: 0 0 auto;
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32rpx;
+  line-height: 40rpx;
+  color: var(--bt-color-label-secondary);
+  border-radius: 999rpx;
+  background: var(--bt-color-bg-input);
+}
+
+.layer-editor__effect {
+  margin-top: 16rpx;
+}
+
+/* 迷你波形预览：标题行 + canvas（宽度撑满，高度固定） */
+.wave-preview {
+  margin-top: 16rpx;
+  padding: 12rpx;
   background: var(--bt-color-bg-input);
   border-radius: 12rpx;
 }
 
-.layer__head {
-  margin-bottom: 8rpx;
+.wave-preview__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6rpx;
 }
 
-.layer__title {
+.wave-preview__title {
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 600;
+  color: var(--bt-color-label-secondary);
+}
+
+.wave-preview__hint {
+  font-size: 20rpx;
+  line-height: 28rpx;
+  color: var(--bt-color-label-quaternary);
+}
+
+.wave-canvas {
+  display: block;
+  width: 100%;
+  height: 120rpx;
+}
+
+.layer-editor__del {
+  margin-top: 24rpx;
+  padding: 16rpx;
+  text-align: center;
   font-size: 28rpx;
   line-height: 38rpx;
   font-weight: 600;
-}
-
-.layer__effect {
-  margin-bottom: 8rpx;
+  color: var(--bt-color-danger);
+  background: var(--bt-color-bg-input);
+  border-radius: 16rpx;
 }
 
 /* 参数行（rgb 色块预览） */
@@ -692,36 +1002,6 @@
   gap: 12rpx;
   flex-wrap: wrap;
   margin-top: 12rpx;
-}
-
-/* 图层头（摘要行 + 箭头 + 删除） */
-.layer__head-actions {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-}
-
-.layer__arrow {
-  font-size: 24rpx;
-  line-height: 34rpx;
-  color: var(--bt-color-label-tertiary);
-}
-
-/* 添加按钮（次级虚线按钮） */
-.add-layer {
-  margin-top: 16rpx;
-  padding: 12rpx;
-  text-align: center;
-  font-size: 28rpx;
-  line-height: 38rpx;
-  color: var(--bt-color-accent);
-  border: 2rpx dashed var(--bt-color-accent);
-  border-radius: 12rpx;
-  transition: background-color 0.25s ease-out;
-}
-
-.add-layer:active {
-  background-color: rgba(0, 136, 255, 0.08);
 }
 
 /* 同步状态条（autoSync 驱动，嵌在页面顶部）：四态小字，failed 可点重试 */

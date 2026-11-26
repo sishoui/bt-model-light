@@ -78,11 +78,12 @@ describe('bleClient', () => {
     })
 
     // onFound 每次上报都会回调（页面用 deviceId 去重合并）；
-    // RSSI 取历史最大值（-55 > -60）。
+    // RSSI 取历史最大值（-55 > -60），rssi 保留本次上报的瞬时值。
     const byId = new Map(found.map((d) => [d.deviceId, d]))
     expect(byId.size).toBe(2)
-    expect(byId.get('dev-1')).toEqual({ name: 'BTLight_A1B2', deviceId: 'dev-1', RSSI: -55 })
-    expect(byId.get('dev-2')).toEqual({ name: 'BTLight_C3D4', deviceId: 'dev-2', RSSI: -70 })
+    expect(byId.get('dev-1')).toEqual({ name: 'BTLight_A1B2', deviceId: 'dev-1', RSSI: -55, rssi: -55 })
+    // dev-2 只上报过一次（-70），两次值相同。
+    expect(byId.get('dev-2')).toEqual({ name: 'BTLight_C3D4', deviceId: 'dev-2', RSSI: -70, rssi: -70 })
   })
 
   test('scanDevices stop 停止发现并关闭适配器', async () => {

@@ -168,6 +168,32 @@
 
 `.bt-card`（分组卡：elevated 底、24rpx 圆角、无阴影、16rpx 间距）、`.bt-row` / `.bt-row--between`、`.bt-text--secondary`（subhead + secondary label）、`.bt-type-*`（§4）、`.bt-pressable`（§5.4）、`.bt-divider`（separator 1rpx）、`.bt-section-title`（分组标题：footnote + tertiary label）、`.bt-btn`（按钮基类）/`--primary`（胶囊 accent）/`--danger`。
 
+### 7.5 图表规范（2026-11 新增）
+
+**原则：不引入第三方图表库**（包体 + 风格统一），图表一律走"纯函数算数据 + 原生渲染"两步：
+
+- 数据层：`utils/chartHelpers.js`，无 wx/BLE 依赖，Jest 单测覆盖。含 `sampleWaveform`（灯效波形采样）、`layerGradientCss`（渐变色带 CSS）、`buildTimeline`（阶段甘特）、`aggregateErrorLog`（错误按天聚合）、`pushBrightnessHistory`/`loadBrightnessHistory`（亮度历史）、`createRssiSampler`（RSSI 环形采样）。
+- 渲染层按复杂度分三档：
+  - **纯 CSS**（优先）：柱状图、渐变色带、进度区间——零成本、可深色模式、无 DPR 问题。用于 mine 错误分布、pin-detail 图层色带、device-list RSSI 柱。
+  - **canvas 2d**（折线/波形）：`<canvas type="2d">` + `createSelectorQuery().fields({node:true,size:true})`，必须按 `pixelRatio` 缩放（否则真机模糊）。用于 pin-detail 波形预览、home 亮度 sparkline。
+  - **不用 canvas**：简单分段用 view + 百分比宽度定位即可（时间轴图主体）。
+- 配色：图表色取灯效主题色 `EFFECT_COLORS`（`chartHelpers`），中性网格/分隔用 `--bt-color-label-*` / `--bt-color-separator`，主数据色用 `--bt-color-accent`，与 §3 token 同源。
+- 尺寸：迷你图高度 48–120rpx；轴标签 20–22rpx + tertiary label；图例 22rpx。空数据不画图（不留空壳容器）。
+
+**各页图表落点**：
+
+| 页面 | 图表 | 类型 | 数据源 |
+|---|---|---|---|
+| pin-detail | 阶段时间轴（泳道甘特，含图层子条 + 过渡斜纹） | CSS 定位 | `buildTimeline(steps)` |
+| pin-detail | 参数波形预览（图层弹窗内） | canvas 2d | `sampleWaveform(effect, fields)` |
+| pin-detail | 图层卡渐变色带 | CSS gradient | `layerGradientCss(effect, fields)` |
+| home | 亮度历史 sparkline（贴亮度条上方） | canvas 2d | `brightness_hist_<deviceId>` Storage |
+| mine | 最近 7 天错误分布柱状图（日志弹层内） | CSS 柱 | `aggregateErrorLog(error_log, 7)` |
+| device-list | 扫描结果 RSSI 曲线（行内细柱） | CSS 柱 | `createRssiSampler` 会话内采样 |
+
+> 与 §6 动效约束一致：柱高/高度变化只做 `0.25s ease-out` 过渡，不做入场动画；图表不参与滚动驱动效果。
+
+
 ---
 
 ## 8. 真机人工验收项（iOS + Android）
@@ -192,7 +218,7 @@
 
 - 功能层毛玻璃现仅 `sim-banner` 在用；页面里已无 `.bt-glass` / `--bt-hero-glow` 引用（§1/§3.3/§5.3/§7.2 描述的"顶部 hero 毛玻璃信息条 + 光晕"当前不存在）。
 - home 首页现为 1:1 大图卡（左上设备名/连接态 + 右下开关 + 底部亮度条）+ 2×4 引脚卡片网格，与 §7.2 展示页范式 A 的"大标题 + 信息条 + 分组卡片"不同。
-- pin-detail 的灯组切换是下拉框（`picker`，固定 5 个，右侧「配置」按钮开弹窗改名称/灯珠范围），组内为横向阶段分段条 + 气泡参数卡；§7.3 的行式表单描述与实际结构已有差距。
+- pin-detail 的灯组切换是下拉框（`picker`，固定 5 个，右侧「配置」按钮开弹窗改名称/灯珠范围），组内为横向阶段分段条 + 气泡参数卡；图层为**两列只读卡片**（图层序/背景·动效标注 + 灯效名 + 色块 + 关键参数摘要），点卡片开居中弹窗编辑灯效/参数/删除——虚线「添加图层」占位卡与图层卡同尺寸同行。§7.3 的行式表单描述与实际结构已有差距。
 
 **后续事项（登记，不在本轮）**：
 1. **深色模式逐页精调** + 主题切换入口（mine 页开关，wx.setStorage 持久化）。

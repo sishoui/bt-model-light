@@ -45,3 +45,171 @@
   display: flex;
   align-items: center;
 }
+/* ===== 本地日志弹层：错误分布柱状图 + 最近条目 ===== */
+
+.log-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.log-panel {
+  width: 100%;
+  max-height: 80vh;
+  padding: 24rpx 32rpx 48rpx;
+  box-sizing: border-box;
+  background: var(--bt-color-bg-elevated);
+  border-radius: 32rpx 32rpx 0 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.log-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24rpx;
+}
+
+.log-panel__title {
+  font-size: 34rpx;
+  line-height: 44rpx;
+  font-weight: 600;
+  color: var(--bt-color-label);
+}
+
+.log-panel__close {
+  font-size: 34rpx;
+  line-height: 44rpx;
+  color: var(--bt-color-label-tertiary);
+}
+
+/* 柱状图区块 */
+.log-chart {
+  padding: 20rpx;
+  background: var(--bt-color-bg-input);
+  border-radius: 16rpx;
+}
+
+.log-chart__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 16rpx;
+}
+
+.log-chart__title {
+  font-size: 24rpx;
+  line-height: 32rpx;
+  font-weight: 600;
+  color: var(--bt-color-label-secondary);
+}
+
+.log-chart__total {
+  font-size: 22rpx;
+  line-height: 30rpx;
+  color: var(--bt-color-label-tertiary);
+}
+
+.log-chart__bars {
+  display: flex;
+  align-items: flex-end;
+  height: 180rpx;
+}
+
+.log-chart__col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+}
+
+.log-chart__count {
+  font-size: 20rpx;
+  line-height: 26rpx;
+  color: var(--bt-color-label-tertiary);
+}
+
+/* 柱容器：占满剩余高度，柱体自底部按百分比生长 */
+.log-chart__bar-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 0;
+}
+
+.log-chart__bar {
+  width: 60%;
+  min-height: 4rpx;
+  background: var(--bt-color-accent);
+  border-radius: 6rpx 6rpx 0 0;
+  transition: height 0.25s ease-out;
+}
+
+.log-chart__bar--empty {
+  background: var(--bt-color-gray-4);
+  min-height: 2rpx;
+}
+
+.log-chart__label {
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  line-height: 26rpx;
+  color: var(--bt-color-label-quaternary);
+}
+
+/* 最近条目列表 */
+.log-list__title {
+  display: block;
+  margin: 24rpx 0 8rpx;
+  font-size: 24rpx;
+  line-height: 32rpx;
+  font-weight: 600;
+  color: var(--bt-color-label-secondary);
+}
+
+.log-list {
+  flex: 1;
+  min-height: 0;
+  max-height: 480rpx;
+}
+
+.log-item {
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid var(--bt-color-separator);
+}
+
+.log-item__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.log-item__ts {
+  font-size: 22rpx;
+  line-height: 30rpx;
+  color: var(--bt-color-label-tertiary);
+}
+
+.log-item__ctx {
+  font-size: 20rpx;
+  line-height: 28rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 6rpx;
+  background: var(--bt-color-bg-input);
+  color: var(--bt-color-label-secondary);
+}
+
+.log-item__msg {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 26rpx;
+  line-height: 36rpx;
+  color: var(--bt-color-label);
+}

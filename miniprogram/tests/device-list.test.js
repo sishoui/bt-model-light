@@ -164,4 +164,43 @@ describe('device-list 页（#25）', () => {
     expect(cfg.pins[0].pin).toBe(0)
     expect(cfg.pins[0].configured).toBe(true)
   })
+
+  // ---- RSSI 信号曲线 -----------------------------------------------------------
+
+  test('扫描上报累积 RSSI 采样：每次追加一根柱，按信号强度归一', () => {
+    const page = loadPage(DEVICE_LIST, app)
+    page.onShow()
+    // 直接驱动采样器（扫描会话内部会调它）。
+    const s1 = page._sampleRssi('dev-1', -100) // 最弱 → 0%
+    expect(s1).toEqual([{ i: 0, h: 0 }])
+    const s2 = page._sampleRssi('dev-1', -30) // 最强 → 100%
+    expect(s2).toEqual([{ i: 0, h: 0 }, { i: 1, h: 100 }])
+    expect(s2).toHaveLength(2)
+  })
+
+  test('不同设备的采样相互隔离', () => {
+    const page = loadPage(DEVICE_LIST, app)
+    page._sampleRssi('dev-1', -50)
+    const b = page._sampleRssi('dev-2', -80)
+    expect(b).toHaveLength(1) // dev-2 只有自己的 1 个点
+    expect(page._sampleRssi('dev-1', -60)).toHaveLength(2) // dev-1 累到 2 个
+  })
+
+  test('重新扫描清空采样（新会话从零开始）', () => {
+    const page = loadPage(DEVICE_LIST, app)
+    page._sampleRssi('dev-1', -50)
+    page._sampleRssi('dev-1', -55)
+    expect(page._sampleRssi('dev-1', -60)).toHaveLength(3)
+    // 触发 _startScan：需要 client；用 sim client 避免真 BLE。
+    setCurrentBleClient(createSimBleClient())
+    page._startScan()
+    expect(page._rssiSamplers).toEqual({})
+    page._stopScan()
+  })
+
+  test('非数字 RSSI 忽略（不产生 NaN 柱）', () => {
+    const page = loadPage(DEVICE_LIST, app)
+    expect(page._sampleRssi('dev-1', 'x')).toEqual([])
+    expect(page._sampleRssi('dev-1', undefined)).toEqual([])
+  })
 })

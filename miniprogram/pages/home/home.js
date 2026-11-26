@@ -25,7 +25,13 @@ const {
 const { friendlyMessage, logError } = require('../../utils/errorHandler')
 const { validateConfig } = require('../../utils/configCodec')
 const autoSync = require('../../utils/autoSync')
+const charts = require('../../utils/chartHelpers')
 const GEN = require('../../utils/protocol_gen')
+
+// 亮度历史 Storage 键（每设备一条，供 hero 卡 sparkline 画折线）。
+function brightnessHistKey(deviceId) {
+  return `brightness_hist_${deviceId}`
+}
 
 Page({
   data: {
@@ -42,6 +48,8 @@ Page({
     // 整体亮度 0-255（ADR-0031）：落盘在设备记录，下发走 SET_BRIGHTNESS。
     // 255 = 不缩放，与固件默认一致——没设置过的设备显示的就是真实状态。
     brightness: BRIGHTNESS_DEFAULT,
+    // 亮度历史 sparkline（最近 N 次松手值）：canvas 画折线，空数组不画。
+    brightnessHist: [],
     img: '', // 设备图片（空串显示"暂无图片"占位）
     // 引脚卡片列表（固定 8 个硬件引脚，不可增删；未配置引脚为占位卡）。
     pins: [],
@@ -159,6 +167,70 @@ Page({
       }
     }
     this.setData({ deviceName, img, connected, pins, power, brightness })
+    // 亮度历史：切设备后重读该设备的历史点（sparkline 数据源）。
+    this._loadBrightnessHist(currentId)
+  },
+
+  // 读亮度历史 → data.brightnessHist（canvas 数据源）。
+  _loadBrightnessHist(deviceId) {
+    if (!deviceId) {
+      this.setData({ brightnessHist: [] })
+      return
+    }
+    const hist = charts.loadBrightnessHistory(
+      (k) => wx.getStorageSync(k),
+      brightnessHistKey(deviceId)
+    )
+    this.setData({ brightnessHist: hist })
+    if (wx.nextTick) wx.nextTick(() => this._drawBrightnessSpark())
+  },
+
+  // 亮度 sparkline：把历史点 (ts,v) 画成折线 + 当前值高亮点。
+  // 历史少于 2 点时不画（单点无法成线）。
+  _drawBrightnessSpark() {
+    if (typeof wx === 'undefined' || !wx.createSelectorQuery) return
+    const hist = this.data.brightnessHist || []
+    if (hist.length < 2) return
+    const query = wx.createSelectorQuery().in(this)
+    query.select('.brightness-spark').fields({ node: true, size: true })
+    query.exec((res) => {
+      const info = res && res[0]
+      if (!info || !info.node) return
+      const canvas = info.node
+      const ctx = canvas.getContext('2d')
+      const dpr = (wx.getSystemInfoSync && wx.getSystemInfoSync().pixelRatio) || 2
+      const w = info.width || 200
+      const h = info.height || 40
+      canvas.width = w * dpr
+      canvas.height = h * dpr
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.scale(dpr, dpr)
+      // 横轴按时间戳归一（同一时段的点才可比），纵轴 0-255。
+      const t0 = hist[0].ts
+      const t1 = hist[hist.length - 1].ts
+      const span = Math.max(1, t1 - t0)
+      const px = (p) => ((p.ts - t0) / span) * w
+      const py = (p) => h - 3 - (Math.max(0, Math.min(255, p.v)) / 255) * (h - 6)
+      ctx.beginPath()
+      ctx.moveTo(px(hist[0]), py(hist[0]))
+      for (let i = 1; i < hist.length; i++) ctx.lineTo(px(hist[i]), py(hist[i]))
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+      ctx.lineWidth = 1.5
+      ctx.lineJoin = 'round'
+      ctx.stroke()
+      // 填充到底部（白色 12%），做出"山形"历史感。
+      ctx.lineTo(w, h)
+      ctx.lineTo(0, h)
+      ctx.closePath()
+      ctx.fillStyle = 'rgba(255,255,255,0.14)'
+      ctx.fill()
+      // 当前值圆点。
+      const last = hist[hist.length - 1]
+      ctx.beginPath()
+      ctx.arc(px(last), py(last), 2.5, 0, Math.PI * 2)
+      ctx.fillStyle = '#ffffff'
+      ctx.fill()
+    })
   },
 
   // 左上设备名称 → 设备列表页（新增/切换）。
@@ -210,6 +282,19 @@ Page({
     this._draggingBrightness = false
     this.setData({ brightness: clampBrightness(e.detail.value) })
     this._sendBrightness(this.data.brightness, { persist: true })
+    // 松手值记入亮度历史（sparkline 只记松手点，不记拖动中间值）。
+    const currentId = this._currentDeviceId()
+    if (currentId) {
+      const key = brightnessHistKey(currentId)
+      const hist = charts.pushBrightnessHistory(
+        (k) => wx.getStorageSync(k),
+        (k, v) => wx.setStorageSync(k, v),
+        key,
+        this.data.brightness
+      )
+      this.setData({ brightnessHist: hist })
+      if (wx.nextTick) wx.nextTick(() => this._drawBrightnessSpark())
+    }
   },
 
   // 拖动过程中实时下发（slider bindchanging）：不落盘，松手才写 Storage。

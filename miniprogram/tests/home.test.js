@@ -540,4 +540,47 @@ describe('home 页（#25）', () => {
     expect(arg.icon).toBe('none')
     expect(arg.title).toMatch(/无效/)
   })
+
+  // ---- 亮度历史 sparkline ------------------------------------------------------
+
+  test('亮度松手写入历史：落盘 Storage 且页面 data 同步', () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+    setCurrentBleClient(fakeClient(true))
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    expect(page.data.brightnessHist).toEqual([]) // 初始无历史
+    page.onBrightnessChange({ detail: { value: 30 } })
+    expect(page.data.brightnessHist).toHaveLength(1)
+    expect(page.data.brightnessHist[0].v).toBe(30)
+    // Storage 里也有一份（页面重建可读回）。
+    const raw = wx.getStorageSync(`brightness_hist_${dev.id}`)
+    expect(JSON.parse(raw)).toHaveLength(1)
+  })
+
+  test('切设备后亮度历史按设备隔离（不串台）', () => {
+    const a = saveDevice({ name: 'A', deviceId: 'dev-a' })
+    setCurrentBleClient(fakeClient(true))
+    app.globalData.currentDeviceId = a.id
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.onBrightnessChange({ detail: { value: 10 } })
+    expect(page.data.brightnessHist).toHaveLength(1)
+
+    // 切到设备 B：历史应为空（各设备独立键）。
+    const b = saveDevice({ name: 'B', deviceId: 'dev-b' })
+    app.globalData.currentDeviceId = b.id
+    page._refresh()
+    expect(page.data.brightnessHist).toEqual([])
+  })
+
+  test('无当前设备：亮度回调不写历史（不凭空造 Storage 键）', () => {
+    setCurrentBleClient(fakeClient(true))
+    app.globalData.currentDeviceId = null
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.onBrightnessChange({ detail: { value: 88 } })
+    expect(page.data.brightnessHist).toEqual([])
+  })
 })

@@ -14,6 +14,10 @@ const {
 const { createBleClient, getCurrentBleClient, setCurrentBleClient } = require('../../utils/bleClient')
 const { SIM_DEVICE_ID } = require('../../utils/mockBleClient')
 const { friendlyMessage, logError } = require('../../utils/errorHandler')
+const charts = require('../../utils/chartHelpers')
+
+// RSSI 曲线采样上限：每个扫描结果设备保留最近 40 次上报（约 40 个点够看趋势）。
+const RSSI_SAMPLES_MAX = 40
 
 // 模拟设备默认引脚配置：8 引脚，第 1 引脚已启用（灯组 1，9 灯珠常亮白光）。
 // 真实设备由固件/用户在引脚详情页配置；模拟设备无固件，连接后自动落盘以便首页展示。
@@ -71,6 +75,8 @@ Page({
 
   onLoad() {
     this._scanSession = null // 当前扫描会话 { stop() }
+    // RSSI 采样器：deviceId → sampler（每次扫描会话重建，纯内存不落盘）。
+    this._rssiSamplers = {}
   },
 
   onShow() {
@@ -169,6 +175,8 @@ Page({
 
   _startScan() {
     this.setData({ scanning: true, found: [] })
+    // 新扫描会话：RSSI 采样从头开始（旧会话的点与新会话不可比）。
+    this._rssiSamplers = {}
     let client = getCurrentBleClient()
     if (!client) {
       client = createBleClient()
@@ -177,10 +185,13 @@ Page({
     this._scanSession = client.scanDevices({
       onFound: (d) => {
         // 扫描结果按 deviceId 去重合并（bleClient 的 RSSI 取最大值）。
+        // 同时把每次上报的瞬时 rssi 攒进采样器 → 行内信号曲线。
+        const series = this._sampleRssi(d.deviceId, d.rssi !== undefined ? d.rssi : d.RSSI)
         const found = this.data.found.slice()
         const idx = found.findIndex((f) => f.deviceId === d.deviceId)
-        if (idx >= 0) found[idx] = d
-        else found.push(d)
+        const row = Object.assign({}, d, { rssiSeries: series })
+        if (idx >= 0) found[idx] = row
+        else found.push(row)
         this.setData({ found })
       },
       onError: (err) => {
@@ -189,6 +200,21 @@ Page({
         wx.showToast({ title: friendlyMessage(err), icon: 'none' })
       },
     })
+  },
+
+  // 采样一次 RSSI → 返回该设备当前曲线（每点 { i, h }，h 为柱高百分比）。
+  // 扫描会话内纯内存累积，重扫清空（不同会话的信号不可比）。
+  _sampleRssi(deviceId, rssi) {
+    const v = Number(rssi)
+    if (!isFinite(v)) return []
+    if (!this._rssiSamplers) this._rssiSamplers = {}
+    if (!this._rssiSamplers[deviceId]) {
+      this._rssiSamplers[deviceId] = charts.createRssiSampler(RSSI_SAMPLES_MAX)
+    }
+    this._rssiSamplers[deviceId].push(v)
+    return this._rssiSamplers[deviceId]
+      .points()
+      .map((p, i) => ({ i, h: Math.round(p.y * 100) }))
   },
 
   _stopScan() {

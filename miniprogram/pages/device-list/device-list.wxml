@@ -54,6 +54,17 @@
           <text class="found-row__name">{{item.name}}</text>
           <text class="bt-text--secondary">信号 {{item.RSSI}}</text>
         </view>
+        <!-- RSSI 信号曲线：每次扫描上报一根柱，高=信号强度（越靠右越新）。
+             采样点不足 2 个时不画，避免一闪而过的假趋势。 -->
+        <view wx:if="{{item.rssiSeries.length > 1}}" class="rssi-spark">
+          <view
+            wx:for="{{item.rssiSeries}}"
+            wx:for-item="pt"
+            wx:key="i"
+            class="rssi-spark__bar"
+            style="height: {{pt.h}}%;"
+          ></view>
+        </view>
         <text class="found-row__arrow">›</text>
       </view>
     </view>
