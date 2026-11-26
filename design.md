@@ -172,20 +172,21 @@
 
 **原则：不引入第三方图表库**（包体 + 风格统一），图表一律走"纯函数算数据 + 原生渲染"两步：
 
-- 数据层：`utils/chartHelpers.js`，无 wx/BLE 依赖，Jest 单测覆盖。含 `sampleWaveform`（灯效波形采样）、`layerGradientCss`（渐变色带 CSS）、`buildTimeline`（阶段甘特）、`aggregateErrorLog`（错误按天聚合）、`pushBrightnessHistory`/`loadBrightnessHistory`（亮度历史）、`createRssiSampler`（RSSI 环形采样）。
+- 数据层：`utils/chartHelpers.js`，无 wx/BLE 依赖，Jest 单测覆盖。含 `layerGradientCss`（渐变色带 CSS）、`buildTimeline`（阶段甘特）、`aggregateErrorLog`（错误按天聚合）、`pushBrightnessHistory`/`loadBrightnessHistory`（亮度历史）、`createRssiSampler`（RSSI 环形采样）。
+- 灯效可视化数据层：`utils/effectPreview.js`，同样纯函数、无 wx 依赖。`effectPixel`/`renderStrip` 逐灯珠渲染（规则逐条镜像固件 `effects.cpp`，时间单位为 10ms tick），`stripPoints`/`projectPoints` 提供长条灯条的排布与透视投影。与固件的已知差异只在时间循环（流星亮头扫出灯带后预览回卷，固件则永久维持），已在源码注释标注。
 - 渲染层按复杂度分三档：
   - **纯 CSS**（优先）：柱状图、渐变色带、进度区间——零成本、可深色模式、无 DPR 问题。用于 mine 错误分布、pin-detail 图层色带、device-list RSSI 柱。
-  - **canvas 2d**（折线/波形）：`<canvas type="2d">` + `createSelectorQuery().fields({node:true,size:true})`，必须按 `pixelRatio` 缩放（否则真机模糊）。用于 pin-detail 波形预览、home 亮度 sparkline。
+  - **canvas 2d**（折线/灯效）：`<canvas type="2d">` + `createSelectorQuery().fields({node:true,size:true})`，必须按 `pixelRatio` 缩放（否则真机模糊）。用于 pin-detail 3D 灯效预览、home 亮度 sparkline。
   - **不用 canvas**：简单分段用 view + 百分比宽度定位即可（时间轴图主体）。
 - 配色：图表色取灯效主题色 `EFFECT_COLORS`（`chartHelpers`），中性网格/分隔用 `--bt-color-label-*` / `--bt-color-separator`，主数据色用 `--bt-color-accent`，与 §3 token 同源。
-- 尺寸：迷你图高度 48–120rpx；轴标签 20–22rpx + tertiary label；图例 22rpx。空数据不画图（不留空壳容器）。
+- 尺寸：迷你图高度 48–120rpx，3D 灯效预览 200rpx（横向长条，宽扁比例）；轴标签 20–22rpx + tertiary label；图例 22rpx。空数据不画图（不留空壳容器）。
 
 **各页图表落点**：
 
 | 页面 | 图表 | 类型 | 数据源 |
 |---|---|---|---|
 | pin-detail | 阶段时间轴（泳道甘特，含图层子条 + 过渡斜纹） | CSS 定位 | `buildTimeline(steps)` |
-| pin-detail | 参数波形预览（图层弹窗内） | canvas 2d | `sampleWaveform(effect, fields)` |
+| pin-detail | 3D 灯效预览（图层弹窗内，可拖动旋转） | canvas 2d 逐帧 | `effectPreview.renderStageStrip` + `stripPoints` + `projectPoints` |
 | pin-detail | 图层卡渐变色带 | CSS gradient | `layerGradientCss(effect, fields)` |
 | home | 亮度历史 sparkline（贴亮度条上方） | canvas 2d | `brightness_hist_<deviceId>` Storage |
 | mine | 最近 7 天错误分布柱状图（日志弹层内） | CSS 柱 | `aggregateErrorLog(error_log, 7)` |

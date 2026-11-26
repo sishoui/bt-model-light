@@ -135,6 +135,11 @@ function createWxMock() {
   wx.hideLoading = j.fn()
   wx.showActionSheet = j.fn()
   wx.vibrateShort = j.fn()
+  // 下一帧回调：页面用它等 wx:if 内的 canvas 节点挂载后再取节点/测量。
+  // 同真实 API，回调异步执行（永不同步触发），否则调用点的时序假设会在测试里失真。
+  wx.nextTick = j.fn((cb) => {
+    if (typeof cb === 'function') Promise.resolve().then(cb)
+  })
 
   // ---- 导航 ----
   wx.navigateTo = j.fn()
@@ -180,6 +185,9 @@ function createWxMock() {
         return q
       }),
       boundingClientRect: j.fn(() => q),
+      // canvas 2d 节点查询：页面用 fields({node,size}) 取 canvas 节点后建 2d 上下文。
+      // mock 不提供真实 canvas，返回 null 节点（页面据此安全跳过绘制）。
+      fields: j.fn(() => q),
       exec: j.fn((cb) => {
         const res = q._calls.map((c) => {
           if (!c.all) return wx.__gridRect

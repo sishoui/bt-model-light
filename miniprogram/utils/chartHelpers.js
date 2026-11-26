@@ -1,4 +1,4 @@
-// 图表辅助纯函数层：波形采样 / 渐变色标 / 错误聚合 / 亮度历史 / RSSI 采样。
+// 图表辅助纯函数层：渐变色标 / 时间轴 / 错误聚合 / 亮度历史 / RSSI 采样。
 // 全部无 wx / BLE 依赖（Storage 通过注入的读写函数），Jest 直接可测。
 // 图表渲染（canvas / CSS gradient）由页面负责，本文件只产出数据。
 
@@ -23,100 +23,6 @@ const EFFECT_COLORS = {
 
 function effectColor(effectId) {
   return EFFECT_COLORS[effectId] || '#8E8E93'
-}
-
-// ---- 迷你波形预览 -------------------------------------------------------------
-// 按灯效 schema 里的关键参数采样一条"代表性"亮度/位置曲线，供 canvas 画。
-// 返回 [{x:0..1, y:0..1}]（y=1 最亮），样本数固定 SAMPLES，页面按宽高映射。
-
-const WAVE_SAMPLES = 48
-
-function _paramOf(fields, name, fallback) {
-  const f = (fields || []).find((fd) => fd && fd.name === name)
-  if (!f) return fallback
-  if (f.type === 'rgb') return f.value || fallback
-  const v = Number(f.value)
-  return isFinite(v) ? v : fallback
-}
-
-// 亮度归一：0-255 → 0-1。
-function _normBrightness(v) {
-  return Math.max(0, Math.min(1, (Number(v) || 0) / 255))
-}
-
-// speed 归一：1-100 → 周期（样本内完成 speed/100 个周期，速度越快波形越密）。
-function _cycles(speed) {
-  return 0.5 + (Math.max(1, Math.min(100, Number(speed) || 50)) / 100) * 2.5
-}
-
-// 采样入口：effectId + fields（buildParamFields 产物）→ 波形点列。
-// 不同灯效画不同形状：SOLID 水平线、BREATH/RAINBOW 正弦、BLINK/RHYTHM 方波、
-// MARQUEE/METEOR/DUAL_GRADIENT 斜波/脉冲拖尾（近似）。
-function sampleWaveform(effectId, fields, samples) {
-  const n = samples || WAVE_SAMPLES
-  const pts = []
-  const name = effectName(effectId) || 'SOLID'
-  const bri = _normBrightness(_paramOf(fields, 'brightness', 128))
-  const speed = _paramOf(fields, 'speed', 50)
-  const period = _paramOf(fields, 'period', 1000)
-  const onT = _paramOf(fields, 'on_time', 200)
-  const offT = _paramOf(fields, 'off_time', 200)
-  const waveform = _paramOf(fields, 'waveform', 0) // 0=正弦 1=方波
-  const cycles = _cycles(speed)
-
-  for (let i = 0; i < n; i++) {
-    const t = i / (n - 1) // 0..1
-    const phase = (t * cycles) % 1 // 单周期内相位
-    let y = 0.5
-    switch (name) {
-      case 'SOLID':
-        y = 1 // 常亮：顶格
-        break
-      case 'BREATH':
-      case 'RAINBOW': {
-        // 正弦或方波呼吸；period 参数把周期拉到样本窗内更明显。
-        const w = waveform === 1 ? (phase < 0.5 ? 1 : 0) : 0.5 + 0.5 * Math.sin(phase * Math.PI * 2)
-        y = w
-        break
-      }
-      case 'BLINK': {
-        // on/off 时间比 → 占空比方波。
-        const duty = onT / Math.max(1, onT + offT)
-        y = phase < duty ? 1 : 0
-        break
-      }
-      case 'RHYTHM': {
-        // pattern/step_size 影响密度：近似用 speed 决定脉冲间隔。
-        const step = Math.max(1, Math.min(16, Math.round(_paramOf(fields, 'step_size', 25) / 16) + 1))
-        y = (Math.floor(t * cycles * step) % 2 === 0) ? 1 : 0.1
-        break
-      }
-      case 'MARQUEE': {
-        // 跑马灯：亮点随时间平移 → 斜向上亮带。
-        const head = (phase * 1.4) % 1
-        y = Math.max(0, 1 - Math.abs(t - head) * 4)
-        break
-      }
-      case 'METEOR': {
-        // 流星：亮头 + 指数衰减尾。
-        const head = (phase * 1.2) % 1
-        const d = (t - head + 1) % 1
-        y = d < 0.35 ? Math.exp(-d * 6) : 0
-        break
-      }
-      case 'DUAL_GRADIENT': {
-        // 双色渐变：两色之间平滑过渡 → 缓坡。
-        const mode = _paramOf(fields, 'mode', 0)
-        y = mode === 1 ? 0.5 + 0.5 * Math.sin(phase * Math.PI * 2) : 0.5 + 0.5 * Math.sin(t * Math.PI)
-        break
-      }
-      default:
-        y = 0.5 + 0.5 * Math.sin(phase * Math.PI * 2)
-    }
-    // 亮度整体缩放：低亮度效果整体压低。
-    pts.push({ x: t, y: Math.max(0, Math.min(1, y * (0.25 + 0.75 * bri))) })
-  }
-  return pts
 }
 
 // ---- 渐变色带（CSS linear-gradient 字符串） -----------------------------------
@@ -294,12 +200,10 @@ function createRssiSampler(maxPoints) {
 }
 
 module.exports = {
-  WAVE_SAMPLES,
   BRIGHTNESS_HIST_MAX,
   RAINBOW_STOPS,
   EFFECT_COLORS,
   effectColor,
-  sampleWaveform,
   layerGradientCss,
   buildTimeline,
   aggregateErrorLog,

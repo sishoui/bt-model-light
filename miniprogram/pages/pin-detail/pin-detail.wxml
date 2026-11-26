@@ -260,19 +260,26 @@
         <view>灯效：{{groups[activeGroup].steps[layerEditorSi].layers[layerEditorLi].effectName}}</view>
       </picker>
 
-      <!-- 迷你波形预览（canvas 2d）：按当前灯效 + 参数采样一条亮度曲线，
-           调参即时重绘——"所见即所调"。SOLID 是一条平线，BLINK 是方波，等等。 -->
-      <view class="wave-preview">
-        <view class="wave-preview__head">
-          <text class="wave-preview__title">波形预览</text>
-          <text class="wave-preview__hint">亮度随时间</text>
+      <!-- 3D 灯效预览（canvas 2d）：按当前灯效 + 参数逐灯珠渲染（规则同固件），
+           再投影成一条长条灯条。调参即时重绘，也可拖动旋转查看。 -->
+      <view class="effect3d">
+        <view class="effect3d__head">
+          <text class="effect3d__title">3D 灯效预览</text>
+          <text class="effect3d__hint">{{previewLeds}} 颗 · {{previewLayerCount}} 图层 · 拖动旋转</text>
         </view>
-        <canvas
-          type="2d"
-          class="wave-canvas"
-          id="wave-canvas"
-          data-key="{{waveCanvasKey}}"
-        ></canvas>
+        <view
+          class="effect3d__stage"
+          bindtouchstart="onPreviewTouchStart"
+          catchtouchmove="onPreviewTouchMove"
+          bindtouchend="onPreviewTouchEnd"
+          bindtouchcancel="onPreviewTouchEnd"
+        >
+          <canvas
+            type="2d"
+            class="effect3d-canvas"
+            id="effect3d-canvas"
+          ></canvas>
+        </view>
       </view>
 
       <!-- 参数表单：按 effect schema 渲染（u8/u16 连续量走滑块，枚举走胶囊，rgb 走色块弹层） -->

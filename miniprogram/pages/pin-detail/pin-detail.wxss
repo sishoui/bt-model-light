@@ -799,40 +799,47 @@
   margin-top: 16rpx;
 }
 
-/* 迷你波形预览：标题行 + canvas（宽度撑满，高度固定） */
-.wave-preview {
+/* 3D 灯效预览：标题行 + canvas 舞台（宽度撑满，高度固定，深底衬托灯光） */
+.effect3d {
   margin-top: 16rpx;
   padding: 12rpx;
   background: var(--bt-color-bg-input);
   border-radius: 12rpx;
 }
 
-.wave-preview__head {
+.effect3d__head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   margin-bottom: 6rpx;
 }
 
-.wave-preview__title {
+.effect3d__title {
   font-size: 22rpx;
   line-height: 30rpx;
   font-weight: 600;
   color: var(--bt-color-label-secondary);
 }
 
-.wave-preview__hint {
+.effect3d__hint {
   font-size: 20rpx;
   line-height: 28rpx;
   color: var(--bt-color-label-quaternary);
 }
 
-.wave-canvas {
-  display: block;
-  width: 100%;
-  height: 120rpx;
+/* 舞台：深色底（灯光需要暗场才看得清），圆角裁切，触摸用于旋转。
+ * 灯条是横向长条，舞台按 2.6:1 的宽扁比例，避免上下大片空白。 */
+.effect3d__stage {
+  border-radius: 10rpx;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 50%, #1b1b20 0%, #08080a 100%);
 }
 
+.effect3d-canvas {
+  display: block;
+  width: 100%;
+  height: 200rpx;
+}
 .layer-editor__del {
   margin-top: 24rpx;
   padding: 16rpx;

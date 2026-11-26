@@ -16,6 +16,7 @@ const { getRecentColors, pushRecentColor, rgbToHex, hexToRgb, hsvToRgb, rgbToHsv
 const { EFF, EFFECT_PARAMS, LIMITS } = require('../../utils/protocol_gen')
 const autoSync = require('../../utils/autoSync')
 const charts = require('../../utils/chartHelpers')
+const effectPreview = require('../../utils/effectPreview')
 
 // ---- 静态选项（下拉 range / 文案） -------------------------------------------
 
@@ -128,6 +129,21 @@ function fieldsToParams(fields) {
   return out
 }
 
+// ---- 3D 灯效预览几何 ---------------------------------------------------------
+
+// 长条灯带模型：一颗灯珠一个点，等距排在一条直线上（长条灯条）。
+const PREVIEW_STRIP = { length: 8 }
+// 相机距离（模型单位）：长条几乎正对镜头，用较长焦（距离=焦距）压住透视畸变，
+// 灯条保持"长条"观感而不是一截粗管。
+const PREVIEW_LENS = 14
+// 旋转限位：长条只需轻微倾斜就能读出立体感；转太大既会缩成一条斜线，
+// 又会因投影缩放按最坏角度算而把整个灯条压小。这两个值同时决定缩放口径
+// （projectPoints 按此范围算最坏尺寸），必须成对改。
+const PREVIEW_YAW_LIMIT = 0.45
+const PREVIEW_PITCH_LIMIT = 0.25
+// 自动摆动：在限位内轻微来回摆，比整圈自转更适合长条。
+const PREVIEW_SWAY_YAW = 0.34
+
 // ---- 图层卡片摘要（两列卡片只读展示，详情在弹窗里编辑） ---------------------
 
 // 摘要取这两个参数：各灯效都有、最常用；半屏宽的卡片只放得下两项。
@@ -144,14 +160,12 @@ function buildLayerCard(fields) {
   return { swatch: color ? color.hex : null, summary: parts.join(' · ') }
 }
 
-// 图层 VM 的卡片摘要重算（字段改动后调用）：色板摘要 + 渐变色带 + 迷你波形。
+// 图层 VM 的卡片摘要重算（字段改动后调用）：色板摘要 + 渐变色带。
 function refreshLayerCard(layer) {
   const base = Object.assign({}, layer, buildLayerCard(layer.fields || []))
   // 渐变色带：RAINBOW/DUAL_GRADIENT/METEOR 等多色灯效在卡片底部画一条
   // CSS linear-gradient，让效果一眼可见（SOLID/BLINK 返回 null 不画）。
   base.gradientCss = charts.layerGradientCss(base.effect, base.fields || [])
-  // 迷你波形：随字段实时更新（canvas 只负责画）。
-  base.wave = charts.sampleWaveform(base.effect, base.fields || [], charts.WAVE_SAMPLES)
   return base
 }
 
@@ -177,8 +191,6 @@ function makeLayer(effectId, params, lid) {
       summary: card.summary,
       // 渐变色带 CSS（多色灯效用，单色返回 null）。
       gradientCss: charts.layerGradientCss(effectId, fields),
-      // 迷你波形：字段一改就重算（canvas 只负责画）。
-      wave: charts.sampleWaveform(effectId, fields, charts.WAVE_SAMPLES),
     },
   )
 }
@@ -310,8 +322,9 @@ Page({
     // 阶段时间轴图（泳道甘特）：steps 的归一化时间窗 + 图层子段 + 过渡区间。
     // 由 _refreshTimeline 在 groups/activeGroup/activeStepSi 变化时重算。
     timeline: [],
-    // 迷你波形 canvas：当前图层编辑弹窗目标的波形点列（重绘触发器）。
-    waveCanvasKey: 0,
+    // 3D 灯效预览 canvas：预览灯珠数与参与合成的图层数（标题栏展示）。
+    previewLeds: effectPreview.PREVIEW_LEDS_FALLBACK,
+    previewLayerCount: 1,
     // 新增节点的进入动画标记（该下标播放一次 scale-in 后清除）。
     enterIndex: -1,
     // 图层配置弹窗：卡片只读展示，点开弹窗改灯效/参数。target 为定位（si/li）。
@@ -362,8 +375,18 @@ Page({
   },
 
   onUnload() {
+    this._stopPreviewLoop()
     if (this._offSync) this._offSync()
     this._syncUnloadGuard()
+  },
+
+  // 切后台停掉预览动画（省电），回来时若弹窗还开着就重取节点并恢复（内部会重启循环）。
+  onHide() {
+    this._stopPreviewLoop()
+  },
+
+  onShow() {
+    if (this.data.layerEditorOpen && wx.nextTick) wx.nextTick(() => this._drawEffectPreview())
   },
 
   onReady() {
@@ -557,12 +580,70 @@ Page({
     const step = this.data.groups[this.data.activeGroup].steps[si]
     if (!step || !step.layers[li]) return
     this.setData({ layerEditorOpen: true, layerEditorSi: si, layerEditorLi: li })
-    // 弹窗渲染完成后画一次波形（canvas 节点在 wx:if 内，必须等下一帧）。
-    if (wx.nextTick) wx.nextTick(() => this._drawLayerWave())
+    this._preparePreview(si, li, true)
+    // canvas 节点在 wx:if 内，必须等下一帧再取节点。
+    if (wx.nextTick) wx.nextTick(() => this._drawEffectPreview())
   },
 
   onCloseLayerEditor() {
+    this._stopPreviewLoop()
     this.setData({ layerEditorOpen: false })
+  },
+
+  // 预览数据装配：目标阶段 → 各图层渲染参数、灯珠数、长条几何。
+  // 弹窗内每次字段变更都调用（灯珠数会影响几何）；resetView 仅在打开弹窗时置位。
+  _preparePreview(si, li, resetView) {
+    const group = this.data.groups[this.data.activeGroup]
+    const step = group && group.steps[si]
+    if (!step) return
+    // 预览按阶段整体合成（1~2 个图层），编辑中的图层自然包含在内——
+    // 这才能反映"动效层亮灯珠覆盖背景层"的真实输出（镜像固件 compose_layer）。
+    this._previewLayers = (step.layers || [])
+      .filter((l) => l && l.effect)
+      .map((l) => ({ effect: l.effect, params: fieldsToParams(l.fields || []) }))
+    const leds = effectPreview.stripLength(group)
+    this._previewLeds = leds
+    this._previewGeometry = effectPreview.stripPoints(leds, PREVIEW_STRIP)
+    if (resetView || this._previewElapsed === undefined) {
+      this._previewElapsed = 0
+      // 初始视角略偏侧 + 略俯视：能看出灯条的纵深与灯珠层次，又保住横向长条形状。
+      this._previewYaw = -0.28
+      this._previewPitch = 0.22
+      this._previewSway = 0
+    }
+    if (this.data.previewLeds !== leds) this.setData({ previewLeds: leds })
+    if (this.data.previewLayerCount !== this._previewLayers.length) {
+      this.setData({ previewLayerCount: this._previewLayers.length })
+    }
+  },
+
+  // 预览舞台拖动旋转：水平拖 → 绕 y 轴，垂直拖 → 俯仰。
+  // 两个方向都限位：长条转过 ±50° 会缩成一条斜线，看不出灯珠阵列。
+  onPreviewTouchStart(e) {
+    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
+    this._previewDragging = true
+    this._previewTouchAt = Date.now()
+    this._previewTouchStart = { x: t.clientX || 0, y: t.clientY || 0 }
+    this._previewStartAngles = { yaw: this._previewYaw || 0, pitch: this._previewPitch || 0 }
+  },
+
+  onPreviewTouchMove(e) {
+    if (!this._previewDragging) return
+    const t = (e.touches && e.touches[0]) || {}
+    const start = this._previewTouchStart
+    const angles = this._previewStartAngles
+    if (!start || !angles) return
+    const dx = (t.clientX || 0) - start.x
+    const dy = (t.clientY || 0) - start.y
+    this._previewYaw = clamp(angles.yaw + dx * 0.012, -PREVIEW_YAW_LIMIT, PREVIEW_YAW_LIMIT)
+    this._previewPitch = clamp(angles.pitch + dy * 0.010, -PREVIEW_PITCH_LIMIT, PREVIEW_PITCH_LIMIT)
+    this._previewTouchAt = Date.now()
+    this._renderPreviewFrame()
+  },
+
+  onPreviewTouchEnd() {
+    this._previewDragging = false
+    this._previewTouchAt = Date.now()
   },
 
   // 灯珠网格渲染模型：按 state 渲染（空/选中/占用/拖选起终/拖选中间）。
@@ -660,8 +741,10 @@ Page({
     groups[this.data.activeGroup] = group
     this.setData({ groups })
     this._refreshTimeline()
-    // 图层弹窗开着时，任何字段变更都可能改变波形 → 统一在此重绘一次。
-    if (this.data.layerEditorOpen && wx.nextTick) wx.nextTick(() => this._drawLayerWave())
+    // 图层弹窗开着时，参数变更 → 重建预览（几何可能随灯珠数变化）并重绘。
+    if (this.data.layerEditorOpen) {
+      this._preparePreview(this.data.layerEditorSi, this.data.layerEditorLi)
+    }
     if (!(opts && opts.silent)) this._markDirty()
   },
 
@@ -695,18 +778,16 @@ Page({
     this.setData({ timeline, timelineTotal: Math.round(total * 10) / 10, timelineLegend: legend })
   },
 
-  // 迷你波形 canvas：把当前编辑图层的 wave 点列画到 2d canvas 上。
-  // 页面只有一个 wave canvas（图层弹窗内），每次字段变动后重绘。
-  _drawLayerWave() {
+  // 3D 灯效预览 canvas：把阶段的灯效逐灯珠渲染后投影成长条灯条。
+  // 页面只有这一个预览 canvas（图层弹窗内）；字段变动重绘，弹窗打开时动画自转。
+  _drawEffectPreview() {
     if (typeof wx === 'undefined' || !wx.createSelectorQuery) return
     const step = this.data.groups[this.data.activeGroup] &&
       this.data.groups[this.data.activeGroup].steps[this.data.layerEditorSi]
     const layer = step && step.layers && step.layers[this.data.layerEditorLi]
-    const pts = (layer && layer.wave) || []
-    if (!pts.length) return
-    this.setData({ waveCanvasKey: (this.data.waveCanvasKey || 0) + 1 })
+    if (!layer) return
     const query = wx.createSelectorQuery().in(this)
-    query.select('.wave-canvas').fields({ node: true, size: true })
+    query.select('.effect3d-canvas').fields({ node: true, size: true })
     query.exec((res) => {
       const info = res && res[0]
       if (!info || !info.node) return
@@ -714,39 +795,159 @@ Page({
       const ctx = canvas.getContext('2d')
       const dpr = (wx.getSystemInfoSync && wx.getSystemInfoSync().pixelRatio) || 2
       const w = info.width || 300
-      const h = info.height || 80
+      const h = info.height || 180
       canvas.width = w * dpr
       canvas.height = h * dpr
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      ctx.scale(dpr, dpr)
-      // 基线网格（3 条水平线）
-      ctx.strokeStyle = 'rgba(60,60,67,0.12)'
-      ctx.lineWidth = 1
-      for (let i = 1; i < 4; i++) {
-        const y = (h / 4) * i
-        ctx.beginPath()
-        ctx.moveTo(0, y)
-        ctx.lineTo(w, y)
-        ctx.stroke()
-      }
-      // 波形：折线 + 下方半透明填充。
-      const color = charts.effectColor(layer.effect)
-      const px = (p) => p.x * w
-      const py = (p) => h - 4 - p.y * (h - 8)
-      ctx.beginPath()
-      ctx.moveTo(px(pts[0]), py(pts[0]))
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(px(pts[i]), py(pts[i]))
-      ctx.strokeStyle = color
-      ctx.lineWidth = 2
-      ctx.lineJoin = 'round'
-      ctx.stroke()
-      // 填充（同色 15% 透明）。
-      ctx.lineTo(w, h)
-      ctx.lineTo(0, h)
-      ctx.closePath()
-      ctx.fillStyle = color + '26'
-      ctx.fill()
+      this._previewCanvas = { canvas, ctx, w, h, dpr }
+      this._renderPreviewFrame()
+      this._startPreviewLoop()
     })
+  },
+
+  // 单帧：动画时间 + 相机角度 → 灯珠屏幕坐标与颜色。ctx 用 CSS 像素坐标（已按 dpr 缩放）。
+  // 画法分三层：灯条板身（带一点厚度感的圆角长条）→ 每颗灯珠的发光 → 灯芯。
+  // 发光用 lighter（加色）混合叠两个圆，比逐颗建径向渐变便宜得多。
+  _renderPreviewFrame() {
+    const view = this._previewCanvas
+    if (!view) return
+    const { ctx, w, h, dpr } = view
+    const layers = this._previewLayers
+    if (!layers || !layers.length) return
+    const colors = effectPreview.renderStageStrip(layers, this._previewLeds, this._previewElapsed || 0)
+    const points = effectPreview.projectPoints(this._previewGeometry, {
+      width: w,
+      height: h,
+      yaw: this._previewYaw || 0,
+      pitch: this._previewPitch || 0,
+      distance: PREVIEW_LENS,
+      focal: PREVIEW_LENS,
+      yawRange: PREVIEW_YAW_LIMIT,
+      pitchRange: PREVIEW_PITCH_LIMIT,
+    })
+    if (!points.length) return
+    const scale = w / 300
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, w, h)
+    // 灯条板身：灯珠连成一条（半透明底 + 描边），先铺出"长条灯条"的实体感。
+    this._drawStripBody(ctx, points, scale)
+    // 由远及近绘制：近处灯珠盖住远处。
+    const order = points.map((p, i) => i).sort((a, b) => points[b].depth - points[a].depth)
+    ctx.globalCompositeOperation = 'lighter'
+    for (const i of order) {
+      const p = points[i]
+      const c = colors[i] || [0, 0, 0]
+      const lit = c[0] + c[1] + c[2]
+      if (lit <= 0) continue
+      // 深度衰减：越远越暗，模拟空气透视。
+      const depthK = Math.min(1, Math.max(0.35, p.rel || 1))
+      const core = Math.max(1.1, 2.2 * (p.rel || 1) * scale)
+      const halo = core * 3.4
+      const strength = (lit / 765) * depthK
+      // 光晕：淡而大。
+      ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${0.30 * strength})`
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, halo, 0, Math.PI * 2)
+      ctx.fill()
+      // 灯芯：提亮到接近白，模拟 LED 过曝核心。
+      const wr = Math.min(255, Math.round(c[0] + 70 * strength))
+      const wg = Math.min(255, Math.round(c[1] + 70 * strength))
+      const wb = Math.min(255, Math.round(c[2] + 70 * strength))
+      ctx.fillStyle = `rgba(${wr},${wg},${wb},${Math.min(1, 0.55 + 0.45 * strength)})`
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, core, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    ctx.globalCompositeOperation = 'source-over'
+  },
+
+  // 灯条板身：把灯珠位置连成一条带宽度的长条（模拟柔性灯带的白色基板）。
+  // 用每个点向两侧法线方向偏移半个条宽再串成闭合路径，宽度随透视深度缩放。
+  _drawStripBody(ctx, points, scale) {
+    const n = points.length
+    if (n < 2) return
+    const halfW = (pt) => Math.max(1.6, 3.4 * (pt.rel || 1) * scale)
+    const left = []
+    const right = []
+    for (let i = 0; i < n; i++) {
+      const p = points[i]
+      // 切线方向用相邻点差分（端点退化为一段）。
+      const a = points[Math.max(0, i - 1)]
+      const b = points[Math.min(n - 1, i + 1)]
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const len = Math.hypot(dx, dy) || 1
+      // 法线：切线旋转 90°。
+      const nx = -dy / len
+      const ny = dx / len
+      const hw = halfW(p)
+      left.push({ x: p.x + nx * hw, y: p.y + ny * hw })
+      right.push({ x: p.x - nx * hw, y: p.y - ny * hw })
+    }
+    ctx.beginPath()
+    ctx.moveTo(left[0].x, left[0].y)
+    for (let i = 1; i < n; i++) ctx.lineTo(left[i].x, left[i].y)
+    for (let i = n - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y)
+    ctx.closePath()
+    // 板身底色：略亮的深灰，暗灯珠时也能看出灯条轮廓。
+    ctx.fillStyle = 'rgba(150,156,172,0.16)'
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(170,178,196,0.20)'
+    ctx.lineWidth = Math.max(0.6, 1 * scale)
+    ctx.stroke()
+  },
+
+  // 启动预览动画（弹窗打开时）：灯效时间推进 + 灯条轻微摆动 + 逐帧重绘。
+  // 长条不做整圈自转（转过 90° 会缩成一条斜线），改为在 ±55° 内缓慢来回摆。
+  // 限帧 30fps：灯效本身变化慢，30fps 足够顺滑且省电。
+  _startPreviewLoop() {
+    this._stopPreviewLoop()
+    if (typeof wx === 'undefined') return
+    const FRAME_MS = 33
+    let lastDraw = 0
+    const tick = () => {
+      if (!this._previewRunning) return
+      const now = Date.now()
+      const dt = Math.min(64, now - (this._previewLastTs || now))
+      this._previewLastTs = now
+      // 选色弹层在上时冻结动画（避免用户选色时背景还在跑）。
+      if (!this.data.colorPickerOpen) {
+        this._previewElapsed += dt
+        // 拖动后暂停摆动 1.5s，让用户能停在想看的角度。
+        const idle = now - (this._previewTouchAt || 0) > 1500
+        if (idle && !this._previewDragging) {
+          this._previewSway = (this._previewSway || 0) + dt * 0.0009
+          this._previewYaw = Math.sin(this._previewSway) * PREVIEW_SWAY_YAW - 0.32
+        }
+      }
+      if (now - lastDraw >= FRAME_MS - 2) {
+        lastDraw = now
+        this._renderPreviewFrame()
+      }
+      this._previewRaf = this._requestFrame(tick)
+    }
+    this._previewRunning = true
+    this._previewLastTs = Date.now()
+    this._previewRaf = this._requestFrame(tick)
+  },
+
+  // 逐帧调度：优先 canvas.requestAnimationFrame（2d canvas 节点自带），否则退回 setTimeout。
+  _requestFrame(cb) {
+    const view = this._previewCanvas
+    if (view && view.canvas && typeof view.canvas.requestAnimationFrame === 'function') {
+      return view.canvas.requestAnimationFrame(cb)
+    }
+    return setTimeout(cb, 16)
+  },
+
+  _stopPreviewLoop() {
+    this._previewRunning = false
+    const view = this._previewCanvas
+    if (this._previewRaf && view && view.canvas && typeof view.canvas.cancelAnimationFrame === 'function') {
+      view.canvas.cancelAnimationFrame(this._previewRaf)
+    } else if (this._previewRaf) {
+      clearTimeout(this._previewRaf)
+    }
+    this._previewRaf = null
   },
 
   // ---- 顶部 -------------------------------------------------------------------

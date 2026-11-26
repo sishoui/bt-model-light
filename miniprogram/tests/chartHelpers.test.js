@@ -1,11 +1,9 @@
-// chartHelpers 纯函数层测试：波形采样 / 渐变 / 时间轴 / 错误聚合 / 历史与采样器。
+// chartHelpers 纯函数层测试：渐变 / 时间轴 / 错误聚合 / 历史与采样器。
 
 'use strict'
 
 const {
-  WAVE_SAMPLES,
   effectColor,
-  sampleWaveform,
   layerGradientCss,
   buildTimeline,
   aggregateErrorLog,
@@ -21,58 +19,6 @@ describe('effectColor', () => {
     expect(effectColor(EFF.SOLID)).toBe('#0088FF')
     expect(effectColor(EFF.RAINBOW)).toBe('#FF375F')
     expect(effectColor(99)).toBe('#8E8E93')
-  })
-})
-
-describe('sampleWaveform', () => {
-  const mkFields = (over) =>
-    [
-      { name: 'color', type: 'rgb', value: [255, 255, 255], hex: '#FFFFFF' },
-      { name: 'brightness', type: 'u8', value: 128, min: 0, max: 255 },
-      { name: 'speed', type: 'u8', value: 50, min: 1, max: 100 },
-      { name: 'period', type: 'u16', value: 1000, min: 100, max: 10000 },
-      { name: 'on_time', type: 'u16', value: 200, min: 10, max: 5000 },
-      { name: 'off_time', type: 'u16', value: 200, min: 10, max: 5000 },
-      { name: 'waveform', type: 'u8', value: 0, min: 0, max: 1 },
-      { name: 'tail_length', type: 'u8', value: 50, min: 1, max: 100 },
-      { name: 'decay', type: 'u8', value: 128, min: 1, max: 255 },
-      { name: 'mode', type: 'u8', value: 0, min: 0, max: 1 },
-      { name: 'pattern', type: 'u8', value: 0, min: 0, max: 255 },
-      { name: 'step_size', type: 'u8', value: 25, min: 1, max: 100 },
-      { name: 'led_count', type: 'u8', value: 10, min: 1, max: 100 },
-      { name: 'gap', type: 'u8', value: 5, min: 0, max: 99 },
-      { name: 'spread', type: 'u8', value: 50, min: 1, max: 100 },
-    ].map((f) => Object.assign(f, over && over[f.name] ? over[f.name] : {}))
-
-  test('所有灯效都返回定长、x 单调、y∈[0,1] 的点列', () => {
-    for (const id of Object.values(EFF)) {
-      const pts = sampleWaveform(id, mkFields(), 24)
-      expect(pts).toHaveLength(24)
-      for (let i = 0; i < pts.length; i++) {
-        expect(pts[i].x).toBeCloseTo(i / (pts.length - 1), 5)
-        expect(pts[i].y).toBeGreaterThanOrEqual(0)
-        expect(pts[i].y).toBeLessThanOrEqual(1)
-      }
-    }
-  })
-
-  test('SOLID 波形平直且为所有灯效中最高（不受 speed/period 影响）', () => {
-    const pts = sampleWaveform(EFF.SOLID, mkFields(), 12)
-    for (const p of pts) expect(p.y).toBeCloseTo(pts[0].y, 5)
-    const breath = sampleWaveform(EFF.BREATH, mkFields(), 12)
-    expect(Math.min(...pts.map((p) => p.y))).toBeGreaterThan(Math.max(...breath.map((p) => p.y)))
-  })
-
-  test('brightness=0 时整体压低（SOLID 也变暗）', () => {
-    const dark = sampleWaveform(EFF.SOLID, mkFields({ brightness: { value: 0 } }), 12)
-    expect(dark[0].y).toBeLessThan(0.5)
-  })
-
-  test('BLINK 占空比随 on/off 时间变化', () => {
-    const longOn = sampleWaveform(EFF.BLINK, mkFields({ on_time: { value: 4000 }, off_time: { value: 100 } }), 48)
-    const longOff = sampleWaveform(EFF.BLINK, mkFields({ on_time: { value: 100 }, off_time: { value: 4000 } }), 48)
-    const mean = (a) => a.reduce((s, p) => s + p.y, 0) / a.length
-    expect(mean(longOn)).toBeGreaterThan(mean(longOff))
   })
 })
 

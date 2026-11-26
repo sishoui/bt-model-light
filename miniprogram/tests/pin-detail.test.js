@@ -1134,25 +1134,157 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.groups[0].steps[0].layers[0].gradientCss).toContain('linear-gradient')
   })
 
-  test('波形：每个图层都带定长点列，切换灯效后形状变化', () => {
+  test('3D 预览：打开弹窗后装配预览数据（灯效参数/灯珠数/长条几何）', () => {
     const page = load(0)
-    const solidWave = page.data.groups[0].steps[0].layers[0].wave
-    expect(solidWave.length).toBeGreaterThan(8)
-    const flat = solidWave.every((p) => Math.abs(p.y - solidWave[0].y) < 1e-9)
-    expect(flat).toBe(true) // 常亮是平线
-    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 0 } }, detail: { value: 2 } }) // 闪烁
-    const blink = page.data.groups[0].steps[0].layers[0].wave
-    expect(new Set(blink.map((p) => p.y)).size).toBeGreaterThan(1) // 方波有高低
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    expect(page._previewLayers).toHaveLength(1)
+    expect(page._previewLayers[0].effect).toBe(EFF.SOLID)
+    expect(page._previewLayers[0].params.brightness).toBe(128)
+    // 默认灯组未配灯珠 → 示意长度
+    expect(page._previewLeds).toBe(24)
+    expect(page.data.previewLeds).toBe(24)
+    expect(page._previewGeometry).toHaveLength(24)
+    expect(page._previewGeometry[0]).toHaveProperty('x')
   })
 
-  test('波形：改参数后重算（亮度降低 → 波形整体压低）', () => {
+  test('3D 预览：灯珠数跟随灯组区间，改参数后渲染数据跟着变', () => {
     const page = load(0)
-    const layer0 = page.data.groups[0].steps[0].layers[0]
-    const before = layer0.wave[Math.floor(layer0.wave.length / 2)].y
-    const briFi = layer0.fields.findIndex((f) => f.name === 'brightness')
-    expect(briFi).toBeGreaterThanOrEqual(0)
-    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: briFi } }, detail: { value: 0 } })
-    const after = page.data.groups[0].steps[0].layers[0].wave
-    expect(after[Math.floor(after.length / 2)].y).toBeLessThan(before)
+    // 直接给灯组配 10 颗灯珠（[0,9]），预览灯带长度随之变化。
+    page.setData({
+      groups: page.data.groups.map((g, i) => (i ? g : Object.assign({}, g, { ledStart: 0, ledEnd: 9 }))),
+    })
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    expect(page._previewLeds).toBe(10)
+    expect(page.data.previewLeds).toBe(10)
+    expect(page._previewGeometry).toHaveLength(10)
+    const before = page._previewLayers[0].params.brightness
+    const briFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'brightness')
+    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: briFi } }, detail: { value: 200 } })
+    expect(page._previewLayers[0].params.brightness).toBe(200)
+    expect(page._previewLayers[0].params.brightness).not.toBe(before)
+  })
+
+  test('3D 预览：切换灯效后预览目标跟随新灯效', () => {
+    const page = load(0)
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    expect(page._previewLayers[0].effect).toBe(EFF.SOLID)
+    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 0 } }, detail: { value: 4 } }) // 彩虹
+    expect(page._previewLayers[0].effect).toBe(EFF.RAINBOW)
+  })
+
+  test('3D 预览：按阶段整体合成——双图层都进入预览', () => {
+    const page = load(0)
+    page.onAddLayer({ currentTarget: { dataset: { si: 0 } } })
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 1 } } })
+    expect(page._previewLayers).toHaveLength(2)
+    expect(page.data.previewLayerCount).toBe(2)
+    // 改动效层（图层 2）灯效后，背景层参数仍独立保留在预览里。
+    // 注意 detail.value 是下拉下标（0 起），对应 EFF id = 下标 + 1。
+    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 1 } }, detail: { value: EFF.BREATH - 1 } }) // 呼吸
+    expect(page._previewLayers[0].effect).toBe(EFF.SOLID) // 背景仍是常亮
+    expect(page._previewLayers[1].effect).toBe(EFF.BREATH)
+  })
+
+  test('3D 预览：关闭弹窗/切后台停掉动画循环', () => {
+    const page = load(0)
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    page._stopPreviewLoop = jest.fn(page._stopPreviewLoop)
+    page.onCloseLayerEditor()
+    expect(page._stopPreviewLoop).toHaveBeenCalled()
+    expect(page.data.layerEditorOpen).toBe(false)
+  })
+
+  test('3D 预览：拖动旋转改角度并限位俯仰', () => {
+    const page = load(0)
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    const yaw0 = page._previewYaw
+    page.onPreviewTouchStart({ touches: [{ clientX: 0, clientY: 0 }] })
+    page.onPreviewTouchMove({ touches: [{ clientX: 40, clientY: 0 }] })
+    expect(page._previewYaw).not.toBe(yaw0)
+    page.onPreviewTouchMove({ touches: [{ clientX: 40, clientY: 5000 }] })
+    expect(page._previewPitch).toBeLessThanOrEqual(1.1)
+    expect(page._previewPitch).toBeGreaterThanOrEqual(-1.1)
+    page.onPreviewTouchEnd()
+    expect(page._previewDragging).toBe(false)
+  })
+
+  test('3D 预览：切后台停动画，回前台重取节点并恢复', () => {
+    const page = load(0)
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    page._previewRunning = true
+    page.onHide()
+    expect(page._previewRunning).toBe(false)
+    const drawn = jest.fn()
+    page._drawEffectPreview = drawn
+    page.onShow()
+    // 弹窗开着 → 回前台重取 canvas 节点（内部会重启动画循环）。
+    return Promise.resolve().then(() => expect(drawn).toHaveBeenCalled())
+  })
+
+  test('3D 预览：弹窗关闭时 onShow 不重绘', () => {
+    const page = load(0)
+    const drawn = jest.fn()
+    page._drawEffectPreview = drawn
+    page.onShow()
+    return Promise.resolve().then(() => expect(drawn).not.toHaveBeenCalled())
+  })
+
+  test('3D 预览：渲染单帧画出灯条板身与灯珠（深度排序 + 合成两层）', () => {
+    const page = load(0)
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    const arcs = []
+    const path = []
+    const ctx = {
+      setTransform: jest.fn(),
+      clearRect: jest.fn(),
+      beginPath: jest.fn(() => path.push('begin')),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      closePath: jest.fn(),
+      stroke: jest.fn(),
+      arc: (x, y, r) => arcs.push({ x, y, r }),
+      fill: jest.fn(),
+      set fillStyle(v) { this._fill = v },
+      get fillStyle() { return this._fill },
+      set strokeStyle(v) { this._stroke = v },
+      get strokeStyle() { return this._stroke },
+      set lineWidth(v) { this._lw = v },
+      get lineWidth() { return this._lw },
+      globalCompositeOperation: 'source-over',
+    }
+    page._previewCanvas = { canvas: {}, ctx, w: 300, h: 160, dpr: 2 }
+    page._renderPreviewFrame()
+    // 灯条板身先成形（一条闭合路径 + 描边），灯珠随后叠在条上。
+    expect(path.length).toBeGreaterThanOrEqual(2) // 板身 + 每颗灯珠各一次 beginPath
+    expect(ctx.stroke).toHaveBeenCalled()
+    // 常亮 → 每颗灯珠都画了光晕 + 灯芯两个圆。
+    expect(arcs.length).toBeGreaterThanOrEqual(page._previewLeds * 2)
+    for (const a of arcs) {
+      expect(a.x).toBeGreaterThan(0)
+      expect(a.x).toBeLessThan(300)
+      expect(a.y).toBeGreaterThan(0)
+      expect(a.y).toBeLessThan(160)
+    }
+    // 加色混合用完恢复为 normal，避免影响后续绘制。
+    expect(ctx.globalCompositeOperation).toBe('source-over')
+  })
+
+  test('3D 预览：灯条是横向长条（宽远大于高）', () => {
+    const page = load(0)
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    const pts = page._previewGeometry
+    const out = require('../utils/effectPreview').projectPoints(pts, {
+      width: 300,
+      height: 160,
+      yaw: 0,
+      pitch: 0,
+      yawRange: 0.85,
+      pitchRange: 0.55,
+    })
+    const xs = out.map((p) => p.x)
+    const ys = out.map((p) => p.y)
+    const w = Math.max(...xs) - Math.min(...xs)
+    const hgt = Math.max(...ys) - Math.min(...ys)
+    expect(w).toBeGreaterThan(hgt * 5) // 长条而非方块/螺旋
   })
 })
