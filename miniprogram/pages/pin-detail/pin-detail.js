@@ -635,7 +635,7 @@ Page({
     this._markDirty({ immediate: true })
   },
 
-  // ---- 灯组 Tab（固定 5 个，无新增/删除；tab 小字显示灯珠区间） -------------
+  // ---- 灯组选择（固定 5 个，无新增/删除；下拉框内显示灯珠区间） ---------------
 
   // 切到指定灯组：重置阶段选中/图层折叠/拖选态，重建灯珠网格与气泡箭头。
   _activateGroup(index) {
@@ -647,15 +647,13 @@ Page({
     if (wx.nextTick) wx.nextTick(() => this._measureStage())
   },
 
-  onTapGroup(e) {
-    this._activateGroup(Number(e.currentTarget.dataset.index))
+  // 下拉框选组（picker selector）：越界/同组忽略。
+  onGroupPick(e) {
+    this._activateGroup(Number(e.detail.value))
   },
 
-  // 长按灯组 Tab：切到该组并弹出配置弹窗（名称 + 灯珠范围拖选内嵌，修改即推送）。
-  onGroupLongPress(e) {
-    const index = Number(e.currentTarget.dataset.index)
-    if (!this.data.groups[index]) return
-    this._activateGroup(index)
+  // 打开当前组配置弹窗（名称 + 灯珠范围拖选内嵌，修改即推送）。
+  onOpenGroupConfig() {
     this.setData({ groupConfigOpen: true, dragging: false, dragRange: null, inCancelZone: false })
     this.setData({ ledCells: this._buildLedCells(this.data.groups[this.data.activeGroup], this.data.ledCount, this._computeOccupied(this.data.activeGroup), null) })
     if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })

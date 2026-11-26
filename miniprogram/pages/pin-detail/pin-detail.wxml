@@ -1,5 +1,5 @@
 <!-- 引脚配置详情页（ADR-0027 / #27 / T7；灯珠拖选 #31）。
-     顶部图片/名称/开关 → 灯组 Tab（长按弹配置窗改名称/灯珠范围）→ 阶段/图层/灯效编辑。
+     顶部图片/名称/开关 + 灯组下拉（同一卡片，「配置」开弹窗改名称/灯珠范围）→ 阶段/图层/灯效编辑。
      修改即推送（autoSync 防抖下发），无保存按钮。 -->
 <view class="page">
   <sim-banner wx:if="{{simMode}}" />
@@ -12,33 +12,34 @@
     <text class="sync-bar__text" wx:elif="{{syncState === 'local'}}">仅本机（未连接）</text>
   </view>
 
-  <!-- 顶部：图片 / 名称 / 开关 -->
-  <view class="bt-card pin-head">
-    <image class="pin-head__img" src="{{img}}" mode="aspectFill" />
-    <view class="pin-head__info">
-      <input class="pin-head__name" value="{{pinName}}" placeholder="引脚名称" bindinput="onPinNameInput" />
-      <view class="bt-row bt-row--between">
-        <text class="bt-text--secondary">引脚 {{pin + 1}}</text>
-        <!-- 灯带开关：设备关机（整机开关 off，ADR-0032）时置灰不可切换 -->
-        <switch checked="{{power}}" disabled="{{!masterPower}}" color="#0088FF" bindchange="onPowerChange" />
+  <!-- 顶部卡片：图片 / 名称 / 开关，下方分隔线内嵌灯组下拉选择（固定 5 组，无增删） -->
+  <view class="bt-card pin-head-card">
+    <view class="pin-head">
+      <image class="pin-head__img" src="{{img}}" mode="aspectFill" />
+      <view class="pin-head__info">
+        <input class="pin-head__name" value="{{pinName}}" placeholder="引脚名称" bindinput="onPinNameInput" />
+        <view class="bt-row bt-row--between">
+          <text class="bt-text--secondary">引脚 {{pin + 1}}</text>
+          <!-- 灯带开关：设备关机（整机开关 off，ADR-0032）时置灰不可切换 -->
+          <switch checked="{{power}}" disabled="{{!masterPower}}" color="#0088FF" bindchange="onPowerChange" />
+        </view>
       </view>
     </view>
-  </view>
 
-  <!-- 灯组 Tab（固定 5 个，无新增/删除；小字显示灯珠区间） -->
-  <scroll-view wx:if="{{groups.length}}" class="group-tabs" scroll-x enhanced show-scrollbar="{{false}}">
-    <view
-      wx:for="{{groups}}"
-      wx:key="gid"
-      class="group-tab {{activeGroup === index ? 'group-tab--active' : ''}} bt-pressable"
-      data-index="{{index}}"
-      bindtap="onTapGroup"
-      bindlongpress="onGroupLongPress"
-    >
-      <text class="group-tab__name">{{item.name}}</text>
-      <text class="group-tab__range">{{item.ledStart === 255 ? '未配置' : item.ledStart + '-' + item.ledEnd}}</text>
+    <!-- 灯组选择：下拉框（左，占满）+「配置」开名称/灯珠范围弹窗 -->
+    <view wx:if="{{groups.length}}" class="group-select">
+      <picker class="group-select__picker" mode="selector" range="{{groups}}" range-key="name" value="{{activeGroup}}" bindchange="onGroupPick">
+        <view class="group-select__value">
+          <view class="group-select__text">
+            <text class="group-select__name">{{groups[activeGroup].name}}</text>
+            <text class="group-select__range">{{groups[activeGroup].ledStart === 255 ? '未配置灯珠' : '灯珠 ' + groups[activeGroup].ledStart + '-' + groups[activeGroup].ledEnd}}</text>
+          </view>
+          <text class="group-select__arrow">▼</text>
+        </view>
+      </picker>
+      <view class="group-select__config bt-pressable" bindtap="onOpenGroupConfig">配置</view>
     </view>
-  </scroll-view>
+  </view>
 
   <!-- 灯珠范围拖选：长按 1s 激活刷选；被其他灯组占用的格灰显不可选；
        拖选时全屏半透明覆盖层 fixed 屏幕下方（微信语音取消样式），拖入松手回滚。 -->
@@ -271,7 +272,7 @@
     </view>
   </view>
 
-  <!-- 灯组配置弹窗（长按灯组 Tab 打开）：名称 + 灯珠范围拖选（第一层弹窗，无二级弹层）。
+  <!-- 灯组配置弹窗（点灯组行的「配置」打开）：名称 + 灯珠范围拖选（第一层弹窗，无二级弹层）。
        拖选激活后底部浮出取消区（fixed，微信语音取消样式），拖入松手回滚。 -->
   <view wx:if="{{groupConfigOpen}}" class="group-config-mask" catchtouchmove="noop">
     <view class="group-config-backdrop" bindtap="onCloseGroupConfig"></view>

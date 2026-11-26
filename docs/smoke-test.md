@@ -9,7 +9,7 @@
 - [ ] 测试机已安装微信，登录可用账号（当前账号「死守i」）。
 - [ ] 小程序已用「真机调试」或体验版打开（**开发者工具不算发布前 QA**，仅可用于链路层初筛）。
 - [ ] 准备一台 BLE Sniffer（nRF Sniffer / Ellisys 等）——仅在排障分包/重传问题时使用。
-- [ ] 记录测试机的 **Android 厂商 / 系统版本 / 微信版本**（版本矩阵见 arena-feasibility 第三节）。
+- [ ] 记录测试机的 **Android 厂商 / 系统版本 / 微信版本**（版本矩阵是兼容性验证维度，见 `arena-feasibility/final-report.md` 第三节第 4 条）。
 
 ## 一、权限路径（Android 必测）
 
