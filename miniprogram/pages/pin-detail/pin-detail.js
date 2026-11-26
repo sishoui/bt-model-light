@@ -322,11 +322,11 @@ Page({
     colorPickerOpen: false,
     colorPickerTarget: null, // 目标 field 定位（si/li/fi），随 setData 同步给 WXML
     recentColors: [],
-    // HSV 三维选色状态：h[0,360), s/v [0,100]；pickerHex 当前预览 hex；
-    // pickerUi 为拖动条派生的 UI（位置 + 渐变端点）。
-    pickerHsv: { h: 0, s: 0, v: 100 },
+    // 色轮选色状态：h[0,360)、s[0,100]；不含量度——亮度归图层的 brightness 参数管。
+    // pickerHex 为当前预览 hex，pickerUi 为圆点位置。
+    pickerHueSat: { h: 0, s: 0 },
     pickerHex: '#FFFFFF',
-    pickerUi: { huePos: '0%', satPos: '0%', valPos: '100%', satFrom: '#FFFFFF', satTo: '#FF0000', valFrom: '#000000', valTo: '#FF0000' },
+    pickerUi: { dotX: '50%', dotY: '50%' },
     // 同步状态条（autoSync 驱动）：state 为 syncing/synced/failed/local，idle 不显示。
     syncState: 'idle',
     syncAt: '',
@@ -1174,86 +1174,128 @@ Page({
     })
   },
 
-  // ---- 颜色弹层（#33） ---------------------------------------------------------
+    // ---- 颜色弹层（#33） ---------------------------------------------------------
   // rgb 色块点击：打开弹层，定位到目标 field，把最近色带入弹层。
-  // HSV 初值取目标 field 当前颜色（弹层打开即三维度可拖）。
+  // 色轮只管色相/饱和度；亮度由图层自己的 brightness 参数控制（固件 scale_rgb 缩放），
+  // 所以这里选中色一律按满亮度（v=100）写入，避免两处重复压暗。
   onOpenColorPicker(e) {
     const ds = e.currentTarget.dataset
     const si = Number(ds.si)
     const li = Number(ds.li)
     const fi = Number(ds.fi)
-    this._locateField(si, li, fi)
     this._colorPickerTarget = { si, li, fi }
     const field = this._locateField(si, li, fi)
-    const hsv = (field && field.value && rgbToHsv(field.value)) || { h: 0, s: 0, v: 100 }
-    this._setPickerHsv(hsv)
+    const hsv = (field && field.value && rgbToHsv(field.value)) || null
+    this._setPickerHueSat(hsv ? hsv.h : 0, hsv ? hsv.s : 0)
     this.setData({ colorPickerOpen: true, colorPickerTarget: { si, li, fi }, recentColors: getRecentColors() })
+    // 色轮画在 canvas 上，节点在 wx:if 内，必须等下一帧再画。
+    if (wx.nextTick) wx.nextTick(() => this._drawColorWheel())
   },
 
-  // HSV → 弹层 UI 派生：当前 hex 预览 + 三条位置/渐变端点。单一计算点，
-  // 打开初始化与拖动更新共用，避免两处漂移。
-  _setPickerHsv(hsv) {
-    // 色相取整到 [0,359]：拖到最右（ratio=1 → 360）回卷到 0 会让圆点跳到最左，
-    // 钳到 359 使 359°（红端）稳定停在最右，与视觉连续。
-    const h = Math.round(Math.max(0, Math.min(359, Number(hsv.h) || 0)))
-    const s = Math.round(Math.max(0, Math.min(100, Number(hsv.s) || 0)))
-    const v = Math.round(Math.max(0, Math.min(100, Number(hsv.v) || 0)))
-    const hex = rgbToHex(hsvToRgb(h, s, v)).toUpperCase()
-    const ui = {
-      huePos: (h / 360) * 100 + '%',
-      satPos: s + '%',
-      valPos: v + '%',
-      satFrom: rgbToHex(hsvToRgb(h, 0, v)).toUpperCase(),
-      satTo: rgbToHex(hsvToRgb(h, 100, v)).toUpperCase(),
-      valFrom: '#000000',
-      valTo: rgbToHex(hsvToRgb(h, s, 100)).toUpperCase(),
-    }
-    this._pickerHsv = { h, s, v }
+  // 色相/饱和度 → 弹层 UI 派生：当前 hex 预览 + 色轮圆点位置。
+  // 单一计算点，打开初始化与拖动更新共用，避免两处漂移。
+  _setPickerHueSat(hue, sat) {
+    // 色相取整到 [0,359]：360 与 0 同色，封顶 359 使圆点稳定停在最后一段不回卷。
+    const h = Math.round(Math.max(0, Math.min(359, Number(hue) || 0)))
+    const s = Math.round(Math.max(0, Math.min(100, Number(sat) || 0)))
+    const hex = rgbToHex(hsvToRgb(h, s, 100)).toUpperCase()
+    // 色轮圆点：色相为绕圆角度（0° 指向右，顺时针），饱和度为圆心到边缘的比例。
+    const rad = (h * Math.PI) / 180
+    // 两位小数取整：cos/sin 的浮点误差会把 50% 算成 49.99999999999999%，样式里没必要。
+    const pct = (v) => Math.round(v * 100) / 100 + '%'
+    this._pickerHueSat = { h, s }
     this._pickerHex = hex
-    this.setData({ pickerHsv: { h, s, v }, pickerHex: hex, pickerUi: ui })
+    this.setData({
+      pickerHueSat: { h, s },
+      pickerHex: hex,
+      pickerUi: { dotX: pct(50 + Math.cos(rad) * (s / 2)), dotY: pct(50 + Math.sin(rad) * (s / 2)) },
+    })
   },
 
-  // 拖动条触摸：start 记录条 rect（后续 move 复用），move 按 clientX 反查比例。
-  // 三条共用一套处理，data-part 区分（hue/sat/val）。
+  // 色轮作画：绕圆 180 段（每段 2°），每段用"圆心白 → 边缘纯色相"的径向渐变填充，
+  // 叠出标准 HSV 色轮。色轮只与几何相关，打开弹层画一次即可。
+  _drawColorWheel() {
+    if (typeof wx === 'undefined' || !wx.createSelectorQuery) return
+    const query = wx.createSelectorQuery().in(this)
+    query.select('.color-wheel').fields({ node: true, size: true })
+    query.exec((res) => {
+      const info = res && res[0]
+      if (!info || !info.node) return
+      const canvas = info.node
+      const ctx = canvas.getContext('2d')
+      const dpr = (wx.getSystemInfoSync && wx.getSystemInfoSync().pixelRatio) || 2
+      const w = info.width || 240
+      const hgt = info.height || w
+      canvas.width = w * dpr
+      canvas.height = hgt * dpr
+      ctx.scale(dpr, dpr)
+      ctx.clearRect(0, 0, w, hgt)
+      const cx = w / 2
+      const cy = hgt / 2
+      const r = Math.min(w, hgt) / 2
+      const segs = 180
+      const stepRad = (Math.PI * 2) / segs
+      for (let i = 0; i < segs; i++) {
+        const a0 = i * stepRad
+        const hue = (i * 360) / segs
+        const c = rgbToHex(hsvToRgb(hue, 100, 100)).toUpperCase()
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r)
+        grad.addColorStop(0, '#FFFFFF')
+        grad.addColorStop(1, c)
+        ctx.beginPath()
+        // 每段多铺 0.5 个步长，避免相邻扇形之间露白缝。
+        ctx.moveTo(cx, cy)
+        ctx.arc(cx, cy, r, a0 - stepRad / 2, a0 + stepRad * 1.5)
+        ctx.closePath()
+        ctx.fillStyle = grad
+        ctx.fill()
+      }
+    })
+  },
+
+  // 色轮拖动：start 记录轮盘 rect（后续 move 复用），move 按坐标反解 h/s。
   onPickerTouchStart(e) {
-    const part = e.currentTarget.dataset.part
     const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
     const query = wx.createSelectorQuery()
     query.in(this)
-    query.select('.picker-bar--' + part).boundingClientRect()
+    query.select('.picker-wheel').boundingClientRect()
     query.exec((res) => {
-      this._barRects = this._barRects || {}
-      this._barRects[part] = (res && res[0]) || null
-      this._pickerPart = part
-      this._applyPickerTouch(part, t)
+      this._wheelRect = (res && res[0]) || null
+      this._pickerDragging = true
+      this._applyPickerTouch(t)
     })
   },
 
   onPickerTouchMove(e) {
-    if (!this._pickerPart) return
+    if (!this._pickerDragging) return
     const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
-    this._applyPickerTouch(this._pickerPart, t)
+    this._applyPickerTouch(t)
   },
 
   // 松手：写回 field（应用颜色 + 持久化最近色），弹层保持打开可继续微调。
   onPickerTouchEnd() {
-    if (!this._pickerPart) return
-    this._pickerPart = null
+    if (!this._pickerDragging) return
+    this._pickerDragging = false
     const target = this._colorPickerTarget || {}
     if (!Number.isFinite(target.si) || !Number.isFinite(target.li) || !Number.isFinite(target.fi)) return
     this._applyColorHex(target.si, target.li, target.fi, this._pickerHex)
   },
 
-  // 触摸点 → 条上比例 [0,1] → 更新对应维度。rect 未就绪（查询未回）时忽略。
-  _applyPickerTouch(part, t) {
-    const rect = this._barRects && this._barRects[part]
+  // 触摸点 → 色轮上的 h/s 更新。rect 未就绪（查询未回）时忽略。
+  _applyPickerTouch(t) {
+    const rect = this._wheelRect
     if (!rect || !rect.width) return
-    const ratio = Math.max(0, Math.min(1, ((t.clientX || 0) - rect.left) / rect.width))
-    const cur = this._pickerHsv || { h: 0, s: 0, v: 100 }
-    // 色相 359° 封顶：ratio=1（最右）→ 359，避免回卷 0 跳到最左。
-    if (part === 'hue') this._setPickerHsv({ h: Math.min(359, ratio * 360), s: cur.s, v: cur.v })
-    else if (part === 'sat') this._setPickerHsv({ h: cur.h, s: ratio * 100, v: cur.v })
-    else if (part === 'val') this._setPickerHsv({ h: cur.h, s: cur.s, v: ratio * 100 })
+    const cur = this._pickerHueSat || { h: 0, s: 0 }
+    // 坐标相对圆心反解——角度为色相，半径为饱和度。
+    const cx = rect.left + rect.width / 2
+    const cy = rect.top + rect.height / 2
+    const dx = (t.clientX || 0) - cx
+    const dy = (t.clientY || 0) - cy
+    const radius = rect.width / 2
+    const sRatio = Math.max(0, Math.min(1, Math.sqrt(dx * dx + dy * dy) / radius))
+    // 圆心（无方向）保持当前色相：atan2(0,0) 恒为 0，会让色相突跳到红。
+    const h = sRatio > 0 ? ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360 : cur.h
+    this._setPickerHueSat(Math.min(359, h), sRatio * 100)
   },
 
   // 弹层选色：hex → rgb 写入 target field → 持久化最近色 → 关闭弹层。

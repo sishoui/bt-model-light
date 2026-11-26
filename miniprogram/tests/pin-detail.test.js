@@ -812,107 +812,132 @@ describe('pin-detail 页（#27）', () => {
     expect(colors.find((c) => c === '#000000')).toBeUndefined()
   })
 
-  // ---- HSV 三维选色（色相/饱和度/亮度拖动条） --------------------------------
+  // ---- 色轮选色（角度=色相、半径=饱和度；亮度归图层的 brightness 参数） -----
 
-  test('onOpenColorPicker：HSV 初值取目标 field 当前颜色', () => {
-    const page = load(0)
+  // 色轮 rect：200×200，圆心 (100,100)，半径 100。
+  const WHEEL_RECT = { left: 0, top: 0, width: 200, height: 200 }
+
+  function openPicker(page) {
     const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
-    // 默认色为白 [255,255,255] → h0 s0 v100。
     page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
-    expect(page.data.pickerHsv).toEqual({ h: 0, s: 0, v: 100 })
+  }
+
+  function touchWheel(page, clientX, clientY) {
+    page.onPickerTouchStart({ touches: [{ clientX, clientY }] })
+  }
+
+  test('onOpenColorPicker：色相/饱和度初值取目标 field 当前颜色', () => {
+    const page = load(0)
+    // 默认色为白 [255,255,255] → h0 s0。
+    openPicker(page)
+    expect(page.data.pickerHueSat).toEqual({ h: 0, s: 0 })
     expect(page.data.pickerHex).toBe('#FFFFFF')
+    // s=0 → 色轮圆点落在正中央。
+    expect(page.data.pickerUi.dotX).toBe('50%')
+    expect(page.data.pickerUi.dotY).toBe('50%')
   })
 
-  test('拖动色相条：clientX 比例 → 色相/预览 hex 更新，松手才写回 field', () => {
+  test('拖色轮：角度 → 色相、半径 → 饱和度，松手才写回 field', () => {
     const page = load(0)
-    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
-    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
-    // 条 rect：left 0 width 360（与 wx-mock __gridRect 同构）。
-    wx.__gridRect = { left: 0, top: 0, width: 360, height: 64 }
-    // 先饱和度拖满（s0 时色相不可见，白色下拖色相仍是白）。
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 360, clientY: 0 }] })
-    page.onPickerTouchEnd()
-    // 色相拖到 50% → 180（青），s100 v100 → #00FFFF。
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 180, clientY: 0 }] })
-    expect(page.data.pickerHsv.h).toBe(180)
-    expect(page.data.pickerHex).toBe('#00FFFF')
-    // 拖动中未松手：field 未写回（仍是上一步的饱和红）。
-    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([255, 0, 0])
-    page.onPickerTouchEnd()
-    // 松手：写回 field + 最近色。
-    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([0, 255, 255])
-    expect(getRecentColors()[0]).toBe('#00FFFF')
-  })
-
-  test('拖动饱和度/亮度条：比例 → s/v 更新，三色联动预览', () => {
-    const page = load(0)
-    const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
-    page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
-    wx.__gridRect = { left: 0, top: 0, width: 360, height: 48 }
-    // 色相拖到 0（红），饱和度拖到 100% → #FF0000。
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 0, clientY: 0 }] })
-    page.onPickerTouchEnd()
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 360, clientY: 0 }] })
-    expect(page.data.pickerHsv.s).toBe(100)
+    openPicker(page)
+    wx.__gridRect = WHEEL_RECT
+    // 正右方满半径：角度 0 → h0，半径 100% → s100 → 纯红。
+    touchWheel(page, 200, 100)
+    expect(page.data.pickerHueSat).toEqual({ h: 0, s: 100 })
     expect(page.data.pickerHex).toBe('#FF0000')
-    // 亮度拖到 50% → #800000。
+    // 拖动中未松手：field 未写回（仍是默认白）。
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([255, 255, 255])
     page.onPickerTouchEnd()
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'val' } }, touches: [{ clientX: 180, clientY: 0 }] })
-    expect(page.data.pickerHsv.v).toBe(50)
-    expect(page.data.pickerHex).toBe('#800000')
-    page.onPickerTouchEnd()
-    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([128, 0, 0])
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([255, 0, 0])
+    expect(getRecentColors()[0]).toBe('#FF0000')
   })
 
-  test('三维度以个位数为最小单位：拖动比例 → 四舍五入取整', () => {
+  test('拖色轮：正上方为 270°（蓝紫），圆点落在圆周', () => {
     const page = load(0)
-    wx.__gridRect = { left: 0, top: 0, width: 360, height: 56 }
-    // 色相 137.52°（clientX 275.12 不可行，用 275/360*360=275 → 用分数比例模拟非整数）。
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 137.52, clientY: 0 }] })
-    expect(page.data.pickerHsv.h).toBe(138)
-    expect(page.data.pickerHsv.h % 1).toBe(0)
-    // 饱和度 49.5% → 50。
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 178.2, clientY: 0 }] })
-    expect(page.data.pickerHsv.s).toBe(50)
-    expect(page.data.pickerHsv.s % 1).toBe(0)
-    // 亮度 33.3% → 33。
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'val' } }, touches: [{ clientX: 119.88, clientY: 0 }] })
-    expect(page.data.pickerHsv.v).toBe(33)
-    expect(page.data.pickerHsv.v % 1).toBe(0)
+    openPicker(page)
+    wx.__gridRect = WHEEL_RECT
+    // 正上方（dy=-100, dx=0）→ atan2(-100,0) = -90 → 归一 270。
+    touchWheel(page, 100, 0)
+    expect(page.data.pickerHueSat).toEqual({ h: 270, s: 100 })
+    expect(page.data.pickerHex).toBe('#8000FF')
+    expect(page.data.pickerUi.dotX).toBe('50%')
+    expect(page.data.pickerUi.dotY).toBe('0%')
+    page.onPickerTouchEnd()
   })
 
-  test('拖动条越界触摸点：比例钳制 [0,1]，不抛异常', () => {
+  test('拖色轮：半径一半 → 饱和度 50%，颜色随之变浅', () => {
     const page = load(0)
-    wx.__gridRect = { left: 100, top: 0, width: 200, height: 48 }
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: -50, clientY: 0 }] })
-    expect(page.data.pickerHsv.h).toBe(0)
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 9999, clientY: 0 }] })
-    // 比例钳到 1 → 色相封顶 359°（不再回卷 0 跳到最左）；s0 v100 下颜色仍为白。
-    expect(page.data.pickerHsv.h).toBe(359)
+    openPicker(page)
+    wx.__gridRect = WHEEL_RECT
+    // 正右方半半径（圆心右侧 50px）→ h0 s50 → #FF8080。
+    touchWheel(page, 150, 100)
+    expect(page.data.pickerHueSat).toEqual({ h: 0, s: 50 })
+    expect(page.data.pickerHex).toBe('#FF8080')
+    expect(page.data.pickerUi.dotX).toBe('75%')
+    expect(page.data.pickerUi.dotY).toBe('50%')
+    page.onPickerTouchEnd()
+  })
+
+  test('拖色轮：触圆心 → 饱和度 0 且保持原色相（不突跳到红）', () => {
+    const page = load(0)
+    openPicker(page)
+    wx.__gridRect = WHEEL_RECT
+    // 正下方满半径 → h90（黄绿），再拖回圆心。
+    touchWheel(page, 100, 200)
+    expect(page.data.pickerHueSat.h).toBe(90)
+    page.onPickerTouchEnd()
+    touchWheel(page, 100, 100)
+    expect(page.data.pickerHueSat).toEqual({ h: 90, s: 0 })
     expect(page.data.pickerHex).toBe('#FFFFFF')
+    page.onPickerTouchEnd()
+  })
+
+  test('拖色轮：越界触摸点饱和度钳制 100%，拖动中不抛异常', () => {
+    const page = load(0)
+    wx.__gridRect = WHEEL_RECT
+    touchWheel(page, 9999, 100)
+    expect(page.data.pickerHueSat.s).toBe(100)
+    expect(page.data.pickerHueSat.h).toBe(0) // 正右方向仍是 0°
+    expect(() => page.onPickerTouchMove({ touches: [{ clientX: 9999, clientY: 9999 }] })).not.toThrow()
+  })
+
+  test('h/s 以个位数为最小单位：拖动 → 四舍五入取整', () => {
+    const page = load(0)
+    wx.__gridRect = WHEEL_RECT
+    // 角度 45.5°、半径 74.5% 的落点。
+    const rad = (45.5 * Math.PI) / 180
+    touchWheel(page, 100 + Math.cos(rad) * 74.5, 100 + Math.sin(rad) * 74.5)
+    expect(page.data.pickerHueSat.h).toBe(46)
+    expect(page.data.pickerHueSat.s).toBe(75)
+    expect(page.data.pickerHueSat.h % 1).toBe(0)
+    expect(page.data.pickerHueSat.s % 1).toBe(0)
+  })
+
+  test('色轮只产出色相/饱和度：选中色按满亮度写入（不与 brightness 参数重复压暗）', () => {
+    const page = load(0)
+    openPicker(page)
+    wx.__gridRect = WHEEL_RECT
+    // 半半径 → s50，写入的 rgb 必须是 v=100 的纯色阶（[255,128,128]），不是暗红。
+    touchWheel(page, 150, 100)
+    page.onPickerTouchEnd()
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'color').value).toEqual([255, 128, 128])
+    // 弹层不再有亮度维度。
+    expect(page.data.pickerHueSat.v).toBeUndefined()
+    expect(page.data.pickerUi.valPos).toBeUndefined()
+    expect(page.data.pickerUi.dimOpacity).toBeUndefined()
   })
 
   test('rect 未就绪时拖动忽略（查询未回不崩）', () => {
     const page = load(0)
+    openPicker(page)
     wx.__gridRect = null
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 180, clientY: 0 }] })
-    expect(page.data.pickerHsv).toEqual({ h: 0, s: 0, v: 100 })
-    // move/end 无 active part：安全返回。
+    touchWheel(page, 180, 100)
+    // 弹层初值未被改写。
+    expect(page.data.pickerHueSat).toEqual({ h: 0, s: 0 })
+    expect(page.data.pickerHex).toBe('#FFFFFF')
+    // move/end 仍安全返回。
     expect(() => page.onPickerTouchMove({ touches: [{ clientX: 0 }] })).not.toThrow()
     expect(() => page.onPickerTouchEnd()).not.toThrow()
-  })
-
-  test('色相条渐变端点：s/v 联动（satTo/valTo 随当前维度变化）', () => {
-    const page = load(0)
-    wx.__gridRect = { left: 0, top: 0, width: 360, height: 48 }
-    // v=100 s=0：sat 渐变 白→红，val 渐变 黑→白（s0 时最亮即白）。
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'hue' } }, touches: [{ clientX: 0, clientY: 0 }] })
-    expect(page.data.pickerUi.satFrom).toBe('#FFFFFF')
-    expect(page.data.pickerUi.satTo).toBe('#FF0000')
-    expect(page.data.pickerUi.valTo).toBe('#FFFFFF')
-    // s=50：valTo 变浅红 #FF8080。
-    page.onPickerTouchStart({ currentTarget: { dataset: { part: 'sat' } }, touches: [{ clientX: 180, clientY: 0 }] })
-    expect(page.data.pickerUi.valTo).toBe('#FF8080')
   })
 
   // ---- 修改即推送（autoSync）：防抖合并 / 未连接落盘 / 连接后补发 ------------

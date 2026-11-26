@@ -914,68 +914,67 @@
   background: var(--bt-color-bg-input);
 }
 
-/* HSV 选色：预览色块 + 三条拖动条（色相加粗渐变，饱和度/亮度随当前色相渐变） */
+/* 选色：色轮（角度=色相，半径=饱和度） */
+.picker-main {
+  display: flex;
+  gap: 24rpx;
+  align-items: center;
+}
+
+/* 色轮：正方形，canvas 铺满；圆点叠在其上 */
+.picker-wheel {
+  position: relative;
+  flex: 0 0 auto;
+  width: 400rpx;
+  height: 400rpx;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.08);
+}
+
+.color-wheel {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.picker-side {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
 .picker-preview {
   height: 96rpx;
   border-radius: 16rpx;
   box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
 }
 
-.picker-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 28rpx;
-}
-
-.picker-bar-row {
-  display: flex;
-  flex-direction: column;
-  gap: 10rpx;
-}
-
-.picker-bar-meta {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-
-.picker-bar-label {
-  font-size: 26rpx;
-  line-height: 36rpx;
-  color: var(--bt-color-label-secondary);
-}
-
-.picker-bar-value {
+.picker-hex {
   font-size: 26rpx;
   line-height: 36rpx;
   font-weight: 600;
   color: var(--bt-color-label);
 }
 
-.picker-bar {
-  position: relative;
-  width: 100%;
-  height: 40rpx;
-  border-radius: 999rpx;
-  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
+.picker-hs {
+  font-size: 22rpx;
+  line-height: 30rpx;
+  color: var(--bt-color-label-tertiary);
 }
 
-/* 色相条：加粗 + 全色相彩虹渐变（红→黄→绿→青→蓝→品红→红） */
-.picker-bar--hue {
-  height: 56rpx;
-  background: linear-gradient(to right, #FF0000 0%, #FFFF00 16.67%, #00FF00 33.33%, #00FFFF 50%, #0000FF 66.67%, #FF00FF 83.33%, #FF0000 100%);
-}
-
+/* 色轮圆点：绝对定位到圆的百分比坐标，中心对齐该点 */
 .picker-dot {
   position: absolute;
-  top: 50%;
   width: 36rpx;
   height: 36rpx;
   margin-left: -18rpx;
-  transform: translateY(-50%);
+  margin-top: -18rpx;
   border-radius: 50%;
   background: #FFFFFF;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.35), 0 0 0 2rpx rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.35), 0 0 0 3rpx rgba(255, 255, 255, 0.95);
   pointer-events: none;
 }
 

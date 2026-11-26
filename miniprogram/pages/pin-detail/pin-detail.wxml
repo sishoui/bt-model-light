@@ -200,7 +200,7 @@
     </view>
   </block>
 
-  <!-- 颜色弹层：全屏遮罩 + 底部弹板（HSV 三维拖动 + 最近选色） -->
+  <!-- 颜色弹层：全屏遮罩 + 底部弹板（色轮 + 最近选色） -->
   <view wx:if="{{colorPickerOpen}}" class="color-picker-mask" catchtouchmove="noop">
     <view class="color-picker-backdrop" bindtap="onCloseColorPicker"></view>
     <view class="color-picker-panel">
@@ -208,35 +208,22 @@
         <text class="color-picker-title">选择颜色</text>
         <text class="color-picker-close" bindtap="onCloseColorPicker">✕</text>
       </view>
-      <!-- HSV 三维选色：色相（加粗渐变条）/ 饱和度 / 亮度，拖动实时预览 -->
-      <view class="picker-preview" style="background-color: {{pickerHex}};"></view>
-      <view class="picker-bars">
-        <view class="picker-bar-row">
-          <view class="picker-bar-meta">
-            <text class="picker-bar-label">色相</text>
-            <text class="picker-bar-value">{{pickerHsv.h}}°</text>
-          </view>
-          <view class="picker-bar picker-bar--hue" data-part="hue" bindtouchstart="onPickerTouchStart" catchtouchmove="onPickerTouchMove" bindtouchend="onPickerTouchEnd" bindtouchcancel="onPickerTouchEnd">
-            <view class="picker-dot" style="left: {{pickerUi.huePos}};"></view>
-          </view>
+      <!-- 色轮：角度=色相，半径=饱和度。亮度不在这里调——图层有自己的亮度参数 -->
+      <view class="picker-main">
+        <view
+          class="picker-wheel"
+          bindtouchstart="onPickerTouchStart"
+          catchtouchmove="onPickerTouchMove"
+          bindtouchend="onPickerTouchEnd"
+          bindtouchcancel="onPickerTouchEnd"
+        >
+          <canvas type="2d" class="color-wheel" id="color-wheel"></canvas>
+          <view class="picker-dot" style="left: {{pickerUi.dotX}}; top: {{pickerUi.dotY}}; background-color: {{pickerHex}};"></view>
         </view>
-        <view class="picker-bar-row">
-          <view class="picker-bar-meta">
-            <text class="picker-bar-label">饱和度</text>
-            <text class="picker-bar-value">{{pickerHsv.s}}%</text>
-          </view>
-          <view class="picker-bar picker-bar--sat" style="background: linear-gradient(to right, {{pickerUi.satFrom}}, {{pickerUi.satTo}});" data-part="sat" bindtouchstart="onPickerTouchStart" catchtouchmove="onPickerTouchMove" bindtouchend="onPickerTouchEnd" bindtouchcancel="onPickerTouchEnd">
-            <view class="picker-dot" style="left: {{pickerUi.satPos}};"></view>
-          </view>
-        </view>
-        <view class="picker-bar-row">
-          <view class="picker-bar-meta">
-            <text class="picker-bar-label">亮度</text>
-            <text class="picker-bar-value">{{pickerHsv.v}}%</text>
-          </view>
-          <view class="picker-bar picker-bar--val" style="background: linear-gradient(to right, {{pickerUi.valFrom}}, {{pickerUi.valTo}});" data-part="val" bindtouchstart="onPickerTouchStart" catchtouchmove="onPickerTouchMove" bindtouchend="onPickerTouchEnd" bindtouchcancel="onPickerTouchEnd">
-            <view class="picker-dot" style="left: {{pickerUi.valPos}};"></view>
-          </view>
+        <view class="picker-side">
+          <view class="picker-preview" style="background-color: {{pickerHex}};"></view>
+          <text class="picker-hex">{{pickerHex}}</text>
+          <text class="picker-hs">{{pickerHueSat.h}}° · 饱和 {{pickerHueSat.s}}%</text>
         </view>
       </view>
       <view wx:if="{{recentColors.length}}" class="recent-colors">
