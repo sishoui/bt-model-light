@@ -29,6 +29,10 @@ const CONFIG_BLOB_OVERHEAD = 10 // magic4+ver1+flags1+body_len2+crc2
 const CONFIG_BODY_MAX = FRAME.lenMax - CONFIG_BLOB_OVERHEAD // 固件 CONFIG_BODY_MAX
 const PIN_COUNT = LIMITS.pinCount // 8
 
+// "该阶段不亮" 的 wire 替身：单层常亮纯黑（brightness 0）。固件要求 layer_count ≥ 1，
+// 两槽都空时下发这一层，渲染结果与"零图层"一致（ADR-0033）。
+const BLACK_LAYER = { effect: EFF.SOLID, params: { color: [0, 0, 0], brightness: 0 } }
+
 // effect id ↔ name 互查（EFF 只有 name→id，这里补反向表）。
 const NAME_BY_ID = {}
 for (const name of Object.keys(EFF)) NAME_BY_ID[EFF[name]] = name
@@ -91,9 +95,12 @@ function validateConfig(config) {
         if (!(s.loopMode >= 0 && s.loopMode <= 2)) {
           return { code: ERR.INVALID_PARAMETER, message: '循环模式非法' }
         }
+        // 图层 0~2：两个固定槽位（背景/动效）都可以是空的，全空即"该阶段不亮"。
+        // 固件侧仍要求 layer_count ≥ 1，wire 形态由 encodeConfigBlob 兜底
+        // （全空 → 单层全黑 SOLID），见 ADR-0033。
         const layers = Array.isArray(s.layers) ? s.layers : []
-        if (layers.length < 1 || layers.length > LIMITS.layersPerStepMax) {
-          return { code: ERR.CONFIG_LIMIT_EXCEEDED, message: `图层数需在 1~${LIMITS.layersPerStepMax}` }
+        if (layers.length > LIMITS.layersPerStepMax) {
+          return { code: ERR.CONFIG_LIMIT_EXCEEDED, message: `图层数最多 ${LIMITS.layersPerStepMax}` }
         }
         for (const l of layers) {
           const name = effectName(l.effect)
@@ -192,8 +199,11 @@ function encodeConfigBlob(config) {
         body.push(s.duration & 0xff, (s.duration >> 8) & 0xff)
         body.push(s.transition & 0xff, s.loopMode & 0xff)
         const layers = Array.isArray(s.layers) ? s.layers : []
-        body.push(layers.length & 0xff)
-        for (const l of layers) {
+        // 两槽全空 = 该阶段不亮。固件要求 layer_count ≥ 1，且渲染单层时直接取该层，
+        // 所以下发一个全黑 SOLID 得到同样的"不亮"效果（ADR-0033）。
+        const wireLayers = layers.length ? layers : [BLACK_LAYER]
+        body.push(wireLayers.length & 0xff)
+        for (const l of wireLayers) {
           const params = encodeParams(l.effect, l.params)
           body.push(l.effect & 0xff, params.length & 0xff)
           for (const b of params) body.push(b)
@@ -303,4 +313,5 @@ module.exports = {
   validateConfig,
   encodeConfigBlob,
   decodeConfigBlob,
+  BLACK_LAYER,
 }

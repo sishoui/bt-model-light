@@ -108,15 +108,21 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.syncState).toBe('idle')
   })
 
-  test('无配置：默认 5 灯组 / 1 步骤 / 1 图层 / 常亮', () => {
+  test('无配置：默认 5 灯组 / 1 步骤 / 背景槽常亮 + 动效槽空', () => {
     const page = load(0)
     expect(page.data.pinName).toBe('引脚 1')
     expect(page.data.groups).toHaveLength(5)
     for (let i = 0; i < 5; i++) {
       expect(page.data.groups[i].name).toBe(`灯组 ${i + 1}`)
       expect(page.data.groups[i].steps).toHaveLength(1)
-      expect(page.data.groups[i].steps[0].layers).toHaveLength(1)
-      expect(page.data.groups[i].steps[0].layers[0].effect).toBe(EFF.SOLID)
+      // 固定两格：背景槽默认常亮，动效槽留空。
+      const layers = page.data.groups[i].steps[0].layers
+      expect(layers).toHaveLength(2)
+      expect(layers[0].empty).toBe(false)
+      expect(layers[0].effect).toBe(EFF.SOLID)
+      expect(layers[0].role).toBe('背景')
+      expect(layers[1].empty).toBe(true)
+      expect(layers[1].role).toBe('动效')
       // 默认空态：255 哨兵（未选灯珠）。
       expect(page.data.groups[i].ledStart).toBe(0xff)
       expect(page.data.groups[i].ledEnd).toBe(0xff)
@@ -500,17 +506,37 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.groups[0].steps).toHaveLength(4)
   })
 
-  test('图层：增到上限 2，删到下限 1', () => {
+  test('图层：两格固定槽位，空槽可填，填满后拒绝再添加', () => {
     const page = load(0)
-    page.onAddLayer({ currentTarget: { dataset: { si: 0 } } })
+    // 默认只有背景槽有图层，动效槽是空占位。
     expect(page.data.groups[0].steps[0].layers).toHaveLength(2)
-    page.onAddLayer({ currentTarget: { dataset: { si: 0 } } }) // 拒绝
-    expect(page.data.groups[0].steps[0].layers).toHaveLength(2)
+    expect(page.data.groups[0].steps[0].layers[0].empty).toBe(false)
+    expect(page.data.groups[0].steps[0].layers[1].empty).toBe(true)
 
+    page.onAddLayer({ currentTarget: { dataset: { si: 0, slot: 1 } } })
+    expect(page.data.groups[0].steps[0].layers[1].empty).toBe(false)
+    page.onAddLayer({ currentTarget: { dataset: { si: 0 } } }) // 无空槽 → 拒绝
+    expect(page.data.groups[0].steps[0].layers.filter((l) => !l.empty)).toHaveLength(2)
+  })
+
+  test('删除图层：清空该槽，另一格原位不动，两格都空则不亮', () => {
+    const page = load(0)
+    page.onAddLayer({ currentTarget: { dataset: { si: 0, slot: 1 } } })
+    const bgLid = page.data.groups[0].steps[0].layers[0].lid
+
+    // 删背景：动效仍在第二格
     page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    expect(page.data.groups[0].steps[0].layers).toHaveLength(1)
-    page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 0 } } }) // 拒绝
-    expect(page.data.groups[0].steps[0].layers).toHaveLength(1)
+    expect(page.data.groups[0].steps[0].layers[0].empty).toBe(true)
+    expect(page.data.groups[0].steps[0].layers[1].empty).toBe(false)
+    expect(page.data.groups[0].steps[0].layers[1].role).toBe('动效')
+    expect(page.data.activeStepEmpty).toBe(false)
+
+    // 再删动效：两格都空 → 提示不亮
+    page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 1 } } })
+    expect(page.data.groups[0].steps[0].layers[0].empty).toBe(true)
+    expect(page.data.groups[0].steps[0].layers[1].empty).toBe(true)
+    expect(page.data.activeStepEmpty).toBe(true)
+    expect(bgLid).toBeDefined()
   })
 
   test('切换灯效：参数表单按 schema 联动（常亮 → 呼吸）', () => {
@@ -656,12 +682,23 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.layerEditorOpen).toBe(true)
   })
 
-  test('弹窗内删除图层：关弹窗、图层数减一，不触发同步以外的副作用', () => {
+  test('弹窗内删除图层：关弹窗、该槽清空，另一格不受影响', () => {
     const page = load(0)
-    page.onAddLayer({ currentTarget: { dataset: { si: 0 } } })
+    page.onAddLayer({ currentTarget: { dataset: { si: 0, slot: 1 } } })
     page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 1 } } })
     page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 1 } } })
-    expect(page.data.groups[0].steps[0].layers).toHaveLength(1)
+    expect(page.data.groups[0].steps[0].layers[1].empty).toBe(true)
+    expect(page.data.groups[0].steps[0].layers[0].empty).toBe(false)
+    expect(page.data.layerEditorOpen).toBe(false)
+  })
+
+  test('卡片右上角删除：不打开配置弹窗，删的是卡片对应图层', () => {
+    const page = load(0)
+    page.onAddLayer({ currentTarget: { dataset: { si: 0, slot: 1 } } })
+    const keep = page.data.groups[0].steps[0].layers[0].lid
+    page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 1 } } }) // 卡片 ✕ 与弹窗底部同一个处理函数
+    expect(page.data.groups[0].steps[0].layers[1].empty).toBe(true)
+    expect(page.data.groups[0].steps[0].layers[0].lid).toBe(keep)
     expect(page.data.layerEditorOpen).toBe(false)
   })
 
@@ -1008,6 +1045,85 @@ describe('pin-detail 页（#27）', () => {
     jest.useRealTimers()
     expect(client.sendCmd).toHaveBeenCalledTimes(2)
     expect(page.data.syncState).toBe('synced')
+  })
+
+  // 固定双槽（ADR-0033）：删掉背景后动效仍在第二格，重进页面槽位不丢；
+  // 两格都空时下发单层全黑（固件渲染全黑 = 灯珠不亮）。
+  test('删除图层：槽位随配置保存，重进页面动效仍在第二格', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+    const page = load(0)
+    page.onAddLayer({ currentTarget: { dataset: { si: 0, slot: 1 } } })
+    // 动效槽换成彩虹，便于区分是哪一层。
+    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 1 } }, detail: { value: 4 } })
+    // 删掉背景槽。
+    page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    jest.advanceTimersByTime(500)
+    await flush()
+
+    const saved = getDeviceConfig(dev.id).pins.find((p) => p.pin === 0)
+    const savedLayers = saved.groups[0].steps[0].layers
+    expect(savedLayers).toHaveLength(1)
+    expect(savedLayers[0].slot).toBe(1)
+    expect(savedLayers[0].effect).toBe(EFF.RAINBOW)
+
+    // 重进页面：动效仍在第二格，第一格是空槽。
+    const rePage = load(0)
+    const layers = rePage.data.groups[0].steps[0].layers
+    expect(layers[0].empty).toBe(true)
+    expect(layers[1].empty).toBe(false)
+    expect(layers[1].effect).toBe(EFF.RAINBOW)
+    jest.useRealTimers()
+  })
+
+  test('删除图层：两格都空时下发单层全黑', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+    const page = load(0)
+    page.setData({ 'groups[0].ledStart': 0, 'groups[0].ledEnd': 3 })
+    page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    jest.advanceTimersByTime(500)
+    await flush()
+
+    const [, blob] = client.sendCmd.mock.calls[0]
+    const wireLayers = decodeConfigBlob(Uint8Array.from(blob))
+      .pins.find((p) => p.pin === 0).groups[0].steps[0].layers
+    expect(wireLayers).toHaveLength(1)
+    expect(wireLayers[0].params.color).toEqual([0, 0, 0])
+    expect(wireLayers[0].params.brightness).toBe(0)
+    jest.useRealTimers()
+  })
+
+  test('点空槽卡片：就地新建该槽图层，不打开配置弹窗', () => {
+    const page = load(0)
+    expect(page.data.groups[0].steps[0].layers[1].empty).toBe(true)
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 1 } } })
+    expect(page.data.groups[0].steps[0].layers[1].empty).toBe(false)
+    expect(page.data.groups[0].steps[0].layers[1].role).toBe('动效')
+    expect(page.data.layerEditorOpen).toBe(false)
+  })
+
+  test('预览与时间轴：空槽不参与合成，两格都空时预览无图层', () => {
+    const page = load(0)
+    // 只有背景槽 → 预览 1 层。
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    expect(page.data.previewLayerCount).toBe(1)
+    page.onCloseLayerEditor()
+
+    // 两格都删空 → 预览 0 层，时间轴该阶段无子条。
+    page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    expect(page.data.groups[0].steps[0].layers.every((l) => l.empty)).toBe(true)
+    expect(page.data.timeline[0].layers).toHaveLength(0)
+    expect(page.data.timelineLegend).toHaveLength(0)
+  })
+
+  test('空闲槽补图层后预览层数增加', () => {
+    const page = load(0)
+    page.onAddLayer({ currentTarget: { dataset: { si: 0, slot: 1 } } })
+    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    expect(page.data.previewLayerCount).toBe(2)
   })
 
   test('自动推送：校验失败（终点 < 起点）静默跳过，不写 Storage、不下发', async () => {

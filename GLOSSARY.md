@@ -14,9 +14,10 @@ Single-context glossary for `bt-model-light`. Terms here are the canonical vocab
 | 灯组 (LightGroup) | A configured range on one pin's strip with up to 5 steps. | "灯段","灯区" |
 | 灯珠区间 (LED range) | Inclusive `[start, end]` indices into a pin's strip, 0-based. | "灯珠段" |
 | 步骤 (Step) | One playback state of a light group: duration, transition, loop mode, 1–2 layers. | "帧"（UI 文案作"阶段"，见引脚配置详情页） |
-| 图层 (Layer) | An effect layer; background or effect in two-layer mode. | "层" |
-| 背景层 (Background layer) | The base layer in two-layer composition. | "底图" |
-| 动效层 (Effect layer) | The foreground layer in two-layer composition; lit pixels win. | "前景层" |
+| 图层 (Layer) | An effect layer bound to a fixed slot: 0 = background, 1 = effect. | "层" |
+| 图层槽位 (Layer slot) | 每阶段固定的两格位置（0=背景 / 1=动效）。槽位是位置语义而非顺序：删掉背景后动效仍留第二格。两格都可删空，全空 = 该阶段不亮，下发时以单层全黑 SOLID 表达（ADR-0033）。 | "插槽" |
+| 背景层 (Background layer) | The base layer in two-layer composition (slot 0). | "底图" |
+| 动效层 (Effect layer) | The foreground layer in two-layer composition; lit pixels win (slot 1). | "前景层" |
 | 效果 (Effect) | One of the 8 built-in effect types. | "灯效","动画" |
 | 合成 (Composition) | Two-layer rule: effect-layer pixel is non-black → use effect; else background. | "混合","叠加" |
 | 设备配置 (DeviceConfig) | The complete configuration of one device (8 pins → groups → steps → layers). | "配置文件" |

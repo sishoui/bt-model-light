@@ -230,9 +230,31 @@ describe('configCodec（T7）', () => {
     expect(validateConfig(c).code).toBe(ERR.INVALID_PARAMETER)
   })
 
-  test('校验：图层数为 0 → 配置超限', () => {
+  test('校验：图层数为 0 合法（两槽都空的阶段）', () => {
     const c = minimalConfig()
     c.pins[0].groups[0].steps[0].layers = []
+    expect(validateConfig(c)).toBeNull()
+  })
+
+  test('编码：0 图层兜底成单层全黑 SOLID（固件要求 layer_count ≥ 1）', () => {
+    const c = minimalConfig()
+    c.pins[0].groups[0].steps[0].layers = []
+    const bytes = encodeConfigBlob(c)
+    // 解回来是 1 层常亮纯黑：渲染结果与"无图层"一致（全黑不亮）。
+    const layer = decodeConfigBlob(bytes).pins[0].groups[0].steps[0].layers
+    expect(layer).toHaveLength(1)
+    expect(layer[0].effect).toBe(EFF.SOLID)
+    expect(layer[0].params.color).toEqual([0, 0, 0])
+    expect(layer[0].params.brightness).toBe(0)
+  })
+
+  test('编码：图层数 > 2 → 配置超限', () => {
+    const c = minimalConfig()
+    c.pins[0].groups[0].steps[0].layers = [
+      { effect: EFF.SOLID, params: {} },
+      { effect: EFF.BREATH, params: {} },
+      { effect: EFF.BLINK, params: {} },
+    ]
     expect(validateConfig(c).code).toBe(ERR.CONFIG_LIMIT_EXCEEDED)
   })
 
