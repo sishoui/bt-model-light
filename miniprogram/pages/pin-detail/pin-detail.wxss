@@ -4,7 +4,11 @@
   padding: 0 0 176rpx; /* 底部给固定玻璃保存栏留位 */
 }
 
-/* 顶部：图片 / 名称 / 开关 */
+/* 顶部卡片：引脚信息行 + 灯组选择行（分隔线区隔，同卡内两级信息） */
+.pin-head-card {
+  padding-bottom: 16rpx;
+}
+
 .pin-head {
   display: flex;
   align-items: center;
@@ -29,51 +33,73 @@
   height: 64rpx;
 }
 
-/* 灯组 Tab（固定 5 个；横向滚动防拥挤，design.md §5.4 热区 88rpx） */
-.group-tabs {
-  white-space: nowrap;
-  padding: 12rpx 32rpx;
-}
-
-.group-tab {
-  display: inline-flex;
-  flex-direction: column;
+/* 灯组选择行：卡片内分隔线上方留白；下拉框（左，占满）+「配置」按钮（右）
+ * 固定 5 组，无增删（design.md §5.4 热区 88rpx） */
+.group-select {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  min-width: 140rpx;
+  gap: 16rpx;
+  margin-top: 20rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid var(--bt-color-separator);
+}
+
+.group-select__picker {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-select__value {
+  display: flex;
+  align-items: center;
   height: 88rpx;
-  padding: 8rpx 24rpx;
-  margin-right: 12rpx;
-  background: var(--bt-color-bg-elevated);
-  border-radius: 20rpx;
-  box-sizing: border-box;
-  transition: background-color 0.25s ease-out, color 0.25s ease-out;
+  padding: 0 20rpx;
+  background: var(--bt-color-bg-input);
+  border-radius: 16rpx;
 }
 
-.group-tab--active {
-  background: var(--bt-color-accent);
+.group-select__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
-.group-tab__name {
-  font-size: 28rpx;
-  line-height: 36rpx;
+.group-select__name {
+  font-size: 30rpx;
+  line-height: 40rpx;
+  font-weight: 600;
   color: var(--bt-color-label);
-  transition: color 0.25s ease-out;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.group-tab--active .group-tab__name {
-  color: #ffffff;
-}
-
-.group-tab__range {
+.group-select__range {
   font-size: 22rpx;
   line-height: 30rpx;
   color: var(--bt-color-label-tertiary);
-  transition: color 0.25s ease-out;
 }
 
-.group-tab--active .group-tab__range {
-  color: rgba(255, 255, 255, 0.75);
+.group-select__arrow {
+  flex: 0 0 auto;
+  margin-left: 12rpx;
+  font-size: 20rpx;
+  line-height: 28rpx;
+  color: var(--bt-color-label-tertiary);
+}
+
+.group-select__config {
+  flex: 0 0 auto;
+  height: 88rpx;
+  padding: 0 28rpx;
+  font-size: 28rpx;
+  line-height: 88rpx;
+  color: var(--bt-color-accent);
+  background: rgba(0, 136, 255, 0.1);
+  border-radius: 16rpx;
+  box-sizing: border-box;
 }
 
 /* 通用行：标签 + 控件 */

@@ -185,7 +185,7 @@ describe('pin-detail 页（#27）', () => {
     expect(client.sendCmd).not.toHaveBeenCalled()
   })
 
-  test('灯组 Tab：onTapGroup 切换 activeGroup 并重建灯珠网格', () => {
+  test('灯组下拉：onGroupPick 切换 activeGroup 并重建灯珠网格', () => {
     saveDeviceConfig(dev.id, {
       version: 1,
       pins: [
@@ -202,7 +202,7 @@ describe('pin-detail 页（#27）', () => {
       ],
     })
     const page = load(0)
-    page.onTapGroup({ currentTarget: { dataset: { index: 1 } } })
+    page.onGroupPick({ detail: { value: 1 } })
     expect(page.data.activeGroup).toBe(1)
     expect(page.data.groups[1].name).toBe('彩虹')
     // 灯珠网格按新灯组范围重建：[4,9] 共 6 颗。
@@ -214,7 +214,7 @@ describe('pin-detail 页（#27）', () => {
     // 切换不动 groups VM、不触发同步。
     expect(page.data.syncState).toBe('idle')
     // 越界 index 忽略。
-    page.onTapGroup({ currentTarget: { dataset: { index: 9 } } })
+    page.onGroupPick({ detail: { value: 9 } })
     expect(page.data.activeGroup).toBe(1)
   })
 
@@ -226,10 +226,11 @@ describe('pin-detail 页（#27）', () => {
     expect(saved.pins.find((p) => p.pin === 0).groups[0].name).toBe('彩虹带')
   })
 
-  test('长按灯组 Tab：切到该组并弹出配置弹窗，关闭后复位', () => {
+  test('「配置」按钮：打开当前组配置弹窗，关闭后复位', () => {
     const page = load(0)
     expect(page.data.groupConfigOpen).toBe(false)
-    page.onGroupLongPress({ currentTarget: { dataset: { index: 2 } } })
+    page.onGroupPick({ detail: { value: 2 } })
+    page.onOpenGroupConfig()
     expect(page.data.groupConfigOpen).toBe(true)
     expect(page.data.activeGroup).toBe(2)
     // 弹窗内灯珠网格内嵌：打开时已按 activeGroup 构建，拖选态复位。
@@ -629,18 +630,18 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.syncState).toBe('idle')
   })
 
-  test('切换灯组：重置 activeStepSi/图层折叠；点当前组 Tab 无操作', () => {
+  test('切换灯组：重置 activeStepSi/图层折叠；重选当前组无操作', () => {
     const page = load(0)
     page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
     page.onToggleLayer({ currentTarget: { dataset: { si: 0, li: 0 } } }) // 收起首层
     expect(page.data.expandedLayers['0-0']).toBe(false)
     // 切到灯组 1：清折叠、回到阶段一。
-    page.onTapGroup({ currentTarget: { dataset: { index: 1 } } })
+    page.onGroupPick({ detail: { value: 1 } })
     expect(page.data.activeGroup).toBe(1)
     expect(page.data.activeStepSi).toBe(0)
     expect(page.data.expandedLayers).toEqual({})
-    // 点当前组 Tab：无操作（单页阶段条常驻）。
-    page.onTapGroup({ currentTarget: { dataset: { index: 1 } } })
+    // 下拉再选当前组：无操作（单页阶段条常驻）。
+    page.onGroupPick({ detail: { value: 1 } })
     expect(page.data.activeGroup).toBe(1)
     expect(page.data.activeStepSi).toBe(0)
   })
