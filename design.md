@@ -120,7 +120,7 @@
 ### 5.3 阴影与玻璃
 
 - 卡片：**无阴影**（iOS grouped 风格靠背景分层，不用投影）。
-- 功能层玻璃（顶部区/保存栏/浮层）：`background: rgba(255,255,255,0.4); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); border-top: 1rpx solid rgba(255,255,255,0.6); box-shadow: inset 0 1rpx 0 rgba(255,255,255,0.5);`
+- 功能层玻璃（现用于 sim-banner 顶部提示；页面级 hero 信息条/保存栏已随布局改版移除，见 §9）：`background: rgba(255,255,255,0.4); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); border-top: 1rpx solid rgba(255,255,255,0.6); box-shadow: inset 0 1rpx 0 rgba(255,255,255,0.5);`
 - **降级规格**（`@supports not (backdrop-filter: blur(1px))` 或运行时检测）：`background: rgba(255,255,255,0.92); box-shadow: none;`，去 blur，其余不变。降级态是验收项。
 - **真机注意**：微信小程序 `backdrop-filter` 在 iOS/Android 真机支持不稳定，模拟器与真机渲染差异大；降级态保证可读性，模糊效果视真机环境而定。
 
@@ -161,8 +161,8 @@
 ### 7.3 页面范式 B：工具页（device-list / pin-detail）
 
 - iOS 设置/表单风：分组列表、紧凑行高（行高 ≥88rpx）、无玻璃装饰、无光晕。
-- 底部固定操作栏（pin-detail 保存栏）：玻璃底（功能层）+ 胶囊主按钮。
-- 主按钮胶囊化（`.bt-btn--primary`：accent 底、白字、headline 字号、88rpx 高）。
+- pin-detail 无底部操作栏（"保存"按钮已改为修改即推送）：顶部是纯文字同步状态条（同步中/已同步/仅本机/同步失败，`--bt-color-label-secondary`，非玻璃层）。
+- 主按钮胶囊化（`.bt-btn--primary`：accent 底、白字、headline 字号、88rpx 高）——现用于 device-list「新增设备」与 home 编辑弹窗的「保存」。
 
 ### 7.4 通用类（app.wxss）
 
@@ -174,7 +174,7 @@
 
 自动化（Jest）只覆盖逻辑层；以下必须真机：
 
-1. **毛玻璃观感**：iOS 微信（backdrop-filter 生效）与 Android 微信（大概率走降级）各看一眼 hero 信息条/保存栏，确认模糊与降级纯色都可读、无穿透文字。
+1. **毛玻璃观感**：iOS 微信（backdrop-filter 生效）与 Android 微信（大概率走降级）各看一眼 sim-banner 顶部提示，确认模糊与降级纯色都可读、无穿透文字。
 2. **降级触发**：Android 端确认 `@supports` 降级路径生效（半透明纯色高不透明度）。
 3. **深色模式**：系统切深色，确认双 token 生效（本轮只验收"不崩、可读"，逐页精调留后续）。
 4. **触控热区**：灯珠点选格 88rpx 热区在真机上点按是否好按（尤其低端大屏）。
@@ -188,9 +188,15 @@
 
 **本轮已交付（2026-11）**：token 双表（app.wxss）、app.json 导航/tabBar 配色、sim-banner 组件化、4 页面全量重构（展示页/工具页两范式）、Jest 回归通过。
 
+**与实现的偏差（2026-11-26 核对，未修订）**——后续页面迭代超出了本文件规格，以下条目待重新对齐或补规格：
+
+- 功能层毛玻璃现仅 `sim-banner` 在用；页面里已无 `.bt-glass` / `--bt-hero-glow` 引用（§1/§3.3/§5.3/§7.2 描述的"顶部 hero 毛玻璃信息条 + 光晕"当前不存在）。
+- home 首页现为 1:1 大图卡（左上设备名/连接态 + 右下开关 + 底部亮度条）+ 2×4 引脚卡片网格，与 §7.2 展示页范式 A 的"大标题 + 信息条 + 分组卡片"不同。
+- pin-detail 的灯组切换是下拉框（`picker`，固定 5 个，右侧「配置」按钮开弹窗改名称/灯珠范围），组内为横向阶段分段条 + 气泡参数卡；§7.3 的行式表单描述与实际结构已有差距。
+
 **后续事项（登记，不在本轮）**：
 1. **深色模式逐页精调** + 主题切换入口（mine 页开关，wx.setStorage 持久化）。
-2. **wxml 内联色 token 化**：switch/slider color 属性暂为字面量 `#0088FF`（3 处：home ×2、pin-detail ×1、mine ×1）；待小程序支持 CSS 变量注入组件属性或改用自定义 checkbox/switch 组件时收敛。
+2. **wxml 内联色 token 化**：switch/slider color 属性暂为字面量 `#0088FF`（5 处：home ×1、mine ×1、pin-detail ×3）；另有 app.json tabBar `selectedColor` 同源，以及 home 亮度条（hero 卡内用 `#ffffff`，非 accent，不在收敛范围）；待小程序支持 CSS 变量注入组件属性或改用自定义 checkbox/switch 组件时收敛。
 3. **组件化扩展**：按 sim-banner 模式继续抽取卡片（device-card / pin-card）、设置行（settings-row）、按钮（bt-button）组件，消除页面间样式复制。
 4. **基础库升级评估**：升级到较新稳定版以获得新 CSS 能力（当前 2.32.0）。
 5. **自定义导航栏（进阶选项）**：若未来要完全沉浸式 Liquid Glass，可评估 `navigationStyle: custom` + 胶囊避让方案；design.md 届时补充规格。

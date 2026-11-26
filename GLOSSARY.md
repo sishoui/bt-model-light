@@ -13,7 +13,7 @@ Single-context glossary for `bt-model-light`. Terms here are the canonical vocab
 | 灯带开关 (Pin power) | 引脚级开关（`pin.power`）：关 = 配置下发时该引脚不带灯组（`group_count=0`）→ 固件清空该灯带；开 = 正常播放。灯组配置始终保留在 Storage（ADR-0028）。 | "电源开关","总开关" |
 | 灯组 (LightGroup) | A configured range on one pin's strip with up to 5 steps. | "灯段","灯区" |
 | 灯珠区间 (LED range) | Inclusive `[start, end]` indices into a pin's strip, 0-based. | "灯珠段" |
-| 步骤 (Step) | One playback state of a light group: duration, transition, loop mode, 1–2 layers. | "帧","阶段" |
+| 步骤 (Step) | One playback state of a light group: duration, transition, loop mode, 1–2 layers. | "帧"（UI 文案作"阶段"，见引脚配置详情页） |
 | 图层 (Layer) | An effect layer; background or effect in two-layer mode. | "层" |
 | 背景层 (Background layer) | The base layer in two-layer composition. | "底图" |
 | 动效层 (Effect layer) | The foreground layer in two-layer composition; lit pixels win. | "前景层" |
@@ -52,10 +52,11 @@ Single-context glossary for `bt-model-light`. Terms here are the canonical vocab
 |---|---|---|
 | 首页 (Home) | The device detail page shown on the "设备" tab; current/last device. | "设备详情页" |
 | 设备列表页 (Device list page) | Scan/connect/switch/add entry page, reached from home top-left title. | "设备管理" |
-| 引脚配置详情页 (Pin detail page) | Per-pin page: pin switch + group tabs + LED range + step/layer editor. | "灯组编辑页" |
+| 引脚配置详情页 (Pin detail page) | Per-pin page: pin switch + group dropdown + LED range + step/layer editor. | "灯组编辑页" |
 | 我的 (Mine) | Bottom-nav second tab: settings, about, help. | "设置页" |
-| 灯组编辑 (Group editor) | The in-page editing area inside a group tab on the pin detail page. | — |
-| 保存 (Save) | Persists to Storage AND pushes config to firmware. | "下发","同步" |
+| 灯组编辑 (Group editor) | The in-page editing area under the selected group on the pin detail page. | — |
+| 修改即推送 (Auto sync) | 编辑即写 Storage，并经 `autoSync` 500ms 防抖下发固件（`WRITE_CONFIG` + `APPLY`）；无保存按钮（取代"保存"，见 ADR-0023 现状注记）。 | "保存" |
+| 同步状态 (Sync state) | 引脚配置详情页顶部状态条：同步中 / 已同步 / 仅本机（未连接）/ 同步失败。 | "保存状态" |
 
 ## Engineering
 

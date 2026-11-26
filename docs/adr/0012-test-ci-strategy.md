@@ -19,7 +19,7 @@ arena-feasibility 报告给出了 Mock/真机边界的最小可行集。本项�
 | 3. 代码生成一致性 | 生成结果与手写一致 | codegen 脚本 | 每次 commit |
 
 - **不上 automator**（维护成本不值，本项目轻量）
-- 真机 smoke：iOS + Android 各一台
+- 真机 smoke：iOS + Android 各一台（2026-11-26 注记：当前只有 Android 设备，按 issue #34 实际只在 **Android 单机**上执行，清单 `docs/smoke-test.md`；iOS 项待有设备后补跑）
 
 ## 理由
 

@@ -13,7 +13,7 @@
   - 固件协议解析层：`cd firmware && pio test -e native`（PlatformIO + Unity，无需硬件）
   - 代码生成一致性：`python protocol/codegen/generate.py --check` 与 `python protocol/codegen/test_repeatable.py`
   - CI 三层：push 后到 GitHub Actions 看 workflow 是否全绿（可 `gh run` 查询）
-- **只有真机 / 物理硬件才能验证的才展示清单交给用户**，按 `docs/smoke-test.md`（iOS + Android，权限路径、空口 MTU/分包、灯珠实动等）。对这类项，明确说清"需人工真机测试"及其原因，不要用自动测试的结论替代。
+- **只有真机 / 物理硬件才能验证的才展示清单交给用户**，按 `docs/smoke-test.md`（清单当前为 **Android 单机**，无 iOS 设备；权限路径、空口 MTU/分包、灯珠实动等）。对这类项，明确说清"需人工真机测试"及其原因，不要用自动测试的结论替代。
 
 ### 小程序变更：自动触发真机预览（免扫码）
 
