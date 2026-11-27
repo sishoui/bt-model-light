@@ -1,5 +1,5 @@
-<!-- 引脚配置详情页（ADR-0027 / #27 / T7；灯珠拖选 #31）。
-     顶部图片/名称/开关 + 灯组下拉（同一卡片，「配置」开弹窗改名称/灯珠范围）→ 阶段/图层/灯效编辑。
+<!-- 引脚配置详情页（ADR-0027 / #27 / T7；灯珠拖选 #31；design.md §7.3 工具页范式）。
+     顶部信息卡（图/名称/开关 + 药丸灯组选择）→ 阶段分段条 / 时间轴 → 阶段详情气泡卡（图层双槽）。
      修改即推送（autoSync 防抖下发），无保存按钮。 -->
 <view class="page">
   <sim-banner wx:if="{{simMode}}" />
@@ -12,23 +12,36 @@
     <text class="sync-bar__text" wx:elif="{{syncState === 'local'}}">仅本机（未连接）</text>
   </view>
 
-  <!-- 顶部卡片：图片 / 名称 / 开关，下方分隔线内嵌灯组下拉选择（固定 5 组，无增删） -->
+  <!-- 顶部卡片：引脚图 / 名称 / 开关 + 药丸灯组选择 -->
   <view class="bt-card pin-head-card">
     <view class="pin-head">
       <image class="pin-head__img" src="{{img}}" mode="aspectFill" />
       <view class="pin-head__info">
-        <input class="pin-head__name" value="{{pinName}}" placeholder="引脚名称" bindinput="onPinNameInput" />
-        <view class="bt-row bt-row--between">
-          <text class="bt-text--secondary">引脚 {{pin + 1}}</text>
+        <input
+          class="pin-head__name"
+          value="{{pinName}}"
+          placeholder="引脚名称"
+          placeholder-class="pin-head__placeholder"
+          bindinput="onPinNameInput"
+        />
+        <view class="pin-head__switch-row">
+          <text class="pin-head__pin-no">引脚 {{pin + 1}}</text>
           <!-- 灯带开关：设备关机（整机开关 off，ADR-0032）时置灰不可切换 -->
           <switch checked="{{power}}" disabled="{{!masterPower}}" color="#0088FF" bindchange="onPowerChange" />
         </view>
       </view>
     </view>
 
-    <!-- 灯组选择：下拉框（左，占满）+「配置」开名称/灯珠范围弹窗 -->
+    <!-- 灯组选择：药丸容器（左，占满）+「配置」开名称/灯珠范围弹窗 -->
     <view wx:if="{{groups.length}}" class="group-select">
-      <picker class="group-select__picker" mode="selector" range="{{groups}}" range-key="name" value="{{activeGroup}}" bindchange="onGroupPick">
+      <picker
+        class="group-select__picker"
+        mode="selector"
+        range="{{groups}}"
+        range-key="name"
+        value="{{activeGroup}}"
+        bindchange="onGroupPick"
+      >
         <view class="group-select__value">
           <view class="group-select__text">
             <text class="group-select__name">{{groups[activeGroup].name}}</text>

@@ -1,98 +1,156 @@
-<!-- 首页 = 设备详情页（ADR-0027 / #25）。
-     布局：1:1 大图卡（左上标题 + 大图 + 右下开机按钮 + 底部亮度条）→ 引脚卡片列表（固定 8 个）。
-     左上标题 → 设备列表页；长按大图卡 → 编辑设备名/占位图；引脚卡片点击进引脚配置详情。 -->
-<view class="page">
+<!-- 首页 = 设备 Tab 默认页（ADR-0027 / #25；design.md §7.2 舞台范式）。
+     结构：舞台（设备名/状态胶囊 + 悬浮设备图 + 柔光地面）→ 控制卡（大字亮度 + 开关 + 亮度条）
+     → 引脚 2 列网格。左上设备名 → 设备列表页；长按舞台 → 编辑设备名/占位图。 -->
+<view class="page page--dock">
   <sim-banner wx:if="{{simMode}}" />
 
-  <!-- 1:1 大图卡：左上设备名 + 大图 + 右下开机按钮 + 底部亮度条 -->
-  <view class="bt-card hero-card" bindlongpress="onHeroLongPress">
-    <image wx:if="{{img}}" class="hero-card__img" src="{{img}}" mode="aspectFill" />
-    <view wx:else class="hero-card__placeholder">
-      <text class="hero-card__placeholder-text">暂无图片</text>
-      <text class="hero-card__placeholder-hint">长按编辑占位图</text>
-    </view>
-    <view class="hero-card__title" catchtap="onTapDeviceName">
-      <text class="hero-card__title-text">{{deviceName || '未连接设备'}}</text>
-      <view class="hero-card__conn {{connected ? 'hero-card__conn--on' : ''}}">
-        <view class="hero-card__conn-dot"></view>
-        <text class="hero-card__conn-text">{{connected ? '已连接' : '未连接'}}</text>
+  <!-- ===== 舞台：柔光背景 + 居中悬浮设备图 + 顶部名称/状态 ===== -->
+  <view class="stage" bindlongpress="onHeroLongPress">
+    <view class="stage__glow"></view>
+
+    <view class="stage__head">
+      <view class="stage__title" catchtap="onTapDeviceName">
+        <text class="stage__name">{{deviceName || '未连接设备'}}</text>
+        <text class="stage__action">切换 ›</text>
       </view>
-      <text class="hero-card__title-action">切换 ›</text>
+      <view class="stage__meta">
+        <view class="bt-chip {{connected ? 'bt-chip--on' : ''}}">
+          <view class="bt-chip__dot"></view>
+          <text>{{connected ? '已连接' : '未连接'}}</text>
+        </view>
+        <!-- 固件版本（ADR-0034）：连接时固件主动上报；未连接显示上次已知值 -->
+        <text wx:if="{{firmwareVersion}}" class="stage__fw">v{{firmwareVersion}}</text>
+      </view>
     </view>
-    <view class="hero-card__power {{power ? 'hero-card__power--on' : ''}}"
-      catchtap="onTogglePower">
-      {{power ? '关机' : '开机'}}
+
+    <view class="stage__body">
+      <!-- widthFix：按容器宽度等比缩放并自动算高，图片两侧不产生留白；
+           高度由 .stage__body 的 min/max-height 收口，超高图居中裁切。 -->
+      <image wx:if="{{img}}" class="stage__img" src="{{img}}" mode="widthFix" />
+      <view wx:else class="stage__empty">
+        <view class="stage__empty-bulb"><view class="bt-ico bt-ico--bulb"></view></view>
+        <text class="stage__empty-text">长按此处添加设备图</text>
+      </view>
+      <view class="stage__floor"></view>
     </view>
-    <view class="hero-card__brightness" catchtap="noop">
-      <!-- 亮度历史 sparkline：最近若干次松手值的折线（至少 2 点才画），
-           叠在亮度条上方做成"调节轨迹"。 -->
-      <canvas
-        wx:if="{{brightnessHist.length >= 2}}"
-        type="2d"
-        class="brightness-spark"
-      ></canvas>
-      <view class="hero-card__brightness-row">
-        <text class="hero-card__brightness-label">亮度</text>
-        <slider class="hero-card__brightness-slider" min="0" max="255" value="{{brightness}}"
-          activeColor="#ffffff" backgroundColor="rgba(255,255,255,0.3)" block-size="16"
-          catchtap="noop" bindchanging="onBrightnessChanging" bindchange="onBrightnessChange" />
-        <text class="hero-card__brightness-value">{{brightness}}</text>
+  </view>
+
+  <!-- ===== 控制卡：大字号亮度 + 整机开关 + 亮度条（条上方叠历史 sparkline） ===== -->
+  <view class="bt-card control-card">
+    <view class="control-card__row">
+      <view class="control-card__metric">
+        <text class="control-card__label">亮度</text>
+        <view class="control-card__value">
+          <text class="bt-type-metric">{{brightness}}</text>
+          <text class="bt-type-metric-unit">/255</text>
+        </view>
+      </view>
+      <!-- 整机开关（ADR-0032）：按钮显示"要做的动作"，开→关机，关→开机 -->
+      <view
+        class="control-card__power {{power ? 'control-card__power--on' : ''}} bt-pressable"
+        catchtap="onTogglePower"
+      >
+        <view class="control-card__power-icon"></view>
+        <text class="control-card__power-text">{{power ? '关机' : '开机'}}</text>
+      </view>
+    </view>
+
+    <view class="control-card__slider-wrap" catchtap="noop">
+      <canvas wx:if="{{brightnessHist.length >= 2}}" type="2d" class="brightness-spark"></canvas>
+      <slider
+        class="control-card__slider"
+        min="0"
+        max="255"
+        value="{{brightness}}"
+        activeColor="#0088FF"
+        backgroundColor="#F2F3F5"
+        block-size="24"
+        catchtap="noop"
+        bindchanging="onBrightnessChanging"
+        bindchange="onBrightnessChange"
+      />
+      <view class="control-card__scale">
+        <text class="control-card__scale-text">暗</text>
+        <text class="control-card__scale-text">亮</text>
       </view>
     </view>
   </view>
 
-  <!-- 引脚卡片列表：固定 8 个硬件引脚（4 列网格小卡；未配置显示占位，点击进入配置）
-       设备关机（整机开关 off，ADR-0032）→ 整列置灰且不可操作：卡片不可点、开关 disabled；
-       各引脚自己的开关状态原样保留，设备开机后恢复可操作。 -->
-  <view wx:if="{{pins.length}}" class="section">
+  <!-- ===== 引脚卡片：2 列网格（固定 8 个硬件引脚，未配置为虚线占位卡） =====
+       设备关机（整机开关 off，ADR-0032）→ 整列置灰且不可操作。 -->
+  <block wx:if="{{pins.length}}">
     <view class="bt-section-title">引脚</view>
     <view class="pin-grid">
-      <view wx:for="{{pins}}" wx:key="pin"
+      <view
+        wx:for="{{pins}}"
+        wx:key="pin"
         class="pin-card {{item.configured ? '' : 'pin-card--empty'}} {{power ? 'bt-pressable' : 'pin-card--off'}}"
-        data-pin="{{item.pin}}" bindtap="onTapPin">
-        <!-- 1:1 方形媒体区：图铺满，引脚号/名称/开关浮层在图上 -->
+        data-pin="{{item.pin}}"
+        bindtap="onTapPin"
+      >
         <view class="pin-card__media">
           <image wx:if="{{item.img}}" class="pin-card__img" src="{{item.img}}" mode="aspectFill" />
-          <view wx:else class="pin-card__placeholder">
-            <text class="pin-card__placeholder-text">{{item.pin + 1}}</text>
+          <view wx:else class="pin-card__icon">{{item.pin + 1}}</view>
+          <!-- 右上 灯带开关（仅已配置引脚）：catchtap 阻止冒泡跳转，状态走 bindchange -->
+          <view wx:if="{{item.configured}}" class="pin-card__switch" data-pin="{{item.pin}}" catchtap="noop">
+            <switch
+              checked="{{item.power}}"
+              disabled="{{!power}}"
+              color="#0088FF"
+              bindchange="onPinPowerChange"
+            />
           </view>
-          <!-- 右上 灯带开关（仅已配置引脚展示）：开关该引脚灯带；catchtap 阻止冒泡触发卡片跳转。
-               设备关机时 disabled（灰化 + 不可切换）。 -->
-          <switch wx:if="{{item.configured}}" class="pin-card__switch" data-pin="{{item.pin}}"
-            checked="{{item.power}}" disabled="{{!power}}" color="#0088FF" catchtap="noop"
-            bindchange="onPinPowerChange" />
-          <!-- 底部名称条（引脚号 + 名称） -->
-          <view class="pin-card__name-bar">
-            <text class="pin-card__name">{{item.name}}</text>
-            <text class="pin-card__info">{{item.info}}</text>
-          </view>
+        </view>
+        <view class="pin-card__foot">
+          <text class="pin-card__name">{{item.name}}</text>
+          <text class="pin-card__info">{{item.info}}</text>
         </view>
       </view>
     </view>
-  </view>
+  </block>
+
   <view wx:else class="pin-empty">
-    <text class="bt-text--secondary">未连接设备</text>
+    <view class="pin-empty__icon"><view class="bt-ico bt-ico--bulb"></view></view>
+    <text class="pin-empty__title">还没有设备</text>
+    <text class="pin-empty__hint">连上灯控设备后，可在首页编辑引脚灯效</text>
+    <button class="bt-btn bt-btn--primary pin-empty__add" bindtap="onTapAddDevice">添加设备</button>
   </view>
 </view>
 
-<!-- 编辑设备弹窗（长按大图卡触发） -->
+<!-- 一次性新手引导层：首次打开空态时展示，关闭后本地记录不再显示 -->
+<view wx:if="{{showAddGuide}}" class="add-guide-mask" catchtouchmove="noop">
+  <view class="add-guide-card">
+    <text class="add-guide__title">新手引导</text>
+    <text class="add-guide__text">① 点左上设备名或下方 ＋ 进入扫描</text>
+    <text class="add-guide__text">② 点选 BTLight_ 设备完成连接，自动返回</text>
+    <text class="add-guide__text">③ 点引脚卡片开始编辑灯效</text>
+    <text class="add-guide__text">无硬件时可在「我的」页开启模拟模式体验</text>
+    <button class="bt-btn bt-btn--primary add-guide__close" bindtap="onAddGuideClose">我知道了</button>
+  </view>
+</view>
+
+<!-- 编辑设备弹窗（长按舞台触发） -->
 <view wx:if="{{editing}}" class="edit-mask" bindtap="onEditCancel">
   <view class="edit-dialog" catchtap="noop">
     <view class="edit-dialog__title">编辑设备</view>
     <view class="edit-dialog__field">
       <text class="edit-dialog__label">设备名称</text>
-      <input class="edit-dialog__input" value="{{draftName}}" placeholder="未连接设备"
-        bindinput="onDraftNameInput" />
+      <input
+        class="edit-dialog__input"
+        value="{{draftName}}"
+        placeholder="未连接设备"
+        placeholder-class="edit-dialog__placeholder"
+        bindinput="onDraftNameInput"
+      />
     </view>
     <view class="edit-dialog__field">
       <text class="edit-dialog__label">设备图片</text>
       <view class="edit-dialog__img-row">
-        <image wx:if="{{draftImg}}" class="edit-dialog__img-preview" src="{{draftImg}}"
-          mode="aspectFill" />
+        <image wx:if="{{draftImg}}" class="edit-dialog__img-preview" src="{{draftImg}}" mode="aspectFill" />
         <view wx:else class="edit-dialog__img-preview edit-dialog__img-preview--empty">
           <text class="edit-dialog__img-empty-text">未选择</text>
         </view>
-        <button class="bt-btn edit-dialog__img-btn" bindtap="onChooseImg">从相册选择</button>
+        <button class="bt-btn bt-btn--tint edit-dialog__img-btn" bindtap="onChooseImg">从相册选择</button>
       </view>
     </view>
     <view class="edit-dialog__actions">

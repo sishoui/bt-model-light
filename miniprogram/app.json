@@ -7,15 +7,17 @@
   ],
   "window": {
     "backgroundTextStyle": "light",
-    "navigationBarBackgroundColor": "#F2F2F7",
+    "backgroundColor": "#F5F6F8",
+    "navigationBarBackgroundColor": "#F5F6F8",
     "navigationBarTitleText": "bt-model-light",
     "navigationBarTextStyle": "black"
   },
   "tabBar": {
-    "color": "#8E8E93",
+    "custom": true,
+    "color": "#9CA3AF",
     "selectedColor": "#0088FF",
+    "backgroundColor": "#FFFFFF",
     "borderStyle": "white",
-    "backgroundColor": "#F9F9F9",
     "list": [
       {
         "pagePath": "pages/home/home",

@@ -70,10 +70,18 @@ Page({
   onShow() {
     const app = getApp()
     this.setData({ simMode: !!(app && app.globalData && app.globalData.simMode) })
+    this._syncTabBar()
     this._refresh()
     this._subscribeBle()
     // 自动重连：若有已保存的当前设备且未连接，尝试重连（静默，不弹 loading）。
     this._autoReconnect()
+  },
+
+  // 自定义 tabBar（悬浮 Dock）的选中态由页面同步；测试环境无 getTabBar。
+  _syncTabBar() {
+    if (typeof this.getTabBar !== 'function') return
+    const tabBar = this.getTabBar()
+    if (tabBar && typeof tabBar.setData === 'function') tabBar.setData({ selected: 0 })
   },
 
   onHide() {
@@ -241,21 +249,22 @@ Page({
       ctx.beginPath()
       ctx.moveTo(px(hist[0]), py(hist[0]))
       for (let i = 1; i < hist.length; i++) ctx.lineTo(px(hist[i]), py(hist[i]))
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+      // 配色与 --bt-color-accent / --bt-color-accent-soft 同源（canvas 不认 CSS 变量）。
+      ctx.strokeStyle = 'rgba(0,136,255,0.55)'
       ctx.lineWidth = 1.5
       ctx.lineJoin = 'round'
       ctx.stroke()
-      // 填充到底部（白色 12%），做出"山形"历史感。
+      // 填充到底部（品牌色 10%），做出"山形"历史感。
       ctx.lineTo(w, h)
       ctx.lineTo(0, h)
       ctx.closePath()
-      ctx.fillStyle = 'rgba(255,255,255,0.14)'
+      ctx.fillStyle = 'rgba(0,136,255,0.1)'
       ctx.fill()
       // 当前值圆点。
       const last = hist[hist.length - 1]
       ctx.beginPath()
       ctx.arc(px(last), py(last), 2.5, 0, Math.PI * 2)
-      ctx.fillStyle = '#ffffff'
+      ctx.fillStyle = '#0088ff'
       ctx.fill()
     })
   },

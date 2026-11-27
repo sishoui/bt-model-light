@@ -1,47 +1,70 @@
-/* 引脚配置详情页样式（ADR-0027 / #27 / T7；范式 B 工具页，design.md §7.3）。 */
+/* 引脚配置详情页样式（ADR-0027 / #27 / T7；design.md §7.3 工具页范式）。
+   柔光通透语言：白卡 + 大圆角 + 极轻阴影，控件走药丸/tint 底。
+   注意：.brightness-spark 之外的 canvas 选择器类名（.stage-inner / .effect3d-canvas /
+   .color-wheel / .led-grid / .led-cell / .picker-wheel）被 JS 的
+   createSelectorQuery 使用，改名会让真机画布失效。 */
 
+/* 底部给悬浮 Dock 留位，另留页面自身滚动余量 */
 .page {
-  padding: 0 0 176rpx; /* 底部给固定玻璃保存栏留位 */
+  padding: 0 0 220rpx;
 }
 
-/* 顶部卡片：引脚信息行 + 灯组选择行（分隔线区隔，同卡内两级信息） */
+/* ===== 顶部信息卡：引脚图 + 名称 + 灯组选择 ===== */
 .pin-head-card {
-  padding-bottom: 16rpx;
+  padding: 28rpx;
 }
 
 .pin-head {
   display: flex;
   align-items: center;
+  gap: 24rpx;
 }
 
 .pin-head__img {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 16rpx;
-  background: var(--bt-color-bg-input);
-  margin-right: 24rpx;
+  flex-shrink: 0;
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: var(--bt-radius-inner);
+  background: var(--bt-color-bg-sunken);
 }
 
 .pin-head__info {
   flex: 1;
+  min-width: 0;
 }
 
 .pin-head__name {
-  font-size: 34rpx;
-  line-height: 44rpx;
-  font-weight: 600;
-  height: 64rpx;
+  height: 60rpx;
+  color: var(--bt-color-label);
+  font-size: 38rpx;
+  line-height: 60rpx;
+  font-weight: 700;
 }
 
-/* 灯组选择行：卡片内分隔线上方留白；下拉框（左，占满）+「配置」按钮（右）
- * 固定 5 组，无增删（design.md §5.4 热区 88rpx） */
+.pin-head__placeholder {
+  color: var(--bt-color-label-quaternary);
+}
+
+/* 开关行：引脚号（左）+ switch（右） */
+.pin-head__switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4rpx;
+}
+
+.pin-head__pin-no {
+  color: var(--bt-color-label-tertiary);
+  font-size: 24rpx;
+  line-height: 34rpx;
+}
+
+/* 灯组选择：药丸容器内嵌 picker + 配置按钮 */
 .group-select {
   display: flex;
   align-items: center;
-  gap: 16rpx;
-  margin-top: 20rpx;
-  padding-top: 20rpx;
-  border-top: 1rpx solid var(--bt-color-separator);
+  gap: 12rpx;
+  margin-top: 24rpx;
 }
 
 .group-select__picker {
@@ -52,10 +75,11 @@
 .group-select__value {
   display: flex;
   align-items: center;
-  height: 88rpx;
-  padding: 0 20rpx;
+  height: 96rpx;
+  padding: 0 24rpx;
+  border-radius: var(--bt-radius-pill);
   background: var(--bt-color-bg-input);
-  border-radius: 16rpx;
+  box-sizing: border-box;
 }
 
 .group-select__text {
@@ -67,42 +91,43 @@
 }
 
 .group-select__name {
+  overflow: hidden;
+  color: var(--bt-color-label);
   font-size: 30rpx;
   line-height: 40rpx;
   font-weight: 600;
-  color: var(--bt-color-label);
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .group-select__range {
+  color: var(--bt-color-label-tertiary);
   font-size: 22rpx;
   line-height: 30rpx;
-  color: var(--bt-color-label-tertiary);
 }
 
 .group-select__arrow {
   flex: 0 0 auto;
   margin-left: 12rpx;
-  font-size: 20rpx;
-  line-height: 28rpx;
   color: var(--bt-color-label-tertiary);
+  font-size: 18rpx;
+  line-height: 28rpx;
 }
 
 .group-select__config {
   flex: 0 0 auto;
-  height: 88rpx;
-  padding: 0 28rpx;
-  font-size: 28rpx;
-  line-height: 88rpx;
+  height: 96rpx;
+  padding: 0 32rpx;
+  border-radius: var(--bt-radius-pill);
+  background: var(--bt-color-accent-soft);
   color: var(--bt-color-accent);
-  background: rgba(0, 136, 255, 0.1);
-  border-radius: 16rpx;
+  font-size: 28rpx;
+  line-height: 96rpx;
+  font-weight: 600;
   box-sizing: border-box;
 }
 
-/* 通用行：标签 + 控件 */
+/* ===== 通用行：标签 + 控件 ===== */
 .row {
   display: flex;
   align-items: center;
@@ -110,26 +135,28 @@
 }
 
 .row__label {
-  width: 160rpx;
-  font-size: 28rpx;
-  line-height: 38rpx;
+  flex-shrink: 0;
+  width: 148rpx;
   color: var(--bt-color-label-secondary);
+  font-size: 26rpx;
+  line-height: 38rpx;
 }
 
 .row__input {
   flex: 1;
-  height: 64rpx;
-  padding: 0 16rpx;
+  height: 72rpx;
+  padding: 0 20rpx;
+  border-radius: var(--bt-radius-inner);
   background: var(--bt-color-bg-input);
-  border-radius: 12rpx;
+  color: var(--bt-color-label);
   font-size: 28rpx;
-  line-height: 64rpx;
-  text-align: center;
+  line-height: 72rpx;
   box-sizing: border-box;
 }
 
 .row__input--num {
   max-width: 200rpx;
+  text-align: center;
 }
 
 /* 时长 / 参数滑块：标签 + 滑块 + 数字输入框 */
@@ -139,83 +166,65 @@
 }
 
 .row__slider-input {
-  width: 96rpx;
-  max-width: 96rpx;
   flex: 0 0 auto;
-}
-
-.row__slider-val {
-  width: 72rpx;
-  font-size: 28rpx;
-  line-height: 38rpx;
-  color: var(--bt-color-label);
-  text-align: right;
-}
-
-.param-slider {
-  flex: 1;
-  display: flex;
-  align-items: center;
+  width: 100rpx;
+  max-width: 100rpx;
 }
 
 .param-slider__bar {
   flex: 1;
-  margin-right: 12rpx;
   min-width: 0;
+  margin-right: 12rpx;
 }
 
-.param-slider__val {
-  width: 64rpx;
-  font-size: 26rpx;
-  line-height: 34rpx;
-  color: var(--bt-color-label-secondary);
-  text-align: right;
-}
-
-/* 枚举单选：行内胶囊，选中高亮（点击切换，无弹层） */
+/* 枚举单选：胶囊组，选中实心品牌色 */
 .param-radio {
   flex: 1;
   display: flex;
   flex-wrap: wrap;
-  gap: 8rpx 12rpx;
+  gap: 10rpx;
   justify-content: flex-end;
 }
 
 .param-radio__item {
-  padding: 6rpx 20rpx;
-  font-size: 26rpx;
-  line-height: 34rpx;
-  color: var(--bt-color-label);
+  padding: 10rpx 24rpx;
+  border-radius: var(--bt-radius-pill);
   background: var(--bt-color-bg-input);
-  border-radius: 999rpx;
+  color: var(--bt-color-label-secondary);
+  font-size: 26rpx;
+  line-height: 36rpx;
+  transition: background-color 0.25s ease-out, color 0.25s ease-out;
 }
 
 .param-radio__item--on {
+  background: var(--bt-color-accent);
   color: #ffffff;
-  background: #0088ff;
+  font-weight: 600;
 }
 
 .row__picker {
   flex: 1;
-  padding: 0 16rpx;
-  height: 64rpx;
-  background: var(--bt-color-bg-input);
-  border-radius: 12rpx;
-  font-size: 28rpx;
-  line-height: 64rpx;
-  text-align: center;
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 72rpx;
+  padding: 0 20rpx;
+  border-radius: var(--bt-radius-inner);
+  background: var(--bt-color-bg-input);
+  color: var(--bt-color-label);
+  font-size: 28rpx;
+  line-height: 72rpx;
+  text-align: center;
   box-sizing: border-box;
 }
 
-/* 灯珠范围（视觉 60rpx 方格，点击热区经 margin 扩至 ~88rpx，design.md §5.4） */
+/* ===== 灯珠范围（视觉方格，点击热区经 margin 扩展） ===== */
 .range {
   margin-top: 24rpx;
 }
 
 .range__title {
+  color: var(--bt-color-label);
   font-size: 28rpx;
   line-height: 38rpx;
   font-weight: 600;
@@ -224,146 +233,165 @@
 .led-grid {
   display: grid;
   grid-template-columns: repeat(10, 1fr);
-  gap: 16rpx;
-  margin: 8rpx 0 0;
-  touch-action: none;
+  gap: 14rpx;
   max-height: 50vh;
-  overflow-y: auto;
+  margin: 12rpx 0 0;
   overflow-x: hidden;
+  overflow-y: auto;
+  touch-action: none;
 }
 
 .led-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   aspect-ratio: 1;
   min-height: 48rpx;
   border-radius: 12rpx;
   background: var(--bt-color-bg-input);
-  color: var(--bt-color-label-tertiary);
+  color: var(--bt-color-label-quaternary);
   font-size: 20rpx;
   line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   box-sizing: border-box;
   transition: background-color 0.15s ease-out, color 0.15s ease-out, box-shadow 0.15s ease-out;
 }
 
-.led-cell--occupied {
-  background: var(--bt-color-gray-4);
-  color: var(--bt-color-gray-5);
-  opacity: 0.6;
-}
-
-/* 已选中（松手后生效）：实心蓝底白字 */
+/* 已选中（松手后生效）：实心品牌色 */
 .led-cell--selected {
   background: var(--bt-color-accent);
   color: #ffffff;
+  font-weight: 600;
 }
 
-/* 被其他灯组占用：灰色不可选 */
+/* 被其他灯组占用：灰底不可选 */
 .led-cell--occupied {
   background: var(--bt-color-gray-4);
   color: var(--bt-color-label-quaternary);
+  opacity: 0.6;
 }
 
-/* 拖选起点/终点：蓝框白底（高亮边框） */
+/* 拖选起点/终点：白底 + 品牌色描边 */
 .led-cell--drag-start,
 .led-cell--drag-end {
-  background: #ffffff;
+  background: var(--bt-color-bg-elevated);
   color: var(--bt-color-accent);
   box-shadow: inset 0 0 0 3rpx var(--bt-color-accent);
 }
 
-/* 拖选中间：浅蓝连接条 */
+/* 拖选中间：品牌色浅底 */
 .led-cell--drag-mid {
-  background: rgba(0, 136, 255, 0.2);
+  background: var(--bt-color-accent-soft-2);
   color: var(--bt-color-accent);
 }
 
 .range__hint {
-  margin-top: 12rpx;
+  margin-top: 14rpx;
+  color: var(--bt-color-label-tertiary);
   font-size: 22rpx;
   line-height: 32rpx;
-  color: var(--bt-color-label-tertiary);
 }
 
 .range__actions {
-  margin-top: 16rpx;
   display: flex;
   justify-content: flex-end;
+  margin-top: 16rpx;
 }
 
 .range__clear {
   padding: 12rpx 28rpx;
-  font-size: 26rpx;
-  line-height: 40rpx;
+  border-radius: var(--bt-radius-pill);
+  background: var(--bt-color-danger-soft);
   color: var(--bt-color-danger);
-  background: var(--bt-color-bg-input);
-  border-radius: 999rpx;
+  font-size: 26rpx;
+  line-height: 36rpx;
+  font-weight: 600;
 }
 
-
-/* 阶段标题行：左标题 + 右添加（满 5 禁用态） */
+/* ===== 阶段标题行 ===== */
 .stage-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 16rpx;
+  margin: 32rpx 40rpx 0;
 }
 
 .stage-head__title {
-  font-size: 28rpx;
-  line-height: 38rpx;
-  font-weight: 600;
   color: var(--bt-color-label);
+  font-size: 30rpx;
+  line-height: 40rpx;
+  font-weight: 600;
 }
 
-/* 横向阶段分段条（N 段等宽拼成整体圆角矩形；轻点选中、长按拖动排序） */
+/* 添加阶段：品牌色 tint 圆钮 */
+.stage-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: var(--bt-color-accent-soft);
+  color: var(--bt-color-accent);
+  font-size: 32rpx;
+  line-height: 1;
+}
+
+.stage-add--disabled {
+  background: var(--bt-color-bg-input);
+  color: var(--bt-color-label-quaternary);
+}
+
+/* ===== 横向阶段分段条 ===== */
 .stage-bar__scroll {
   width: 100%;
+  margin-top: 12rpx;
   white-space: nowrap;
 }
 
 .stage-inner {
   display: flex;
-  margin: 0 24rpx;
-  height: 120rpx;
-  background: var(--bt-color-bg-elevated);
-  border: 2rpx solid rgba(0, 0, 0, 0.08);
-  border-radius: 20rpx;
+  height: 128rpx;
+  margin: 0 32rpx;
   overflow: hidden;
+  border-radius: var(--bt-radius-card);
+  background: var(--bt-color-bg-elevated);
+  box-shadow: var(--bt-shadow-card);
 }
 
 .stage-seg {
   position: relative;
-  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   min-width: 0;
-  transition: transform 0.2s ease, background 0.2s ease;
+  transition: transform 0.2s ease, background-color 0.2s ease;
 }
 
+/* 段间分隔：极淡一条，不用黑边 */
 .stage-seg + .stage-seg {
-  border-left: 2rpx solid rgba(0, 0, 0, 0.08);
+  border-left: 1rpx solid var(--bt-color-separator);
 }
 
 .stage-seg--active {
-  background: rgba(0, 136, 255, 0.12);
+  background: var(--bt-color-accent-soft);
 }
 
 .stage-seg--drag {
-  transition: none;
   z-index: 2;
   background: var(--bt-color-bg-elevated);
+  box-shadow: var(--bt-shadow-raised);
+  transition: none;
 }
 
 .stage-seg__num {
-  font-size: 30rpx;
-  line-height: 36rpx;
-  font-weight: 600;
   color: var(--bt-color-label);
+  font-size: 32rpx;
+  line-height: 38rpx;
+  font-weight: 600;
 }
 
 .stage-seg--active .stage-seg__num {
@@ -373,139 +401,19 @@
 .stage-seg__name {
   max-width: 100%;
   padding: 0 8rpx;
+  overflow: hidden;
+  color: var(--bt-color-label-secondary);
   font-size: 22rpx;
   line-height: 28rpx;
-  color: var(--bt-color-label-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stage-seg__info {
-  font-size: 22rpx;
-  line-height: 28rpx;
   color: var(--bt-color-label-tertiary);
-}
-
-/* 阶段时间轴图（泳道甘特）：总时长条 + 段内图层子条 + 过渡斜纹。
-   与分段条不同，这是只读可视化：宽度按 duration 真实比例，点段=选中。 */
-.timeline {
-  margin: 16rpx 24rpx 0;
-  padding: 16rpx;
-  background: var(--bt-color-bg-elevated);
-  border-radius: 16rpx;
-}
-
-.timeline__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 12rpx;
-}
-
-.timeline__title {
-  font-size: 24rpx;
-  line-height: 32rpx;
-  font-weight: 600;
-  color: var(--bt-color-label-secondary);
-}
-
-.timeline__total {
-  font-size: 22rpx;
-  line-height: 30rpx;
-  color: var(--bt-color-label-tertiary);
-}
-
-/* 轨道：相对定位，段按 left/width 百分比铺满 */
-.timeline__track {
-  position: relative;
-  height: 64rpx;
-  background: var(--bt-color-bg-input);
-  border-radius: 10rpx;
-  overflow: hidden;
-}
-
-.timeline__seg {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 0 6rpx;
-  box-sizing: border-box;
-  border-right: 2rpx solid var(--bt-color-bg-elevated);
-  transition: background 0.2s ease;
-}
-
-.timeline__seg--active {
-  background: rgba(0, 136, 255, 0.14);
-}
-
-/* 段内图层子条：横排堆叠，颜色=灯效主题色 */
-.timeline__layers {
-  display: flex;
-  height: 22rpx;
-  border-radius: 6rpx;
-  overflow: hidden;
-}
-
-.timeline__layer {
-  height: 100%;
-}
-
-/* 过渡区间：段尾斜纹（半透明白/黑交替，透明底叠在子条上） */
-.timeline__trans {
-  position: absolute;
-  top: 6rpx;
-  bottom: 6rpx;
-  background-image: repeating-linear-gradient(
-    45deg,
-    rgba(255, 255, 255, 0.55) 0,
-    rgba(255, 255, 255, 0.55) 4rpx,
-    rgba(0, 0, 0, 0.12) 4rpx,
-    rgba(0, 0, 0, 0.12) 8rpx
-  );
-  border-radius: 4rpx;
-  pointer-events: none;
-}
-
-.timeline__label {
-  margin-top: 6rpx;
   font-size: 20rpx;
   line-height: 26rpx;
-  color: var(--bt-color-label-tertiary);
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
 }
-
-/* 图例：当前灯组用到的灯效色点 + 名称 */
-.timeline__legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8rpx 20rpx;
-  margin-top: 12rpx;
-}
-
-.timeline__legend-item {
-  display: flex;
-  align-items: center;
-}
-
-.timeline__legend-dot {
-  width: 14rpx;
-  height: 14rpx;
-  border-radius: 4rpx;
-  margin-right: 8rpx;
-}
-
-.timeline__legend-text {
-  font-size: 22rpx;
-  line-height: 30rpx;
-  color: var(--bt-color-label-tertiary);
-}
-
 
 .stage-seg--enter {
   animation: stage-seg-in 0.22s ease;
@@ -520,49 +428,148 @@
   }
 }
 
-.stage-add {
-  flex: 0 0 auto;
+/* ===== 阶段时间轴图（泳道甘特） ===== */
+.timeline {
+  margin: 20rpx 32rpx 0;
+  padding: 20rpx;
+  border-radius: var(--bt-radius-card);
+  background: var(--bt-color-bg-elevated);
+  box-shadow: var(--bt-shadow-card);
+}
+
+.timeline__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14rpx;
+}
+
+.timeline__title {
+  color: var(--bt-color-label);
+  font-size: 26rpx;
+  line-height: 34rpx;
+  font-weight: 600;
+}
+
+.timeline__total {
+  color: var(--bt-color-label-tertiary);
+  font-size: 22rpx;
+  line-height: 30rpx;
+}
+
+/* 轨道：段按 left/width 百分比铺满 */
+.timeline__track {
+  position: relative;
+  height: 72rpx;
+  overflow: hidden;
+  border-radius: 14rpx;
+  background: var(--bt-color-bg-input);
+}
+
+.timeline__seg {
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+  padding: 0 6rpx;
+  box-sizing: border-box;
+  border-right: 2rpx solid var(--bt-color-bg-elevated);
+  transition: background-color 0.2s ease;
+}
+
+.timeline__seg--active {
+  background: var(--bt-color-accent-soft-2);
+}
+
+/* 段内图层子条：横排堆叠，颜色=灯效主题色 */
+.timeline__layers {
+  display: flex;
+  height: 24rpx;
+  overflow: hidden;
+  border-radius: 8rpx;
+}
+
+.timeline__layer {
+  height: 100%;
+}
+
+/* 过渡区间：段尾斜纹 */
+.timeline__trans {
+  position: absolute;
+  top: 6rpx;
+  bottom: 6rpx;
+  border-radius: 6rpx;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.55) 0,
+    rgba(255, 255, 255, 0.55) 4rpx,
+    rgba(17, 24, 39, 0.12) 4rpx,
+    rgba(17, 24, 39, 0.12) 8rpx
+  );
+  pointer-events: none;
+}
+
+.timeline__label {
+  margin-top: 6rpx;
+  overflow: hidden;
+  color: var(--bt-color-label-tertiary);
+  font-size: 20rpx;
+  line-height: 26rpx;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* 图例：灯效色点 + 名称 */
+.timeline__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx 20rpx;
+  margin-top: 14rpx;
+}
+
+.timeline__legend-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 64rpx;
-  height: 64rpx;
+}
+
+.timeline__legend-dot {
+  width: 14rpx;
+  height: 14rpx;
+  margin-right: 8rpx;
   border-radius: 50%;
-  border: 2rpx dashed var(--bt-color-accent);
-  color: var(--bt-color-accent);
-  font-size: 32rpx;
 }
 
-.stage-add--disabled {
-  border-color: rgba(0, 0, 0, 0.15);
+.timeline__legend-text {
   color: var(--bt-color-label-tertiary);
+  font-size: 22rpx;
+  line-height: 30rpx;
 }
 
-/* 阶段详情气泡卡片：箭头指向当前选中阶段（left 由 JS 按段中心写入 --bubble-x） */
+/* ===== 阶段详情气泡卡片 ===== */
 .step-bubble {
   position: relative;
-  margin: 24rpx 24rpx 0;
-  padding: 20rpx 20rpx 24rpx;
+  margin: 20rpx 32rpx 0;
+  padding: 24rpx;
+  border-radius: var(--bt-radius-card);
   background: var(--bt-color-bg-elevated);
-  border-radius: 20rpx;
-  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.08);
+  box-shadow: var(--bt-shadow-card);
 }
 
+/* 箭头：用白卡三角指向当前阶段（border 三角比旋转方块更稳） */
 .step-bubble__arrow {
   position: absolute;
   top: -12rpx;
   left: var(--bubble-x, 50%);
-  transform: translateX(-50%);
-  width: 24rpx;
-  height: 24rpx;
-  background: var(--bt-color-bg-elevated);
-  border-left: 2rpx solid rgba(0, 0, 0, 0.08);
-  border-top: 2rpx solid rgba(0, 0, 0, 0.08);
-  transform: translateX(-50%) rotate(45deg);
-  border-radius: 4rpx 0 0 0;
+  width: 0;
+  height: 0;
+  margin-left: -12rpx;
+  border-left: 12rpx solid transparent;
+  border-right: 12rpx solid transparent;
+  border-bottom: 12rpx solid var(--bt-color-bg-elevated);
 }
 
-/* 阶段详情（横向阶段条下方的参数编辑区） */
 .step-detail {
   margin-top: 0;
 }
@@ -575,14 +582,14 @@
 
 .step-detail__title {
   flex: 1;
-  text-align: left;
-  font-size: 28rpx;
-  line-height: 38rpx;
-  font-weight: 600;
   color: var(--bt-color-label);
+  font-size: 30rpx;
+  line-height: 40rpx;
+  font-weight: 600;
+  text-align: left;
 }
 
-/* 时长行独占；过渡/循环并排一行 */
+/* 过渡/循环并排一行 */
 .row--two {
   flex-wrap: wrap;
   gap: 16rpx;
@@ -596,48 +603,40 @@
 }
 
 .row__half .row__label {
-  width: 100rpx;
+  width: 96rpx;
 }
 
-.step__del {
-  font-size: 24rpx;
-  line-height: 34rpx;
-  color: var(--bt-color-danger);
-}
-
-/* 底部删除当前阶段按钮（页面最下面，仅剩 1 个阶段时隐藏） */
+/* 底部删除当前阶段 */
 .del-stage {
-  margin: 24rpx 32rpx 8rpx;
-  padding: 20rpx;
-  text-align: center;
+  margin: 28rpx 0 8rpx;
+  padding: 22rpx;
+  border-radius: var(--bt-radius-inner);
+  background: var(--bt-color-danger-soft);
+  color: var(--bt-color-danger);
   font-size: 28rpx;
   line-height: 38rpx;
   font-weight: 600;
-  color: #ffffff;
-  background: var(--bt-color-danger);
-  border-radius: 16rpx;
+  text-align: center;
 }
 
-/* 图层两列卡片网格：每阶段最多 2 层，卡片与「添加」按钮同尺寸同一行。
-   与 home 的 4 列网格同法：margin 实现列间距（不依赖 flex gap，老内核也稳）。 */
+/* ===== 图层两列槽位卡 ===== */
 .layer-grid {
   display: flex;
   flex-wrap: wrap;
-  margin-top: 16rpx;
+  margin-top: 20rpx;
 }
 
 .layer-card {
-  /* border-box：虚线占位卡边框计入宽度，两列不换行 */
-  box-sizing: border-box;
-  width: calc((100% - 16rpx) / 2);
-  margin-right: 16rpx;
-  margin-bottom: 16rpx;
-  min-height: 168rpx;
-  padding: 16rpx;
-  background: var(--bt-color-bg-input);
-  border-radius: 16rpx;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  width: calc((100% - 16rpx) / 2);
+  min-height: 176rpx;
+  margin-right: 16rpx;
+  margin-bottom: 16rpx;
+  padding: 20rpx;
+  border-radius: var(--bt-radius-inner);
+  background: var(--bt-color-bg-sunken);
 }
 
 .layer-card:nth-child(2n) {
@@ -651,40 +650,43 @@
 }
 
 .layer-card__title {
-  font-size: 24rpx;
-  line-height: 34rpx;
-  color: var(--bt-color-label-secondary);
+  overflow: hidden;
+  color: var(--bt-color-label-tertiary);
+  font-size: 22rpx;
+  line-height: 32rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* 右上角删除：48rpx 热区的红色 ✕，负边距抵掉热区多出的高度，
-   标题行仍与单行标题同高。点它不打开配置弹窗（wxml 用 catchtap 拦冒泡）。 */
+/* 右上角删除：48rpx 热区，负边距抵掉多出的高度 */
 .layer-card__del {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   width: 48rpx;
   height: 48rpx;
   margin: -7rpx -8rpx -7rpx 8rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 26rpx;
-  line-height: 32rpx;
+  border-radius: 50%;
   color: var(--bt-color-danger);
+  font-size: 24rpx;
+  line-height: 1;
 }
 
 .layer-card__mid {
   display: flex;
   align-items: center;
   gap: 12rpx;
-  margin-top: 8rpx;
+  margin-top: 10rpx;
 }
 
-/* 首个 rgb 参数作色块预览：图层没有颜色参数时退化为描边方块 */
+/* 首个 rgb 参数作色块预览 */
 .layer-card__swatch {
   flex: 0 0 auto;
   width: 40rpx;
   height: 40rpx;
-  border-radius: 10rpx;
-  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
+  border-radius: 12rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(17, 24, 39, 0.08);
 }
 
 .layer-card__swatch--none {
@@ -695,40 +697,38 @@
 .layer-card__effect {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  color: var(--bt-color-label);
   font-size: 30rpx;
   line-height: 40rpx;
   font-weight: 600;
-  color: var(--bt-color-label);
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 渐变色带：多色灯效在卡片上直接展示配色（彩虹/双色/流星）。
-   高度 12rpx 的细条，圆角与卡片内层同心。 */
+/* 渐变色带：多色灯效在卡片上直接展示配色 */
 .layer-card__gradient {
   height: 12rpx;
-  margin-top: 10rpx;
-  border-radius: 6rpx;
+  margin-top: 12rpx;
+  border-radius: 999rpx;
 }
 
 .layer-card__summary {
   margin-top: auto;
-  padding-top: 8rpx;
+  padding-top: 10rpx;
+  overflow: hidden;
+  color: var(--bt-color-label-tertiary);
   font-size: 22rpx;
   line-height: 30rpx;
-  color: var(--bt-color-label-tertiary);
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 空槽卡（背景/动效未启用那一格）：虚线描边 + 居中「＋ 添加」，点它就地新建图层。
-   与占用槽同尺寸，两列布局保持整齐。 */
+/* 空槽卡：虚线描边 + 居中「＋ 添加」 */
 .layer-card--empty {
   align-items: stretch;
   background: transparent;
-  border: 2rpx dashed var(--bt-color-accent);
+  border: 2rpx dashed var(--bt-color-accent-soft-2);
 }
 
 .layer-card__empty-body {
@@ -740,143 +740,159 @@
 }
 
 .layer-card__plus {
+  color: var(--bt-color-accent);
   font-size: 40rpx;
   line-height: 48rpx;
-  color: var(--bt-color-accent);
 }
 
 .layer-card__add-text {
   margin-top: 4rpx;
+  color: var(--bt-color-accent);
   font-size: 24rpx;
   line-height: 34rpx;
-  color: var(--bt-color-accent);
 }
 
-/* 两格都空时的提示条 */
+/* 两格都空时的提示 */
 .layer-empty-hint {
   display: block;
   margin-top: 8rpx;
+  color: var(--bt-color-label-tertiary);
   font-size: 22rpx;
   line-height: 30rpx;
-  color: var(--bt-color-label-tertiary);
   text-align: center;
 }
 
-/* 图层配置弹窗（点图层卡片打开）：z-index 低于颜色弹层（200），
-   色块选色时可叠开在它之上。 */
-.layer-editor-mask {
+/* ===== 底部弹层通用（图层编辑 / 灯组配置） ===== */
+.layer-editor-mask,
+.group-config-mask {
   position: fixed;
   inset: 0;
-  z-index: 95;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 40rpx;
+  box-sizing: border-box;
 }
 
-.layer-editor-backdrop {
+.layer-editor-mask {
+  z-index: 95;
+}
+
+.group-config-mask {
+  z-index: 90;
+}
+
+.layer-editor-backdrop,
+.group-config-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(17, 24, 39, 0.4);
 }
 
-.layer-editor-panel {
+.layer-editor-panel,
+.group-config-panel {
   position: relative;
-  width: 90vw;
-  max-width: 720rpx;
-  max-height: 80vh;
-  overflow-y: auto;
-  background: var(--bt-color-bg-elevated);
-  border-radius: 28rpx;
-  padding: 24rpx;
-  box-shadow: 0 24rpx 64rpx rgba(0, 0, 0, 0.2);
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-height: 82vh;
+  padding: 28rpx;
+  overflow-y: auto;
+  border-radius: 40rpx;
+  background: var(--bt-color-bg-elevated);
+  box-shadow: var(--bt-shadow-raised);
+  box-sizing: border-box;
 }
 
-.layer-editor-head {
+.layer-editor-head,
+.group-config-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16rpx;
 }
 
-.layer-editor-title {
+.layer-editor-title,
+.group-config-title {
   flex: 1;
   min-width: 0;
+  color: var(--bt-color-label);
   font-size: 32rpx;
   line-height: 44rpx;
   font-weight: 700;
-  color: var(--bt-color-label);
 }
 
-.layer-editor-close {
-  flex: 0 0 auto;
-  width: 56rpx;
-  height: 56rpx;
+.layer-editor-close,
+.group-config-close,
+.color-picker-close {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 32rpx;
-  line-height: 40rpx;
-  color: var(--bt-color-label-secondary);
-  border-radius: 999rpx;
+  flex: 0 0 auto;
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
   background: var(--bt-color-bg-input);
+  color: var(--bt-color-label-secondary);
+  font-size: 26rpx;
+  line-height: 1;
 }
 
 .layer-editor__effect {
-  margin-top: 16rpx;
+  margin-top: 20rpx;
 }
 
-/* 3D 灯效预览：标题行 + canvas 舞台（宽度撑满，高度固定，深底衬托灯光） */
+/* ===== 3D 灯效预览 ===== */
 .effect3d {
-  margin-top: 16rpx;
-  padding: 12rpx;
-  background: var(--bt-color-bg-input);
-  border-radius: 12rpx;
+  margin-top: 20rpx;
+  padding: 16rpx;
+  border-radius: var(--bt-radius-inner);
+  background: var(--bt-color-bg-sunken);
 }
 
 .effect3d__head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 6rpx;
+  margin-bottom: 8rpx;
 }
 
 .effect3d__title {
+  color: var(--bt-color-label);
   font-size: 22rpx;
   line-height: 30rpx;
   font-weight: 600;
-  color: var(--bt-color-label-secondary);
 }
 
 .effect3d__hint {
+  color: var(--bt-color-label-quaternary);
   font-size: 20rpx;
   line-height: 28rpx;
-  color: var(--bt-color-label-quaternary);
 }
 
-/* 舞台：深色底（灯光需要暗场才看得清），圆角裁切，触摸用于旋转。
- * 灯条是横向长条，舞台按 2.6:1 的宽扁比例，避免上下大片空白。 */
+/* 舞台：深色底（灯光需要暗场才看得清），圆角裁切 */
 .effect3d__stage {
-  border-radius: 10rpx;
   overflow: hidden;
+  border-radius: 16rpx;
   background: radial-gradient(120% 90% at 50% 50%, #1b1b20 0%, #08080a 100%);
 }
 
 .effect3d-canvas {
   display: block;
   width: 100%;
-  height: 200rpx;
+  height: 220rpx;
 }
+
 .layer-editor__del {
   margin-top: 24rpx;
-  padding: 16rpx;
-  text-align: center;
+  padding: 20rpx;
+  border-radius: var(--bt-radius-inner);
+  background: var(--bt-color-danger-soft);
+  color: var(--bt-color-danger);
   font-size: 28rpx;
   line-height: 38rpx;
   font-weight: 600;
-  color: var(--bt-color-danger);
-  background: var(--bt-color-bg-input);
-  border-radius: 16rpx;
+  text-align: center;
 }
 
 /* 参数行（rgb 色块预览） */
@@ -884,16 +900,15 @@
   margin-top: 12rpx;
 }
 
-/* rgb 色块预览：点击弹层 */
 .color-swatch {
-  width: 96rpx;
-  height: 64rpx;
   flex: 0 0 auto;
-  border-radius: 12rpx;
-  box-shadow: inset 0 0 0 2rpx var(--bt-color-bg-input);
+  width: 104rpx;
+  height: 72rpx;
+  border-radius: var(--bt-radius-inner);
+  box-shadow: inset 0 0 0 2rpx rgba(17, 24, 39, 0.08);
 }
 
-/* 颜色弹层（#33） */
+/* ===== 颜色弹层（底部弹板） ===== */
 .color-picker-mask {
   position: fixed;
   inset: 0;
@@ -905,21 +920,21 @@
 .color-picker-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(17, 24, 39, 0.4);
 }
 
 .color-picker-panel {
   position: relative;
-  width: 100%;
-  max-height: 60vh;
-  overflow-y: auto;
-  background: var(--bt-color-bg-elevated);
-  border-radius: 28rpx 28rpx 0 0;
-  padding: 24rpx 32rpx 48rpx;
-  box-shadow: 0 -24rpx 64rpx rgba(0, 0, 0, 0.2);
   display: flex;
   flex-direction: column;
-  gap: 16rpx;
+  gap: 20rpx;
+  width: 100%;
+  max-height: 62vh;
+  padding: 28rpx 32rpx calc(48rpx + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  border-radius: 40rpx 40rpx 0 0;
+  background: var(--bt-color-bg-elevated);
+  box-sizing: border-box;
 }
 
 .color-picker-head {
@@ -929,40 +944,26 @@
 }
 
 .color-picker-title {
+  color: var(--bt-color-label);
   font-size: 32rpx;
   line-height: 44rpx;
   font-weight: 700;
-  color: var(--bt-color-label);
 }
 
-.color-picker-close {
-  width: 56rpx;
-  height: 56rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32rpx;
-  line-height: 40rpx;
-  color: var(--bt-color-label-secondary);
-  border-radius: 999rpx;
-  background: var(--bt-color-bg-input);
-}
-
-/* 选色：色轮（角度=色相，半径=饱和度） */
+/* 色轮（角度=色相，半径=饱和度） */
 .picker-main {
   display: flex;
-  gap: 24rpx;
   align-items: center;
+  gap: 28rpx;
 }
 
-/* 色轮：正方形，canvas 铺满；圆点叠在其上 */
 .picker-wheel {
   position: relative;
   flex: 0 0 auto;
-  width: 400rpx;
-  height: 400rpx;
+  width: 380rpx;
+  height: 380rpx;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 0 0 2rpx rgba(17, 24, 39, 0.06), var(--bt-shadow-card);
 }
 
 .color-wheel {
@@ -977,80 +978,86 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 8rpx;
+  gap: 12rpx;
 }
 
 .picker-preview {
-  height: 96rpx;
-  border-radius: 16rpx;
-  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
+  height: 108rpx;
+  border-radius: var(--bt-radius-inner);
+  box-shadow: inset 0 0 0 2rpx rgba(17, 24, 39, 0.08);
 }
 
 .picker-hex {
+  color: var(--bt-color-label);
   font-size: 26rpx;
   line-height: 36rpx;
   font-weight: 600;
-  color: var(--bt-color-label);
 }
 
 .picker-hs {
+  color: var(--bt-color-label-tertiary);
   font-size: 22rpx;
   line-height: 30rpx;
-  color: var(--bt-color-label-tertiary);
 }
 
-/* 色轮圆点：绝对定位到圆的百分比坐标，中心对齐该点 */
+/* 色轮圆点 */
 .picker-dot {
   position: absolute;
   width: 36rpx;
   height: 36rpx;
-  margin-left: -18rpx;
   margin-top: -18rpx;
+  margin-left: -18rpx;
   border-radius: 50%;
-  background: #FFFFFF;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.35), 0 0 0 3rpx rgba(255, 255, 255, 0.95);
+  background: #ffffff;
+  box-shadow: 0 2rpx 8rpx rgba(17, 24, 39, 0.3), 0 0 0 3rpx rgba(255, 255, 255, 0.95);
   pointer-events: none;
 }
 
-.color-cell--recent {
-  width: 80rpx;
-  height: 80rpx;
-  flex: 0 0 auto;
-  border-radius: 12rpx;
-  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, 0.1);
-}
-
 .recent-colors {
-  margin-top: 24rpx;
+  margin-top: 8rpx;
 }
 
 .recent-colors__title {
-  font-size: 26rpx;
-  line-height: 36rpx;
   color: var(--bt-color-label-secondary);
+  font-size: 24rpx;
+  line-height: 34rpx;
+  font-weight: 600;
 }
 
 .recent-colors__row {
   display: flex;
-  gap: 12rpx;
   flex-wrap: wrap;
+  gap: 12rpx;
   margin-top: 12rpx;
 }
 
-/* 同步状态条（autoSync 驱动，嵌在页面顶部）：四态小字，failed 可点重试 */
-.sync-bar {
-  padding: 8rpx 32rpx;
-  font-size: 24rpx;
-  line-height: 1.4;
-  color: var(--bt-color-label-secondary);
+.color-cell {
+  box-sizing: border-box;
 }
 
+.color-cell--recent {
+  flex: 0 0 auto;
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: var(--bt-radius-inner);
+  box-shadow: inset 0 0 0 2rpx rgba(17, 24, 39, 0.08);
+}/* ===== 同步状态条 ===== */
+.sync-bar {
+  padding: 10rpx 40rpx;
+  font-size: 24rpx;
+  line-height: 1.4;
+  color: var(--bt-color-label-tertiary);
+}
+
+.sync-bar__text {
+  display: block;
+}
 .sync-bar--syncing {
   color: var(--bt-color-accent);
 }
 
 .sync-bar--synced {
-  color: var(--bt-color-label-secondary);
+  color: var(--bt-color-label-tertiary);
 }
 
 .sync-bar--failed {
@@ -1060,85 +1067,40 @@
 .sync-bar--local {
   color: var(--bt-color-label-tertiary);
 }
-/* 灯组配置弹窗（长按灯组 Tab 打开）：居中面板，名称 + 灯珠范围拖选内嵌。 */
-.group-config-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 
-.group-config-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-}
-
-.group-config-panel {
-  position: relative;
-  width: 90vw;
-  max-width: 720rpx;
-  max-height: 80vh;
-  overflow-y: auto;
-  background: var(--bt-color-bg-elevated);
-  border-radius: 28rpx;
-  padding: 24rpx;
-  box-shadow: 0 24rpx 64rpx rgba(0, 0, 0, 0.2);
-  display: flex;
-  flex-direction: column;
-}
-
-.group-config-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.group-config-title {
-  font-size: 32rpx;
-  line-height: 44rpx;
-  font-weight: 700;
-  color: var(--bt-color-label);
-}
-
-.group-config-close {
-  width: 56rpx;
-  height: 56rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32rpx;
-  line-height: 40rpx;
-  color: var(--bt-color-label-secondary);
-  border-radius: 999rpx;
-  background: var(--bt-color-bg-input);
-}
-
-/* 取消区：fixed 屏幕底部，与弹窗物理分离，永不遮挡方格 */
+/* ===== 灯珠拖选取消区 ===== */
 .led-cancel-zone {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 80rpx;
   z-index: 101;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, rgba(255, 56, 60, 0) 0%, rgba(255, 56, 60, 0.25) 40%, rgba(255, 56, 60, 0.45) 100%);
+  height: 96rpx;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 56, 60, 0) 0%,
+    rgba(255, 56, 60, 0.25) 40%,
+    rgba(255, 56, 60, 0.45) 100%
+  );
   transition: background 0.2s ease-out;
 }
 
 .led-cancel-zone--active {
-  background: linear-gradient(180deg, rgba(255, 56, 60, 0.1) 0%, rgba(255, 56, 60, 0.45) 40%, rgba(255, 56, 60, 0.7) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 56, 60, 0.1) 0%,
+    rgba(255, 56, 60, 0.45) 40%,
+    rgba(255, 56, 60, 0.7) 100%
+  );
 }
 
 .led-cancel-zone__text {
+  color: #ffffff;
   font-size: 28rpx;
   line-height: 40rpx;
-  color: #ffffff;
   font-weight: 600;
-  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.25);
+  text-shadow: 0 2rpx 8rpx rgba(17, 24, 39, 0.25);
 }
