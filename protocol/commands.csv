@@ -11,4 +11,4 @@ id,name,code,direction,description
 10,SET_BRIGHTNESS,0x0A,app_to_fw,设置整机亮度：所有引脚统一缩放（0-255）
 11,SET_POWER,0x0B,app_to_fw,设置整机开关：0=关（输出全黑，不改各引脚状态）/1=开
 129,STATUS_NOTIFY,0x81,fw_to_app,notify 回传状态/错误/进度
-240,OTA,0xF0,bidirectional,预留给 v2，命令码预留流程延后
+240,OTA,0xF0,bidirectional,BLE 固件升级：负载首字节为子命令（见 ota.csv / ADR-0034）

@@ -19,6 +19,8 @@ const {
   saveDevicePower,
   getDeviceBrightness,
   saveDeviceBrightness,
+  getDeviceFirmwareVersion,
+  saveDeviceFirmwareVersion,
   BRIGHTNESS_DEFAULT,
   POWER_DEFAULT,
 } = require('../../utils/deviceStore')
@@ -26,6 +28,7 @@ const { friendlyMessage, logError } = require('../../utils/errorHandler')
 const { validateConfig } = require('../../utils/configCodec')
 const autoSync = require('../../utils/autoSync')
 const charts = require('../../utils/chartHelpers')
+const cloudSync = require('../../utils/cloudSync')
 const GEN = require('../../utils/protocol_gen')
 
 // 亮度历史 Storage 键（每设备一条，供 hero 卡 sparkline 画折线）。
@@ -42,6 +45,9 @@ Page({
     // 设备卡片
     deviceName: '', // 左上标题；空串显示"未连接设备"
     connected: false, // BLE 连接状态
+    // 设备固件版本（ADR-0034）：连接时固件主动上报，落设备记录；
+    // 空串表示未知（老固件/未连接过）。
+    firmwareVersion: '',
     // 整体开关 = 设备级总开关（ADR-0032）：落盘在设备记录，下发走 SET_POWER。
     // 关 = 设备输出全黑；各引脚自己的开关状态不受影响，开机后按原状态恢复。
     power: POWER_DEFAULT,
@@ -57,6 +63,8 @@ Page({
     editing: false, // 弹窗是否显示
     draftName: '', // 弹窗内编辑的设备名草稿
     draftImg: '', // 弹窗内编辑的占位图路径草稿
+    // 新手引导：首次打开空态时展示一次（Storage 记录关闭）
+    showAddGuide: false,
   },
 
   onShow() {
@@ -86,13 +94,22 @@ Page({
       if (evt.type === 'error') {
         logError(evt.code, '设备回传错误')
         wx.showToast({ title: friendlyMessage(evt.code), icon: 'none' })
-      } else if (evt.type === 'version' && !evt.compatible) {
-        logError({ errMsg: `版本不兼容 固件${evt.protocol}/需要${this.data.protocolVersion}` }, '版本不兼容')
-        wx.showModal({
-          title: '版本不兼容',
-          content: `固件协议 ${evt.protocol}，小程序需要 ${this.data.protocolVersion}。请升级小程序或固件。`,
-          showCancel: false,
-        })
+      } else if (evt.type === 'version') {
+        // 固件版本落库（ADR-0034）：连接即上报，之后 GET_VERSION 再补一次。
+        // 同一值不重复写 Storage。
+        const currentId = this._currentDeviceId()
+        if (currentId) saveDeviceFirmwareVersion(currentId, evt.firmware)
+        if (this.data.firmwareVersion !== evt.firmware) {
+          this.setData({ firmwareVersion: evt.firmware })
+        }
+        if (!evt.compatible) {
+          logError({ errMsg: `版本不兼容 固件${evt.protocol}/需要${this.data.protocolVersion}` }, '版本不兼容')
+          wx.showModal({
+            title: '版本不兼容',
+            content: `固件协议 ${evt.protocol}，小程序需要 ${this.data.protocolVersion}。请升级小程序或固件。`,
+            showCancel: false,
+          })
+        }
       }
     })
     // 连接/断开 → 刷新状态。
@@ -139,10 +156,13 @@ Page({
     let pins = []
     let power = POWER_DEFAULT
     let brightness = this.data.brightness
+    let firmwareVersion = ''
     if (currentId) {
       const dev = listDevices().find((d) => d.id === currentId)
       deviceName = dev ? dev.name : ''
       img = (dev && dev.img) || ''
+      // 固件版本：设备记录上的上次已知值（ADR-0034）。
+      firmwareVersion = getDeviceFirmwareVersion(currentId)
       // 整机开关/亮度：设备记录上的值（缺省 开 / 255）。
       // 亮度拖动中不覆盖，避免回弹（见 onBrightnessChanging）。
       power = getDevicePower(currentId)
@@ -166,7 +186,14 @@ Page({
         })
       }
     }
-    this.setData({ deviceName, img, connected, pins, power, brightness })
+    this.setData({ deviceName, img, connected, pins, power, brightness, firmwareVersion })
+    // 新手引导：首次打开空态时展示（只看设备数为空的场景，避免打扰已有设备的用户）
+    if (!currentId && pins.length === 0) {
+      const seen = wx.getStorageSync('bt_add_guide_seen')
+      if (!seen) this.setData({ showAddGuide: true })
+    } else if (this.data.showAddGuide) {
+      this.setData({ showAddGuide: false })
+    }
     // 亮度历史：切设备后重读该设备的历史点（sparkline 数据源）。
     this._loadBrightnessHist(currentId)
   },
@@ -236,6 +263,17 @@ Page({
   // 左上设备名称 → 设备列表页（新增/切换）。
   onTapDeviceName() {
     wx.navigateTo({ url: '/pages/device-list/device-list' })
+  },
+
+  // 空态「添加设备」按钮：直达设备列表页扫描
+  onTapAddDevice() {
+    wx.navigateTo({ url: '/pages/device-list/device-list' })
+  },
+
+  // 新手引导关闭：本地记录，不再重复展示
+  onAddGuideClose() {
+    wx.setStorageSync('bt_add_guide_seen', '1')
+    this.setData({ showAddGuide: false })
   },
 
   // 引脚卡片 → 引脚配置详情页（#27 / T7）。未配置引脚同样进入（首次配置）。
@@ -383,11 +421,13 @@ Page({
     const app = getApp()
     const currentId = (app && app.globalData && app.globalData.currentDeviceId) || null
     if (currentId) {
-      saveDevice({
+      const saved = saveDevice({
         id: currentId,
         name: this.data.draftName,
         img: this.data.draftImg,
       })
+      // 改名同步到云端（best-effort；未登录/离线静默跳过）。
+      if (saved) cloudSync.pushDevice(saved)
     }
     this.setData({
       deviceName: this.data.draftName,

@@ -3,8 +3,8 @@
 // Project: sishoui/bt-model-light
 //
 // protocol_version 1.2 (released 2026-11-26)
-// firmware_version 0.3 (released 2026-11-26)
-// app_version     0.3 (released 2026-11-26)
+// firmware_version 0.4 (released 2026-11-27)
+// app_version     0.5 (released 2026-11-27)
 
 #ifndef BT_MODEL_LIGHT_PROTOCOL_GEN_H
 #define BT_MODEL_LIGHT_PROTOCOL_GEN_H
@@ -21,11 +21,11 @@ extern "C" {
 #define PROTOCOL_VERSION_MINOR 2
 #define PROTOCOL_VERSION_STRING "1.2"
 #define FIRMWARE_VERSION_MAJOR 0
-#define FIRMWARE_VERSION_MINOR 3
-#define FIRMWARE_VERSION_STRING "0.3"
+#define FIRMWARE_VERSION_MINOR 4
+#define FIRMWARE_VERSION_STRING "0.4"
 #define APP_VERSION_MAJOR 0
-#define APP_VERSION_MINOR 3
-#define APP_VERSION_STRING "0.3"
+#define APP_VERSION_MINOR 5
+#define APP_VERSION_STRING "0.5"
 
 /* ---- frame (frame-spec.md) ---- */
 #define FRAME_HEADER_BYTE 0xAA
@@ -60,7 +60,7 @@ extern "C" {
 #define CMD_SET_BRIGHTNESS   0x0A  /* 设置整机亮度：所有引脚统一缩放（0-255） */
 #define CMD_SET_POWER        0x0B  /* 设置整机开关：0=关（输出全黑，不改各引脚状态）/1=开 */
 #define CMD_STATUS_NOTIFY    0x81  /* notify 回传状态/错误/进度 */
-#define CMD_OTA              0xF0  /* 预留给 v2，命令码预留流程延后 */
+#define CMD_OTA              0xF0  /* BLE 固件升级：负载首字节为子命令（见 ota.csv / ADR-0034） */
 
 #define CMD_COUNT 13
 
@@ -104,6 +104,16 @@ static const cmd_entry_t CMD_TABLE[] = {
 #define ERR_PROTOCOL_VERSION_INCOMPATIBLE    0x08  /* 协议版本不兼容 */
 
 #define ERR_COUNT 8
+
+/* ---- OTA (0xF0) sub-commands (ota.csv) ---- */
+/* Payload layouts: protocol/frame-spec.md "OTA（0xF0）负载" */
+#define OTA_SUB_BEGIN      0x01  /* 开始升级：[total:u32le][crc32:u32le][version_major:u8][version_minor:u8] */
+#define OTA_SUB_DATA       0x02  /* 数据块：[offset:u32le][bytes...]，offset 必须等于已接收字节数 */
+#define OTA_SUB_END        0x03  /* 结束升级：校验 CRC32 并写入 otadata 切换启动分区 */
+#define OTA_SUB_ABORT      0x04  /* 中止升级：丢弃已写入内容，保持当前固件 */
+#define OTA_SUB_PROGRESS   0x05  /* 进度回传：[written:u32le][total:u32le]，每 256KB 与终态各发一次 */
+
+#define OTA_SUB_COUNT 5
 
 /* ---- effects (effects.csv) ---- */
 #define EFF_SOLID            0x01  /* 常亮（纯色常亮） */

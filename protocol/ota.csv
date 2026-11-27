@@ -1,0 +1,6 @@
+sub,code,name,direction,description
+1,0x01,BEGIN,app_to_fw,开始升级：[total:u32le][crc32:u32le][version_major:u8][version_minor:u8]
+2,0x02,DATA,app_to_fw,数据块：[offset:u32le][bytes...]，offset 必须等于已接收字节数
+3,0x03,END,app_to_fw,结束升级：校验 CRC32 并写入 otadata 切换启动分区
+4,0x04,ABORT,app_to_fw,中止升级：丢弃已写入内容，保持当前固件
+5,0x05,PROGRESS,fw_to_app,进度回传：[written:u32le][total:u32le]，每 256KB 与终态各发一次

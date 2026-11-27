@@ -11,6 +11,9 @@ const { createBleClient, setCurrentBleClient } = require('./utils/bleClient')
 const { createSimBleClient } = require('./utils/mockBleClient')
 const { isSimModeEnabled } = require('./utils/simMode')
 const { getCurrentDeviceId } = require('./utils/deviceStore')
+const userStore = require('./utils/userStore')
+const cloudSync = require('./utils/cloudSync')
+const telemetry = require('./utils/telemetry')
 
 App({
   onLaunch(options) {
@@ -19,6 +22,26 @@ App({
     setCurrentBleClient(sim ? createSimBleClient() : createBleClient())
     this.globalData.simMode = sim
     this.globalData.currentDeviceId = getCurrentDeviceId()
+
+    // 遥测（ADR-0037）：启动量 + 模拟模式占比（演示数据不能混进真实 DAU）。
+    telemetry.track('app.launch', { dim: sim ? 'sim' : 'real', value: 1 })
+
+    // 已登录时静默续一次资料 + 设备清单（ADR-0035）。全部 best-effort：
+    // 断网/后端不可用不影响 BLE 主流程，用户也不会看到报错弹窗。
+    if (userStore.isLoggedIn()) {
+      userStore
+        .refreshProfile()
+        .catch(() => null)
+        .then(() => cloudSync.syncAll().catch(() => null))
+        .then(() => {
+          this.globalData.currentDeviceId = getCurrentDeviceId()
+        })
+    }
+  },
+
+  // 切后台/退出前把遥测队列发出去（尽力，不保证送达）。
+  onHide() {
+    telemetry.flushNow()
   },
   globalData: {
     currentDeviceId: null,

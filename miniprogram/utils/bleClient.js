@@ -16,7 +16,8 @@
 'use strict'
 
 const { encodeFrame, FrameParser, PARSE_OK } = require('./frameParser')
-const { CMD, NOTIFY, BLE, PROTOCOL_VERSION, ERR } = require('./protocol_gen')
+const { CMD, NOTIFY, BLE, PROTOCOL_VERSION, ERR, OTA_SUB } = require('./protocol_gen')
+const telemetry = require('./telemetry')
 
 // 安全下界：ATT MTU 23 → 20 字节负载（分片降级后的兜底值）。
 const WRITE_CHUNK = 20
@@ -52,6 +53,15 @@ function createBleClient() {
   const _statusSubs = new Set()
   const _stateSubs = new Set()
 
+  // 写空口串行队列：同一时刻只有一帧在分片写入。分片交错会让固件的
+  // 流式解析器读到半截帧（CRC 全乱），OTA 与自动同步并发时尤其致命
+  // （ADR-0034）。排在队尾的调用按调用顺序执行，失败不影响后续。
+  let _writeChain = Promise.resolve()
+  // 连接代次：每次 connect/disconnect 自增。入队时记下代次，真正写空口前
+  // 比对——切换设备/重连后，旧连接排队的帧必须丢弃（_seq 与 _chunk 已复位，
+  // 继续写会串到新链路上）。
+  let _connGen = 0
+
   // ---- 单例 seam（实现见文件底部 getCurrentBleClient/setCurrentBleClient） ----
 
   function _wx() {
@@ -65,6 +75,17 @@ function createBleClient() {
   function _dispatchFrame(out) {
     if (out.cmd !== CMD.STATUS_NOTIFY) return // 其他命令的 notify（v2）暂忽略
     const p = out.payload
+
+    // OTA PROGRESS（ADR-0034）：payload = [0x05][written:u32le][total:u32le]。
+    // 复用 0x81 通道但不用 3 字节 status/code/seq 布局——普通布局的首字节
+    // 只有 0..3，0x05 与之不会混淆（frame-spec.md）。
+    if (p.length === 9 && p[0] === OTA_SUB.PROGRESS) {
+      const written = (p[1] | (p[2] << 8) | (p[3] << 16) | (p[4] << 24)) >>> 0
+      const total = (p[5] | (p[6] << 8) | (p[7] << 16) | (p[8] << 24)) >>> 0
+      _emit({ type: 'ota-progress', written, total })
+      return
+    }
+
     if (p.length < 3) return // 布局不足 3 字节（status/code/seq），坏帧丢弃
     const status = p[0]
     const code = p[1]
@@ -87,6 +108,10 @@ function createBleClient() {
       evt = { type: 'ok', code }
     }
     if (!evt) return
+    _emit(evt)
+  }
+
+  function _emit(evt) {
     for (const fn of _statusSubs) {
       try {
         fn(evt)
@@ -116,6 +141,7 @@ function createBleClient() {
       _versionKnown = false
       _compatible = true
       _parser.reset()
+      _connGen++ // 断开后作废队列里尚未发出的帧
     }
     for (const fn of _stateSubs) {
       try {
@@ -149,6 +175,7 @@ function createBleClient() {
     const opts = options || {}
     const found = new Map() // deviceId -> device
     let stopped = false
+    telemetry.track('ble.scan.start')
 
     const emit = (devices) => {
       for (const d of devices) {
@@ -182,6 +209,8 @@ function createBleClient() {
           rssi: rssi,
         }
         found.set(d.deviceId, device)
+        // 只在首次发现时打点：扫描回调每秒可能来几十次，逐次打点会把库淹掉。
+        if (!prev) telemetry.track('ble.rssi', { value: rssi, dim: '' })
         if (typeof opts.onFound === 'function') opts.onFound(device)
       }
     }
@@ -350,6 +379,12 @@ function createBleClient() {
     await _negotiateMtu(deviceId)
 
     _connected = true
+    _connGen++ // 新连接：作废旧队列
+    _writeChain = Promise.resolve()
+    // 遥测（ADR-0037）：协商到的写分片上限是"能不能 OTA"的关键指标，
+    // 后台直方图能看出有多少设备还卡在 20 字节。
+    telemetry.track('ble.connect.ok')
+    telemetry.track('ble.mtu', { value: _chunk })
     for (const fn of _stateSubs) {
       try {
         fn({ connected: true })
@@ -366,6 +401,7 @@ function createBleClient() {
 
   async function disconnect() {
     const wx = _wx()
+    const wasConnected = _connected
     if (_deviceId && _connected) {
       await wx.closeBLEConnection({ deviceId: _deviceId }).catch(() => {})
     }
@@ -374,12 +410,16 @@ function createBleClient() {
     _writeCharId = null
     _notifyCharId = null
     _connected = false
+    _connGen++ // 作废队列里尚未发出的帧
+    _writeChain = Promise.resolve()
     _versionKnown = false
     _compatible = true
     _versionInfo = null
     _parser.reset()
     _seq = 0
     _chunk = WRITE_CHUNK // 分片上限随连接作废，下次连接重新协商
+    // 只统计"真的连过再断"，避免空闲调用 disconnect 也计入断开率。
+    if (wasConnected) telemetry.track('ble.disconnect')
     for (const fn of _stateSubs) {
       try {
         fn({ connected: false })
@@ -420,17 +460,33 @@ function createBleClient() {
     }
   }
 
-  // 编帧 → 按当前分片上限顺序写入写特征（同一时刻不并发，见 autoSync 单飞）。
+  // 编帧 → 按当前分片上限顺序写入写特征。
   // 未连接 / 协议不兼容时 reject（ADR-0009：不兼容不下发命令）。
+  // opts.bypassVersionCheck：仅 OTA 升级用——协议不兼容时必须还能自救升级
+  //（ADR-0034），普通命令不得使用该开关。
   // 首片被平台拒（errMsg 多为超出单次写上限）说明实际 MTU 没到乐观值：
   // 整帧退回 20 字节重发，并记住该上限。只在首片失败时降级——此时空口一个字节
   // 都没发出去，整帧重发不会在固件流式解析器里留下半截帧；中途失败交给上层重试。
-  async function sendCmd(cmd, payload) {
+  async function sendCmd(cmd, payload, opts) {
     if (!_connected || !_deviceId || !_writeCharId) {
       throw new Error('BLE 未连接')
     }
-    if (_versionKnown && !_compatible) {
+    if (_versionKnown && !_compatible && !(opts && opts.bypassVersionCheck)) {
       throw new Error(`协议版本不兼容（固件 ${_versionInfo ? _versionInfo.protocol : '?'}，需要 ${PROTOCOL_VERSION.string}）`)
+    }
+    // 串行化：入队后按调用顺序独占空口，避免与并发的配置下发/OTA 分片交错。
+    const gen = _connGen
+    const run = _writeChain.then(() => {
+      if (gen !== _connGen) throw new Error('BLE 连接已切换，命令作废')
+      return _writeFrame(cmd, payload)
+    })
+    _writeChain = run.catch(() => {}) // 失败不断链
+    return run
+  }
+
+  async function _writeFrame(cmd, payload) {
+    if (!_connected || !_deviceId || !_writeCharId) {
+      throw new Error('BLE 未连接')
     }
     const wx = _wx()
     const frame = encodeFrame(cmd, _seq, payload)

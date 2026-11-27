@@ -1,4 +1,4 @@
 name,major,minor,released,notes
-protocol_version,1,2,2026-11-26,新增 SET_POWER（0x0B）整机开关（ADR-0032）
-firmware_version,0,3,2026-11-26,整机开关门控 + 整机亮度输出级缩放（ADR-0031/0032）
-app_version,0,3,2026-11-26,首页整机开关/亮度接线 + 关机引脚置灰（ADR-0031/0032）
+protocol_version,1,2,2026-11-26,新增 SET_POWER（0x0B）整机开关（ADR-0032）；0xF0 子命令见 ota.csv（ADR-0034）
+firmware_version,0,4,2026-11-27,BLE OTA（0xF0 子命令）+ 连接即上报固件版本 + notify 按协商 MTU 分片（ADR-0034）
+app_version,0,5,2026-11-27,微信登录 + 用户配置页（pages/profile）+ 设备归属云端同步（ADR-0035/0036）

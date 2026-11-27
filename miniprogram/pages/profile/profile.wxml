@@ -1,0 +1,223 @@
+<!-- 用户配置页（底部导航第二 Tab「我的」）：账号 / 数据 / 设置 / 设备 / 关于 / 帮助。
+     ADR-0027 页面结构 + ADR-0035 用户体系；design.md §7.4 设置页范式。 -->
+<view class="page page--dock">
+  <!-- ===== 账号卡 ===== -->
+  <view class="bt-card profile-hero">
+    <view class="profile-hero__row">
+      <button
+        wx:if="{{loggedIn}}"
+        class="profile-hero__avatar-btn"
+        open-type="chooseAvatar"
+        bindchooseavatar="onChooseAvatar"
+        disabled="{{avatarBusy}}"
+      >
+        <image wx:if="{{user.avatar}}" class="profile-hero__avatar" src="{{user.avatar}}" mode="aspectFill" />
+        <view wx:else class="profile-hero__avatar profile-hero__avatar--placeholder">
+          <text class="profile-hero__avatar-text">头像</text>
+        </view>
+      </button>
+      <view wx:else class="profile-hero__avatar profile-hero__avatar--placeholder">
+        <text class="profile-hero__avatar-text">未登录</text>
+      </view>
+
+      <view class="profile-hero__main">
+        <block wx:if="{{loggedIn}}">
+          <view class="profile-hero__name-row">
+            <input
+              class="profile-hero__name-input"
+              type="nickname"
+              value="{{nicknameDraft}}"
+              placeholder="设置昵称"
+              placeholder-class="profile-hero__placeholder"
+              maxlength="32"
+              bindinput="onNicknameInput"
+              bindblur="onSaveNickname"
+              bindconfirm="onSaveNickname"
+            />
+            <text class="profile-hero__save" bindtap="onSaveNickname">保存</text>
+          </view>
+          <text class="profile-hero__hint">点击头像可更换 · 昵称失焦即保存</text>
+        </block>
+        <block wx:else>
+          <text class="profile-hero__name">未登录</text>
+          <text class="profile-hero__hint">登录后设备清单同步到云端，换手机不丢</text>
+        </block>
+      </view>
+    </view>
+
+    <button
+      wx:if="{{!loggedIn}}"
+      class="bt-btn bt-btn--primary profile-hero__login"
+      bindtap="onLogin"
+      disabled="{{loginBusy}}"
+    >
+      {{loginBusy ? '登录中…' : '微信登录'}}
+    </button>
+    <view wx:else class="profile-hero__logout bt-pressable" bindtap="onLogout">
+      <text class="profile-hero__logout-text">退出登录</text>
+    </view>
+  </view>
+
+  <!-- ===== 数据 / 云端同步 ===== -->
+  <view class="bt-section-title">数据</view>
+  <view class="bt-card settings-card">
+    <view class="settings-row">
+      <view class="bt-icon-pill bt-icon-pill--muted"><view class="bt-ico bt-ico--list"></view></view>
+      <view class="settings-row__body">
+        <text class="settings-row__title">已保存设备</text>
+        <text class="settings-row__hint">本机记录（连上云端后跨手机可见）</text>
+      </view>
+      <text class="settings-row__value">{{deviceCount}} 台</text>
+    </view>
+
+    <view class="settings-row bt-pressable" bindtap="onSyncNow">
+      <view class="bt-icon-pill"><view class="bt-ico bt-ico--cloud"></view></view>
+      <view class="settings-row__body">
+        <text class="settings-row__title">云端同步</text>
+        <text class="settings-row__hint">{{loggedIn ? '把本机设备清单与云端对齐' : '登录后可跨手机同步设备清单'}}</text>
+      </view>
+      <view class="settings-row__meta">
+        <text class="settings-row__value">{{cloudStatusText}}{{cloudAt ? ' · ' + cloudAt : ''}}</text>
+        <text class="settings-row__arrow">›</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ===== 设置 ===== -->
+  <view class="bt-section-title">设置</view>
+  <view class="bt-card settings-card">
+    <view class="settings-row">
+      <view class="bt-icon-pill {{simModeEnabled ? '' : 'bt-icon-pill--muted'}}"><view class="bt-ico bt-ico--chip"></view></view>
+      <view class="settings-row__body">
+        <text class="settings-row__title">模拟模式</text>
+        <text class="settings-row__hint">无硬件环境测试用（开启后注入模拟设备）</text>
+      </view>
+      <switch checked="{{simModeEnabled}}" color="#0088FF" bindchange="onToggleSimMode" />
+    </view>
+
+    <view class="settings-row bt-pressable" bindtap="onViewErrorLog">
+      <view class="bt-icon-pill bt-icon-pill--muted"><view class="bt-ico bt-ico--doc"></view></view>
+      <view class="settings-row__body">
+        <text class="settings-row__title">本地日志</text>
+        <text class="settings-row__hint">错误分布与最近条目</text>
+      </view>
+      <view class="settings-row__meta">
+        <text class="settings-row__value">{{errorLogCount}} 条</text>
+        <text class="settings-row__arrow">›</text>
+      </view>
+    </view>
+
+    <view class="settings-row bt-pressable" bindtap="onClearStorage">
+      <view class="bt-icon-pill bt-icon-pill--danger"><view class="bt-ico bt-ico--trash"></view></view>
+      <view class="settings-row__body">
+        <text class="settings-row__title">清除本地数据</text>
+        <text class="settings-row__hint">清空设备记录与缓存</text>
+      </view>
+      <text class="settings-row__arrow">›</text>
+    </view>
+  </view>
+
+  <!-- ===== 设备 ===== -->
+  <view class="bt-section-title">设备</view>
+  <view class="bt-card settings-card">
+    <view class="settings-row bt-pressable" bindtap="onCheckFirmware">
+      <view class="bt-icon-pill"><view class="bt-ico bt-ico--refresh"></view></view>
+      <view class="settings-row__body">
+        <text class="settings-row__title">固件升级</text>
+        <text class="settings-row__hint">通过蓝牙升级设备固件（需连接设备）</text>
+      </view>
+      <view class="settings-row__meta">
+        <text class="settings-row__value">{{fwVersion ? 'v' + fwVersion : '未连接'}}</text>
+        <text class="settings-row__arrow">›</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ===== 关于 ===== -->
+  <view class="bt-section-title">关于</view>
+  <view class="bt-card settings-card">
+    <view class="settings-row bt-pressable" bindtap="onTapAbout">
+      <view class="bt-icon-pill bt-icon-pill--muted"><view class="bt-ico bt-ico--info"></view></view>
+      <view class="settings-row__body">
+        <text class="settings-row__title">关于 bt-model-light</text>
+        <text class="settings-row__hint">版本与协议信息</text>
+      </view>
+      <view class="settings-row__meta">
+        <text class="settings-row__value">v{{version}} · 协议 {{protocolVersion}}</text>
+        <text class="settings-row__arrow">›</text>
+      </view>
+    </view>
+
+    <view class="settings-row bt-pressable" bindtap="onTapHelp">
+      <view class="bt-icon-pill bt-icon-pill--muted"><view class="bt-ico bt-ico--chat"></view></view>
+      <view class="settings-row__body">
+        <text class="settings-row__title">使用帮助</text>
+        <text class="settings-row__hint">连接、灯效编辑与常见问题</text>
+      </view>
+      <text class="settings-row__arrow">›</text>
+    </view>
+  </view>
+</view>
+
+<!-- 本地日志弹层：错误分布柱状图（最近 7 天）+ 最近条目列表。 -->
+<view wx:if="{{logPanelOpen}}" class="sheet-mask" bindtap="onCloseLogPanel">
+  <view class="sheet" catchtap="noop">
+    <view class="sheet__grabber"></view>
+    <view class="sheet__head">
+      <text class="sheet__title">本地日志</text>
+      <text class="sheet__close" bindtap="onCloseLogPanel">✕</text>
+    </view>
+
+    <view class="log-chart bt-inset">
+      <view class="log-chart__head">
+        <text class="log-chart__title">近 7 天错误分布</text>
+        <text class="log-chart__total">共 {{errorLogCount}} 条 · 峰值 {{errorChartMax}}</text>
+      </view>
+      <view class="log-chart__bars">
+        <view wx:for="{{errorBuckets}}" wx:key="label" class="log-chart__col">
+          <text class="log-chart__count">{{item.count || ''}}</text>
+          <view class="log-chart__bar-wrap">
+            <view
+              class="log-chart__bar {{item.count ? '' : 'log-chart__bar--empty'}}"
+              style="height: {{item.pct}}%;"
+            ></view>
+          </view>
+          <text class="log-chart__label">{{item.label}}</text>
+        </view>
+      </view>
+    </view>
+
+    <text class="log-list__title">最近 {{logRecent.length}} 条</text>
+    <scroll-view class="log-list" scroll-y>
+      <view wx:for="{{logRecent}}" wx:key="ts" class="log-item">
+        <view class="log-item__head">
+          <text class="log-item__ts">{{item.ts}}</text>
+          <text wx:if="{{item.context}}" class="log-item__ctx">{{item.context}}</text>
+        </view>
+        <text class="log-item__msg">{{item.message}}</text>
+      </view>
+    </scroll-view>
+  </view>
+</view>
+
+<!-- 固件升级进度弹层（ADR-0034） -->
+<view wx:if="{{otaOpen}}" class="ota-mask" catchtap="noop">
+  <view class="ota-panel">
+    <view class="ota-panel__head">
+      <text class="ota-panel__title">固件升级</text>
+      <text
+        wx:if="{{otaStage === 'error' || otaStage === 'done'}}"
+        class="ota-panel__close"
+        bindtap="onCloseOta"
+      >✕</text>
+    </view>
+    <text class="ota-panel__text">{{otaText}}</text>
+    <view class="ota-panel__bar-wrap">
+      <view
+        class="ota-panel__bar {{otaStage === 'error' ? 'ota-panel__bar--error' : ''}}"
+        style="width: {{otaPct}}%;"
+      ></view>
+    </view>
+    <text class="ota-panel__pct">{{otaPct}}%</text>
+  </view>
+</view>

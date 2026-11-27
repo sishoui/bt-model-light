@@ -15,6 +15,8 @@ const { createBleClient, getCurrentBleClient, setCurrentBleClient } = require('.
 const { SIM_DEVICE_ID } = require('../../utils/mockBleClient')
 const { friendlyMessage, logError } = require('../../utils/errorHandler')
 const charts = require('../../utils/chartHelpers')
+const cloudSync = require('../../utils/cloudSync')
+const telemetry = require('../../utils/telemetry')
 
 // RSSI 曲线采样上限：每个扫描结果设备保留最近 40 次上报（约 40 个点够看趋势）。
 const RSSI_SAMPLES_MAX = 40
@@ -110,8 +112,12 @@ Page({
       content: '删除后需重新扫描连接（设备配置同时清除）',
       success: (res) => {
         if (!res.confirm) return
+        // 先留一份快照：删完本地记录就查不到 deviceId 了，云端要靠它定位。
+        const removed = listDevices().find((d) => d.id === id)
         removeDevice(id)
         this._loadDevices()
+        // best-effort 云端删除（未登录/离线静默失败，见 cloudSync）。
+        if (removed) cloudSync.pushDelete(removed)
       },
     })
   },
@@ -153,12 +159,17 @@ Page({
       // 模拟设备首次连接：自动落盘默认引脚配置，使首页能展示引脚卡片。
       // 参数：savedDevice（含本地 id）或 null（切换已存在设备）。
       ensureSimDefaultConfig(saved)
+      // 新设备落到云端归属（best-effort；未登录/离线静默跳过）。
+      if (saved) cloudSync.pushDevice(saved)
       wx.hideLoading()
       wx.showToast({ title: newDevice ? '已添加' : '已切换', icon: 'success' })
       setTimeout(() => wx.navigateBack(), 500)
     } catch (err) {
       wx.hideLoading()
       logError(err, '连接设备')
+      // 遥测：dim = wx 错误码（后台能按机型/系统看出哪类连接失败最多）。
+      telemetry.track('ble.connect.fail', { dim: (err && err.errCode) || '' })
+      telemetry.trackError((err && err.errCode) || 'connect', '连接设备')
       wx.showToast({ title: friendlyMessage(err), icon: 'none' })
     }
   },

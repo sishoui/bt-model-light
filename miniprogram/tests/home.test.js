@@ -11,6 +11,7 @@ const {
   getDeviceBrightness,
   getDevicePower,
   listDevices,
+  getDeviceFirmwareVersion,
   resetDeviceStore,
 } = require('../utils/deviceStore')
 const { createBleClient, setCurrentBleClient } = require('../utils/bleClient')
@@ -573,6 +574,35 @@ describe('home 页（#25）', () => {
     app.globalData.currentDeviceId = b.id
     page._refresh()
     expect(page.data.brightnessHist).toEqual([])
+  })
+
+  // ---- 固件版本（ADR-0034） ----------------------------------------------------
+
+  test('STATUS_NOTIFY version → 固件版本落库 + 页面展示（连接即上报）', async () => {
+    setupBle(wx)
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+    // 真实 client：页面的 onStatus 订阅必须能收到 notify（fakeClient 是空桩）。
+    const client = createBleClient()
+    setCurrentBleClient(client)
+    await client.connect('dev-1')
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    expect(page.data.firmwareVersion).toBe('')
+
+    // [协议主, 协议次, 固件主, 固件次] —— 与 codegen 的 1.2 匹配。
+    notify(wx, statusFrame(NOTIFY.VERSION, 0, 0, [1, 2, 0, 4]))
+    expect(page.data.firmwareVersion).toBe('0.4')
+    // 落设备记录：App 重开/未连接时仍能显示上次已知值。
+    resetDeviceStore()
+    expect(getDeviceFirmwareVersion(dev.id)).toBe('0.4')
+
+    // 重进页面（未连接）→ 从 Storage 读回并展示。
+    await client.disconnect()
+    const page2 = loadPage(HOME, app)
+    page2.onShow()
+    expect(page2.data.firmwareVersion).toBe('0.4')
   })
 
   test('无当前设备：亮度回调不写历史（不凭空造 Storage 键）', () => {

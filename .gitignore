@@ -14,3 +14,20 @@ miniprogram/project.private.config.json
 
 # ZCode 本地会话产物（计划文件等，不入库）
 .zcode/
+
+# 固件发布服务器凭据（含明文密码，不入库；模板 deploy/server.env.example）
+deploy/server.env
+
+# 固件发布产物（bin + manifest.json，不入库）
+dist/
+
+# 后端（server/）：依赖、运行时数据库（含用户数据，不入库）
+server/node_modules/
+server/data/
+server/*.db
+server/*.db-wal
+server/*.db-shm
+
+# 管理后台（admin/）：依赖与构建产物（部署脚本在服务器构建/上传）
+admin/node_modules/
+admin/dist/

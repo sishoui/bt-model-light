@@ -24,6 +24,8 @@ const {
   saveDevicePower,
   getDeviceBrightness,
   saveDeviceBrightness,
+  getDeviceFirmwareVersion,
+  saveDeviceFirmwareVersion,
   clampBrightness,
   BRIGHTNESS_DEFAULT,
   POWER_DEFAULT,
@@ -162,6 +164,33 @@ describe('deviceStore', () => {
     wx.setStorageSync(KEY_DEVICES, JSON.stringify([{ id: d.id, name: 'A', brightness: -5 }]))
     resetDeviceStore()
     expect(getDeviceBrightness(d.id)).toBe(BRIGHTNESS_DEFAULT)
+  })
+
+  test('固件版本：落库、读回、同值不重复写（ADR-0034）', () => {
+    const d = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    // 未上报过 → 空串（不是 undefined，页面直接渲染容错）。
+    expect(getDeviceFirmwareVersion(d.id)).toBe('')
+    expect(saveDeviceFirmwareVersion(d.id, '0.4')).toBe('0.4')
+    expect(getDeviceFirmwareVersion(d.id)).toBe('0.4')
+    // 同一值再写：设备记录不带新的 firmwareVersionAt（避免每次连接都写 Storage）。
+    resetDeviceStore()
+    const before = JSON.parse(wx.getStorageSync(KEY_DEVICES))[0].firmwareVersionAt
+    saveDeviceFirmwareVersion(d.id, '0.4')
+    resetDeviceStore()
+    const after = JSON.parse(wx.getStorageSync(KEY_DEVICES))[0].firmwareVersionAt
+    expect(after).toBe(before)
+    // 新值覆盖。
+    saveDeviceFirmwareVersion(d.id, '0.5')
+    resetDeviceStore()
+    expect(getDeviceFirmwareVersion(d.id)).toBe('0.5')
+  })
+
+  test('固件版本：空值不落库；不存在的设备不炸', () => {
+    const d = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    expect(saveDeviceFirmwareVersion(d.id, '')).toBe('')
+    expect(getDeviceFirmwareVersion(d.id)).toBe('')
+    expect(getDeviceFirmwareVersion('missing-id')).toBe('')
+    expect(saveDeviceFirmwareVersion('missing-id', '0.9')).toBe('0.9')
   })
 
   // bleClient 单例 seam 的注入/读取测试见 bleClient.test.js

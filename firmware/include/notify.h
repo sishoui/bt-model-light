@@ -42,6 +42,12 @@ size_t notify_build_status_ext(uint8_t *out, size_t out_cap,
                                uint8_t status, uint8_t code, uint8_t trigger_seq,
                                const uint8_t *extra, size_t extra_len);
 
+// Build an OTA PROGRESS frame (cmd=0x81, payload = [0x05][written:u32le]
+// [total:u32le], 9 bytes). Sent while an upgrade is in flight; the app
+// only draws a progress bar from it (ADR-0034 / protocol/frame-spec.md).
+size_t notify_build_progress(uint8_t *out, size_t out_cap,
+                             uint32_t written, uint32_t total);
+
 #ifdef __cplusplus
 }
 #endif

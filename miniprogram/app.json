@@ -3,7 +3,7 @@
     "pages/home/home",
     "pages/device-list/device-list",
     "pages/pin-detail/pin-detail",
-    "pages/mine/mine"
+    "pages/profile/profile"
   ],
   "window": {
     "backgroundTextStyle": "light",
@@ -22,12 +22,15 @@
         "text": "设备"
       },
       {
-        "pagePath": "pages/mine/mine",
+        "pagePath": "pages/profile/profile",
         "text": "我的"
       }
     ]
   },
   "sitemapLocation": "sitemap.json",
+  "networkTimeout": {
+    "downloadFile": 60000
+  },
   "permission": {
     "scope.bluetooth": {
       "desc": "扫描并连接周边的 BTLight_ 灯控设备"

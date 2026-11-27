@@ -132,6 +132,24 @@ def load_notify() -> list[dict]:
     ]
 
 
+def load_ota() -> list[dict]:
+    """OTA (0xF0) sub-commands (ota.csv).
+
+    Byte-level payload layouts defined in protocol/frame-spec.md
+    ("OTA（0xF0）负载"); mirrored into both outputs like notify.csv.
+    """
+    return [
+        {
+            "sub": int(row["sub"]),
+            "code": row["code"].strip(),
+            "name": row["name"].strip(),
+            "direction": row["direction"].strip(),
+            "description": row["description"].strip(),
+        }
+        for row in read_csv("ota.csv")
+    ]
+
+
 # --- shared helpers -------------------------------------------------------
 
 def to_c_hex(value: str) -> str:
@@ -282,6 +300,14 @@ def gen_c_header() -> str:
     a(f"#define ERR_COUNT {len(errors)}")
     a("")
 
+    a("/* ---- OTA (0xF0) sub-commands (ota.csv) ---- */")
+    a("/* Payload layouts: protocol/frame-spec.md \"OTA（0xF0）负载\" */")
+    for s in load_ota():
+        a(f"#define OTA_SUB_{s['name']:<10} {to_c_hex(s['code'])}  /* {s['description']} */")
+    a("")
+    a(f"#define OTA_SUB_COUNT {len(load_ota())}")
+    a("")
+
     a("/* ---- effects (effects.csv) ---- */")
     for e in effects:
         a(f"#define EFF_{e['name']:<16} {to_c_hex(e['code'])}  /* {e['description']} */")
@@ -426,6 +452,13 @@ def gen_js_constants() -> str:
     a("};")
     a("")
 
+    a("/* OTA (0xF0) sub-commands (ota.csv) */")
+    a("const OTA_SUB = {")
+    for s in load_ota():
+        a(f"  {s['name']}: {to_js_hex(s['code'])},  // {s['description']}")
+    a("};")
+    a("")
+
     a("/* ---- effects (effects.csv) ---- */")
     a("const EFF = {")
     for e in effects:
@@ -465,6 +498,7 @@ def gen_js_constants() -> str:
     a("  CMD,")
     a("  CMD_DIRECTION,")
     a("  ERR,")
+    a("  OTA_SUB,")
     a("  EFF,")
     a("  EFFECT_PARAMS,")
     a("  LIMITS,")

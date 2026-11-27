@@ -24,6 +24,7 @@ const { getCurrentBleClient } = require('./bleClient')
 const { CMD } = require('./protocol_gen')
 const { encodeConfigBlob } = require('./configCodec')
 const { logError } = require('./errorHandler')
+const telemetry = require('./telemetry')
 
 const DEBOUNCE_MS = 500
 const RETRY_DELAYS = [1000, 2000] // 静默重试间隔；用尽后置 failed
@@ -63,6 +64,7 @@ function _store() {
       retryCount: 0,
       inFlight: false,
       queued: false, // 在途期间到达的新快照
+      paused: false, // OTA 升级期间暂停（ADR-0034）：只收 pending 不发空口
       client: null,
       offState: null,
       subs: new Set(),
@@ -245,6 +247,7 @@ function _nextJob(S) {
 
 async function _flush() {
   const S = _store()
+  if (S.paused) return // OTA 升级中：保留 pending，升级结束后 unpause 再发
   if (S.inFlight) {
     S.queued = true // 在途：等当前完成发最新 job
     return
@@ -275,6 +278,9 @@ async function _flush() {
       await client.sendCmd(CMD.APPLY, [])
       S.lastSyncedHash[job.deviceId] = job.hash
       if (S.pending && S.pending.hash === job.hash) S.pending = null
+      // 遥测（ADR-0037）：配置下发量与频次，后台看"谁在改灯"的趋势。
+      telemetry.track('config.write', { dim: job.deviceId })
+      telemetry.track('config.bytes', { value: job.blob.length })
     }
     S.inFlight = false
     _setState(S, 'synced', _now())
@@ -282,6 +288,8 @@ async function _flush() {
     S.inFlight = false
     S.queued = false // 重试定时器会发最新 pending
     logError(err, '自动同步下发')
+    telemetry.track('config.write.fail', { dim: job.kind })
+    telemetry.trackError(typeof err === 'number' ? err : (err && err.code) || job.kind, '配置下发')
     _scheduleRetry(S)
     return
   }
@@ -317,6 +325,20 @@ function retry() {
   _flush()
 }
 
+// OTA 期间暂停/恢复自动下发（ADR-0034）。暂停只挡住"写空口"这一步：
+// 页面改动照常落 Storage 并排进 pending，恢复到连接后再补发最新快照，
+// 因此升级前后的用户操作不会丢。
+function setPaused(paused) {
+  const S = _store()
+  const next = !!paused
+  if (S.paused === next) return
+  S.paused = next
+  if (!next && (_nextJob(S) || S.queued)) {
+    S.retryCount = 0
+    _flush()
+  }
+}
+
 // 测试重置：清定时器/订阅/单例状态。
 function reset() {
   const S = _store()
@@ -337,9 +359,10 @@ function reset() {
   S.retryCount = 0
   S.inFlight = false
   S.queued = false
+  S.paused = false
   S.client = null
   S.offState = null
   S.subs.clear()
 }
 
-module.exports = { schedule, schedulePower, scheduleBrightness, onConnected, subscribe, retry, reset }
+module.exports = { schedule, schedulePower, scheduleBrightness, onConnected, subscribe, retry, setPaused, reset }
