@@ -1,6 +1,6 @@
 /* 引脚配置详情页样式（ADR-0027 / #27 / T7；design.md §7.3 工具页范式）。
    柔光通透语言：白卡 + 大圆角 + 极轻阴影，控件走药丸/tint 底。
-   注意：.brightness-spark 之外的 canvas 选择器类名（.stage-inner / .effect3d-canvas /
+   注意：canvas 选择器类名（.stage-inner / .effect3d-canvas /
    .color-wheel / .led-grid / .led-cell / .picker-wheel）被 JS 的
    createSelectorQuery 使用，改名会让真机画布失效。 */
 

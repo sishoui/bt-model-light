@@ -30,9 +30,38 @@ function setPath(obj, path, value) {
   cur[segs[segs.length - 1]] = value
 }
 
+// 静态检查页面源码里 Page({...}) 的顶层键是否重复。
+// 必须在源码层面查：对象字面量的重复键在 JS 解析阶段就被合并了，
+// 运行时 Object.keys() 只看得到去重后的一份——检测不到，只会表现为
+// 「后写的方法静默覆盖前写的方法」（曾让亮度控件的点击/长按整体失效）。
+// 这里用缩进+`name(...) {` / `name: ` 的形态做近似匹配，够抓页面方法的重复。
+function assertNoDuplicatePageKeys(pagePath) {
+  const fs = require('fs')
+  const path = require('path')
+  const file = require.resolve(path.resolve(__dirname, pagePath))
+  const src = fs.readFileSync(file, 'utf8')
+  const start = src.indexOf('Page(')
+  if (start < 0) return
+  const body = src.slice(start)
+  const re = /^ {2}([A-Za-z_$][\w$]*)\s*(?:\(|:)/gm
+  const seen = new Set()
+  const dups = new Set()
+  let m
+  while ((m = re.exec(body))) {
+    if (seen.has(m[1])) dups.add(m[1])
+    seen.add(m[1])
+  }
+  if (dups.size) {
+    throw new Error(
+      `${pagePath}: Page() 里重复定义 ${[...dups].join('、')}（后一份会静默覆盖前一份）`
+    )
+  }
+}
+
 // 装载页面模块并返回实例；全局 Page/getApp 在该测试文件内保持注入。
 function loadPage(pagePath, app) {
   global.getApp = () => app
+  assertNoDuplicatePageKeys(pagePath)
 
   let def = null
   global.Page = (o) => {

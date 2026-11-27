@@ -1,42 +1,79 @@
 /* 首页（ADR-0027 / #25；design.md §7.2 舞台范式）。
-   布局：舞台（柔光 + 悬浮设备图）→ 控制卡（大字亮度）→ 引脚 2 列网格。 */
+   布局：整幅设备图（不套卡片，图铺满屏宽；名称 / 状态 / 开关 / 亮度压在图上）→ 引脚 2 列网格。 */
 
-/* ===== 舞台 ===== */
-.stage {
+/* ===== 舞台：铺满屏宽的设备图，信息与控制层压在图上 ===== */
+.hero {
   position: relative;
-  margin: 16rpx 24rpx 0;
-  padding: 28rpx 28rpx 0;
+  width: 100%;
+  height: 60vh;
+  min-height: 720rpx;
+  max-height: 1000rpx;
   overflow: hidden;
-  border-radius: 40rpx;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfd 62%, #f5f6f8 100%);
-  box-shadow: var(--bt-shadow-card);
+  background: var(--bt-color-bg-elevated);
 }
 
-/* 品牌色柔光：从顶部中心漫开，给舞台"打光" */
-.stage__glow {
+/* 无图空态：白底 + 品牌柔光，给占位灯泡"打光" */
+.hero--empty::after {
+  content: '';
   position: absolute;
   top: 0;
-  left: 0;
   right: 0;
   bottom: 0;
+  left: 0;
   background: var(--bt-stage-glow);
   pointer-events: none;
 }
 
-.stage__head {
-  position: relative;
+/* 图片直接撑满舞台（aspectFill 居中裁切，上下不留白） */
+.hero__img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 渐变压暗：顶部托住设备名，底部托住控制浮层；中段透明露出图片主体 */
+.hero__scrim {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.42) 0%,
+    rgba(0, 0, 0, 0.16) 22%,
+    rgba(0, 0, 0, 0) 44%,
+    rgba(0, 0, 0, 0.12) 62%,
+    rgba(0, 0, 0, 0.46) 100%
+  );
+  pointer-events: none;
+}
+
+/* ===== 舞台顶部：设备名（左）/ 连接状态 + 固件版本（右） ===== */
+.hero__head {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 2;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16rpx;
+  padding: 28rpx 32rpx 0;
 }
 
-.stage__title {
+.hero__title {
   flex: 1;
   min-width: 0;
 }
 
-.stage__name {
+.hero__name {
   display: block;
   overflow: hidden;
   color: var(--bt-color-label);
@@ -48,7 +85,13 @@
   white-space: nowrap;
 }
 
-.stage__action {
+/* 有图时文字压图：改白字 + 极轻投影（不靠深色块，保持通透） */
+.hero--filled .hero__name {
+  color: #ffffff;
+  text-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.28);
+}
+
+.hero__action {
   display: inline-block;
   margin-top: 4rpx;
   color: var(--bt-color-accent);
@@ -56,7 +99,12 @@
   line-height: 32rpx;
 }
 
-.stage__meta {
+.hero--filled .hero__action {
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.28);
+}
+
+.hero__meta {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -65,58 +113,75 @@
   padding-top: 6rpx;
 }
 
-.stage__fw {
+/* 连接状态胶囊：无图空态跟随即有 token；有图时改纯白玻璃压在图上，
+   两种背景（浅图/深图）都读得清。 */
+.hero__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6rpx 18rpx;
+  border-radius: var(--bt-radius-pill);
+  background: var(--bt-color-bg-input);
+  color: var(--bt-color-label-secondary);
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 500;
+}
+
+.hero--filled .hero__chip {
+  background: rgba(255, 255, 255, 0.88);
+  color: #4b5563;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.hero__chip-dot {
+  width: 10rpx;
+  height: 10rpx;
+  margin-right: 8rpx;
+  border-radius: 50%;
+  background-color: var(--bt-color-label-quaternary);
+}
+
+.hero__chip--on {
+  color: #1f9254;
+}
+
+.hero--filled .hero__chip--on {
+  color: #1f9254;
+}
+
+.hero__chip--on .hero__chip-dot {
+  background-color: var(--bt-color-success);
+}
+
+.hero__fw {
   color: var(--bt-color-label-quaternary);
   font-size: 20rpx;
   line-height: 28rpx;
 }
 
-/* 设备图区：高度由图片比例决定（配合 mode="widthFix"），
-   仅在超过 max-height 时居中裁切，避免竖长图把舞台撑破。 */
-.stage__body {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 8rpx;
-  max-height: 640rpx;
-  overflow: hidden;
+.hero--filled .hero__fw {
+  color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.28);
 }
 
-/* widthFix：宽度撑满容器、高度按原图比例算，左右不留空白 */
-.stage__img {
-  position: relative;
-  z-index: 1;
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-/* 地面投影：绝对定位在图片底部，不参与布局高度 */
-.stage__floor {
+/* ===== 无图占位（灯泡 + 提示） ===== */
+.hero__placeholder {
   position: absolute;
-  left: 0;
+  top: 0;
   right: 0;
   bottom: 0;
-  height: 120rpx;
-  background: var(--bt-stage-floor);
-  pointer-events: none;
-}
-
-/* 无图空态：自身撑出舞台高度（图片存在时由图片决定高度） */
-.stage__empty {
-  position: relative;
+  left: 0;
   z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 20rpx;
-  width: 100%;
-  min-height: 480rpx;
+  padding-bottom: 280rpx;
 }
 
-.stage__empty-bulb {
+.hero__placeholder-bulb {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -125,50 +190,178 @@
   border-radius: 50%;
   background: var(--bt-color-bg-elevated);
   box-shadow: var(--bt-shadow-raised);
-  font-size: 64rpx;
-  line-height: 1;
+  color: var(--bt-color-label-tertiary);
 }
 
-.stage__empty-text {
+.hero__placeholder-text {
   color: var(--bt-color-label-tertiary);
   font-size: 24rpx;
   line-height: 34rpx;
 }
 
-/* ===== 控制卡 ===== */
-.control-card {
-  margin-top: 24rpx;
-}
-
-.control-card__row {
+/* ===== 底部控制层：不套容器，控件直接压在图的下缘 =====
+   左亮度竖条（贴左下角）/ 右整机开关。没有底板，所以控件自带投影保证可读。 */
+.hero__controls {
+  position: absolute;
+  right: 32rpx;
+  bottom: 32rpx;
+  left: 32rpx;
+  z-index: 3;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 24rpx;
 }
 
-.control-card__metric {
-  flex: 1;
-  min-width: 0;
+/* 展开态把整层抬到遮罩(35)之上。
+   关键：z-index 非 auto 的元素自成**层叠上下文**，子元素再大的 z-index 也只在这一层
+   内部比较。竖条此前写 z-index: 40 却仍被 z-index: 35 的遮罩盖住，正是因为它的 40
+   只在本层内生效、对外整体仍按本层的 3 参与比较——滑动落到遮罩上，于是滚了页面。 */
+.hero__controls--lifted {
+  z-index: 36;
+  /* 空白区域不拦截触摸，让点击穿透到遮罩上（点空白也能收起）。
+     竖条与开关各自恢复 auto，继续响应自己的手势。 */
+  pointer-events: none;
 }
 
-.control-card__label {
+.hero__controls--lifted .hero__bar,
+.hero__controls--lifted .hero__power {
+  pointer-events: auto;
+}
+
+/* 槽：固定方块尺寸常驻占位。展开时竖条转 fixed 离场，槽仍在，
+   右侧开关不会因为"左边空了"而塌过去。 */
+.hero__bar-slot {
+  flex-shrink: 0;
+  width: 96rpx;
+  height: 96rpx;
+}
+
+/* ===== 亮度竖条（Apple 音量条形态）：收起=方块，展开=竖长条 =====
+   两个状态的宽/高都是明确 rpx（见 home.js 的 BAR_* 常量），百分比高度无法插值，
+   所以过渡动画必须是长度到长度。收起态填充比例照样显示，缩着也看得出亮度。 */
+.hero__bar {
+  position: relative;
+  width: 96rpx;
+  height: 96rpx;
+  overflow: hidden;
+  border-radius: 28rpx;
+  /* 收起态：半透明白玻璃压图，与开关/文字的观感一套 */
+  background: rgba(255, 255, 255, 0.28);
+  border: 1rpx solid rgba(255, 255, 255, 0.42);
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: width 0.26s ease-out, height 0.26s ease-out, border-radius 0.26s ease-out;
+}
+
+/* 展开态：向上长成竖长条，并挪到屏幕垂直中间。
+   用 fixed 是为了不被 .hero 的 overflow:hidden 裁掉（.hero 没有 transform/filter，
+   所以 fixed 的包含块是视口）；left/top 各 50% + translate(-50%,-50%) 居中。
+   这里的 z-index 只在 .hero__controls 内部有效，对外靠 .hero__controls--lifted 抬高。 */
+.hero__bar--open {
+  position: fixed;
+  top: 50vh;
+  left: 50vw;
+  width: 76rpx;
+  height: 420rpx;
+  border-radius: 38rpx;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 8rpx 40rpx rgba(0, 0, 0, 0.34);
+}
+
+/* 填充：从底部往上长。高度直接给百分比（父元素高度是明确值，能算）。
+   品牌色渐变让"高=亮"更直观。 */
+.hero__bar-fill {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 0 0 26rpx 26rpx;
+  background: linear-gradient(180deg, #4fb4ff 0%, var(--bt-color-accent) 100%);
+  transition: height 0.06s linear;
+}
+
+.hero__bar--open .hero__bar-fill {
+  border-radius: 0 0 36rpx 36rpx;
+}
+
+/* 收起态没有长条可言，填充用小圆点提示比例（缩放过渡时也不难看） */
+.hero__bar-ticks {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: none;
+  transform: translate(-50%, -50%);
+}
+
+/* 展开态的分段刻度（Apple 音量条的三道横纹） */
+.hero__bar--open .hero__bar-ticks {
   display: block;
-  color: var(--bt-color-label-secondary);
-  font-size: 26rpx;
-  line-height: 36rpx;
-  font-weight: 600;
 }
 
-.control-card__value {
-  display: flex;
-  align-items: baseline;
-  gap: 8rpx;
-  margin-top: 2rpx;
+.hero__bar-tick {
+  width: 28rpx;
+  height: 3rpx;
+  margin-bottom: 10rpx;
+  border-radius: 2rpx;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.hero__bar-tick:last-child {
+  margin-bottom: 0;
+}
+
+/* 数值：收起态藏在方块里（小字），展开态沉到底部之外不显示 */
+.hero__bar-value {
+  position: absolute;
+  right: 0;
+  bottom: 8rpx;
+  left: 0;
+  color: #ffffff;
+  font-size: 22rpx;
+  line-height: 26rpx;
+  font-weight: 600;
+  text-align: center;
+  text-shadow: 0 1rpx 6rpx rgba(0, 0, 0, 0.45);
+}
+
+.hero__bar--open .hero__bar-value {
+  display: none;
+}
+
+/* 展开态的遮罩：盖住整页接管「点其他位置收回」。
+   展开时 .hero__controls--lifted 抬到 36（在它之上），所以竖条仍能收到滑动；
+   控制层的空白区域设了 pointer-events: none，点空白照样落到遮罩上。 */
+.brightness-mask {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 35;
+  background: rgba(11, 12, 14, 0.28);
+}
+
+/* 无图空态：白底上白玻璃方块看不见，换浅灰底 */
+.hero--empty .hero__bar {
+  background: rgba(17, 24, 39, 0.06);
+  border-color: rgba(17, 24, 39, 0.08);
+}
+
+.hero--empty .hero__bar-value {
+  color: var(--bt-color-label-secondary);
+  text-shadow: none;
+}
+
+.hero--empty .hero__power-text {
+  color: var(--bt-color-label-secondary);
+  text-shadow: none;
 }
 
 /* 整机开关：圆形图标 + 文案（关=品牌色，开=危险色，因为按下去是关机） */
-.control-card__power {
+.hero__power {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -177,7 +370,7 @@
   width: 136rpx;
 }
 
-.control-card__power-icon {
+.hero__power-icon {
   position: relative;
   width: 88rpx;
   height: 88rpx;
@@ -187,7 +380,7 @@
 }
 
 /* 电源符号：开口圆环 + 竖线 */
-.control-card__power-icon::before {
+.hero__power-icon::before {
   content: '';
   position: absolute;
   top: 24rpx;
@@ -201,7 +394,7 @@
   box-sizing: border-box;
 }
 
-.control-card__power-icon::after {
+.hero__power-icon::after {
   content: '';
   position: absolute;
   top: 18rpx;
@@ -213,53 +406,18 @@
   background: #ffffff;
 }
 
-.control-card__power--on .control-card__power-icon {
+.hero__power--on .hero__power-icon {
   background: var(--bt-color-danger);
   box-shadow: 0 6rpx 18rpx rgba(255, 56, 60, 0.28);
 }
 
-.control-card__power-text {
-  color: var(--bt-color-label-secondary);
+/* 开关文案：压图无底板，白字 + 投影 */
+.hero__power-text {
+  color: rgba(255, 255, 255, 0.9);
   font-size: 22rpx;
   line-height: 30rpx;
   font-weight: 500;
-}
-
-/* 亮度条区：sparkline 与滑块上下错叠，滑块半透明叠在山形之上 */
-.control-card__slider-wrap {
-  position: relative;
-  margin-top: 16rpx;
-  padding-top: 8rpx;
-}
-
-.control-card__slider {
-  position: relative;
-  z-index: 1;
-  margin: 0;
-}
-
-/* sparkline：绝对定位压在滑块下半部，做成"亮度轨迹"的背景层 */
-.brightness-spark {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 44rpx;
-  display: block;
-  width: 100%;
-  height: 88rpx;
-  z-index: 0;
-}
-
-.control-card__scale {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 4rpx;
-}
-
-.control-card__scale-text {
-  color: var(--bt-color-label-quaternary);
-  font-size: 20rpx;
-  line-height: 28rpx;
+  text-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.45);
 }
 
 /* ===== 引脚 2 列网格 ===== */
@@ -380,8 +538,7 @@
   border-radius: 50%;
   background: var(--bt-color-bg-elevated);
   box-shadow: var(--bt-shadow-raised);
-  font-size: 68rpx;
-  line-height: 1;
+  color: var(--bt-color-label-tertiary);
 }
 
 .pin-empty__title {

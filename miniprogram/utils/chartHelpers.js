@@ -1,4 +1,4 @@
-// 图表辅助纯函数层：渐变色标 / 时间轴 / 错误聚合 / 亮度历史 / RSSI 采样。
+// 图表辅助纯函数层：渐变色标 / 时间轴 / 错误聚合 / RSSI 采样。
 // 全部无 wx / BLE 依赖（Storage 通过注入的读写函数），Jest 直接可测。
 // 图表渲染（canvas / CSS gradient）由页面负责，本文件只产出数据。
 
@@ -141,38 +141,6 @@ function aggregateErrorLog(log, days) {
   return buckets
 }
 
-// ---- 亮度历史（home 页 sparkline） --------------------------------------------
-// 本地存最近 N 个 (ts, value) 点，供 canvas 画折线。
-// 存储键由调用方传入（deviceStore 风格 'brightness_hist_<deviceId>'）。
-
-const BRIGHTNESS_HIST_MAX = 60
-
-function loadBrightnessHistory(storageGet, key) {
-  const raw = storageGet(key)
-  if (!raw) return []
-  try {
-    const arr = JSON.parse(raw)
-    return Array.isArray(arr) ? arr.filter((p) => p && isFinite(p.ts) && isFinite(p.v)) : []
-  } catch (e) {
-    return []
-  }
-}
-
-function pushBrightnessHistory(storageGet, storageSet, key, value, now) {
-  const ts = now || Date.now()
-  const v = clampInt(value, 0, 255)
-  let hist = loadBrightnessHistory(storageGet, key)
-  // 同一秒内多次拖动只保最后一个点（滑块 bindchanging 高频）。
-  if (hist.length && ts - hist[hist.length - 1].ts < 1000) {
-    hist[hist.length - 1] = { ts, v }
-  } else {
-    hist.push({ ts, v })
-  }
-  while (hist.length > BRIGHTNESS_HIST_MAX) hist.shift()
-  storageSet(key, JSON.stringify(hist))
-  return hist
-}
-
 // ---- RSSI 采样（device-list 扫描结果 sparkline） -------------------------------
 // 扫描会话内把每次 onFound 的 (ts, rssi) 攒起来，画最近 N 秒的信号曲线。
 // 纯内存环形缓冲，不落盘。
@@ -204,14 +172,11 @@ function createRssiSampler(maxPoints) {
 }
 
 module.exports = {
-  BRIGHTNESS_HIST_MAX,
   RAINBOW_STOPS,
   EFFECT_COLORS,
   effectColor,
   layerGradientCss,
   buildTimeline,
   aggregateErrorLog,
-  loadBrightnessHistory,
-  pushBrightnessHistory,
   createRssiSampler,
 }

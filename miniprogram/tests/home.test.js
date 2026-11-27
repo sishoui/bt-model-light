@@ -297,7 +297,158 @@ describe('home 页（#25）', () => {
     expect(page2.data.power).toBe(false)
   })
 
-  // ---- 整体亮度（ADR-0031） --------------------------------------------------
+  // ---- 整体亮度（ADR-0031）：点方块展开 → 上下滑动 → 点别处收回 ----------------
+
+  // 手势事件桩。两个形态，对应真实事件：
+  //   touch(y)     按下/拖动中 → touches 有值
+  //   touchEnd(y)  抬起 → touches 为空（手指已离开），落点只在 changedTouches
+  const touch = (clientY) => ({ touches: [{ clientY }], changedTouches: [{ clientY }] })
+  const touchEnd = (clientY) => ({ touches: [], changedTouches: [{ clientY }] })
+
+  // 点一下方块（按下 + 原地抬起）→ 展开。点击是由 touchend 按位移判定的，
+  // 不走 tap（节点绑了 catch touch 事件，框架不再合成 tap）。
+  function tapSquare(page) {
+    page.onBrightnessTouchStart(touch(400))
+    page.onBrightnessTouchEnd(touchEnd(400))
+  }
+
+  // 展开后按下并上移 dy（正值=变亮）。返回时仍处于按住状态。
+  function openAndDrag(page, fromValue, dy) {
+    page.setData({ brightness: fromValue, brightnessPercent: Math.round((fromValue / 255) * 100) })
+    tapSquare(page) // 点方块 → 展开
+    page.onBrightnessTouchStart(touch(400))
+    if (dy) page.onBrightnessDrag(touch(400 - dy))
+  }
+
+  // 完整手势：展开 → 滑动 → 松手 → 点别处收起。
+  function dragBar(page, fromValue, dy) {
+    openAndDrag(page, fromValue, dy)
+    page.onBrightnessTouchEnd(touchEnd(400 - (dy || 0)))
+    page.onBrightnessCollapse()
+  }
+
+  test('点方块展开、点别处收回', () => {
+    setCurrentBleClient(fakeClient(true))
+    const page = loadPage(HOME, app)
+    page.onShow()
+    expect(page.data.brightnessExpanded).toBe(false)
+
+    tapSquare(page)
+    expect(page.data.brightnessExpanded).toBe(true)
+    expect(wx.vibrateShort).toHaveBeenCalled()
+
+    page.onBrightnessCollapse()
+    expect(page.data.brightnessExpanded).toBe(false)
+  })
+
+  test('方块上滑屏（位移超容差）不算点击，不展开', () => {
+    setCurrentBleClient(fakeClient(true))
+    const page = loadPage(HOME, app)
+    page.onShow()
+
+    page.onBrightnessTouchStart(touch(400))
+    page.onBrightnessDrag(touch(320)) // 上滑 80px
+    page.onBrightnessTouchEnd(touchEnd(320)) // 抬手时已移开
+    expect(page.data.brightnessExpanded).toBe(false)
+  })
+
+  test('触摸被取消不算点击（来电/手势冲突不会误展开）', () => {
+    setCurrentBleClient(fakeClient(true))
+    const page = loadPage(HOME, app)
+    page.onShow()
+
+    page.onBrightnessTouchStart(touch(400))
+    page.onBrightnessTouchCancel()
+    expect(page.data.brightnessExpanded).toBe(false)
+  })
+
+  test('收起状态下滑动不改亮度（方块只是入口，滑动属于页面滚动）', async () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.onBrightnessTouchStart(touch(400))
+    page.onBrightnessDrag(touch(200))
+    expect(page.data.brightness).toBe(255) // 纹丝不动
+
+    await flush()
+    resetDeviceStore()
+    expect(getDeviceBrightness(dev.id)).toBe(255)
+    expect(client.sendCmd).not.toHaveBeenCalled()
+  })
+
+  test('展开后上下滑动改亮度：上移变亮、下移变暗', () => {
+    setCurrentBleClient(fakeClient(true))
+    const page = loadPage(HOME, app)
+    page.onShow()
+
+    // 起点 128（≈50%），上移 42px（= 420rpx 条长的 1/10）→ +25.5 ≈ +26 → 154。
+    page.setData({ brightness: 128 })
+    tapSquare(page)
+    page.onBrightnessTouchStart(touch(400))
+    page.onBrightnessDrag(touch(358))
+    expect(page.data.brightness).toBe(154)
+    expect(page.data.brightnessPercent).toBe(60)
+
+    // 下移超过满量程 → 钳到 0，不回弹到默认 255。
+    page.onBrightnessDrag(touch(2000))
+    expect(page.data.brightness).toBe(0)
+    expect(page.data.brightnessPercent).toBe(0)
+  })
+
+  test('拖动中实时下发但不落盘；松手才写 Storage', async () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    page.setData({ brightness: 100 }) // 起点留出上移空间（默认 255 已到顶）
+    tapSquare(page)
+    page.onBrightnessTouchStart(touch(400))
+    page.onBrightnessDrag(touch(316)) // 上移 84px ≈ +51 → 151
+    expect(page.data.brightness).toBe(151)
+    resetDeviceStore()
+    expect(getDeviceBrightness(dev.id)).toBe(255) // 拖动中不落盘
+
+    await flush()
+    page.onBrightnessTouchEnd(touchEnd(316))
+    resetDeviceStore()
+    expect(getDeviceBrightness(dev.id)).toBe(151) // 松手落盘
+  })
+
+  test('只展开不滑动：收起时不下发、不写 Storage', async () => {
+    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
+    app.globalData.currentDeviceId = dev.id
+    const client = fakeClient(true)
+    setCurrentBleClient(client)
+
+    const page = loadPage(HOME, app)
+    page.onShow()
+    tapSquare(page)
+    page.onBrightnessCollapse()
+
+    await flush()
+    resetDeviceStore()
+    expect(getDeviceBrightness(dev.id)).toBe(255)
+    expect(client.sendCmd).not.toHaveBeenCalled()
+  })
+
+  test('收起后亮度比例保留（方块仍按比例填充）', () => {
+    setCurrentBleClient(fakeClient(true))
+    const page = loadPage(HOME, app)
+    page.onShow()
+
+    dragBar(page, 128, 84) // 128 + 84/420*255 ≈ 179
+    expect(page.data.brightnessExpanded).toBe(false)
+    expect(page.data.brightness).toBe(179)
+    // 缩回方块后比例还在，不是回到满格。
+    expect(page.data.brightnessPercent).toBe(Math.round((179 / 255) * 100))
+  })
 
   test('亮度松手：落盘设备记录 + 下发 SET_BRIGHTNESS 最终值', async () => {
     const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
@@ -307,16 +458,17 @@ describe('home 页（#25）', () => {
 
     const page = loadPage(HOME, app)
     page.onShow()
-    page.onBrightnessChange({ detail: { value: 40 } })
-    expect(page.data.brightness).toBe(40)
+    dragBar(page, 40, 42) // 40 → 66
+    expect(page.data.brightness).toBe(66)
     resetDeviceStore() // 页面副本写的是同一份 Storage，清缓存才能读回（同 pin-detail.test.js）
-    expect(getDeviceBrightness(dev.id)).toBe(40) // Storage 落盘（页面重建不丢）
+    expect(getDeviceBrightness(dev.id)).toBe(66) // Storage 落盘（页面重建不丢）
 
     await flush()
-    expect(client.sendCmd.mock.calls).toEqual([[CMD.SET_BRIGHTNESS, [40]]])
+    // 拖动中已下发过 66；松手落盘时 autoSync 对同值去重，所以空口只有一次。
+    expect(client.sendCmd.mock.calls).toEqual([[CMD.SET_BRIGHTNESS, [66]]])
   })
 
-  test('拖动中实时下发但不落盘；在途合并为最新值', async () => {
+  test('没设置过亮度的设备：方块满格 255 / 100%（与固件默认一致），无空口流量', () => {
     const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
     app.globalData.currentDeviceId = dev.id
     const client = fakeClient(true)
@@ -324,44 +476,25 @@ describe('home 页（#25）', () => {
 
     const page = loadPage(HOME, app)
     page.onShow()
-    page.onBrightnessChanging({ detail: { value: 200 } })
-    page.onBrightnessChanging({ detail: { value: 100 } }) // 在途 → 合并
-    page.onBrightnessChanging({ detail: { value: 60 } })
-    expect(page.data.brightness).toBe(60)
-    resetDeviceStore()
-    expect(getDeviceBrightness(dev.id)).toBe(255) // 拖动中不落盘
-
-    await flush()
-    // 首个已发出；后面两次合并成最新值再发一次（不逐帧塞满空口）。
-    expect(client.sendCmd.mock.calls).toEqual([
-      [CMD.SET_BRIGHTNESS, [200]],
-      [CMD.SET_BRIGHTNESS, [60]],
-    ])
-  })
-
-  test('没设置过亮度的设备：滑块显示 255（与固件默认一致），无空口流量', () => {    const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
-    app.globalData.currentDeviceId = dev.id
-    const client = fakeClient(true)
-    setCurrentBleClient(client)
-
-    const page = loadPage(HOME, app)
-    page.onShow()
     expect(page.data.brightness).toBe(255)
+    expect(page.data.brightnessPercent).toBe(100)
     expect(client.sendCmd).not.toHaveBeenCalled()
   })
 
-  test('无当前设备：拖动/松手亮度只动界面，不落盘、不产生垃圾设备记录', () => {
+  test('无当前设备：手势只动界面，不落盘、不产生垃圾设备记录', () => {
     const client = fakeClient(true)
     setCurrentBleClient(client)
     const page = loadPage(HOME, app) // app.globalData.currentDeviceId 为空
     page.onShow()
 
     expect(() => {
-      page.onBrightnessChanging({ detail: { value: 90 } })
-      page.onBrightnessChange({ detail: { value: 90 } })
+      openAndDrag(page, 255, 0)
+      page.onBrightnessDrag(touch(600)) // 下移 → 变暗
+      page.onBrightnessTouchEnd(touchEnd(600))
+      page.onBrightnessCollapse()
       page.onTogglePower()
     }).not.toThrow()
-    expect(page.data.brightness).toBe(90)
+    expect(page.data.brightness).toBeLessThan(255) // 界面确实跟着动了
     expect(client.sendCmd).not.toHaveBeenCalled()
     expect(listDevices()).toEqual([]) // 不得凭空造设备条目
   })
@@ -377,9 +510,9 @@ describe('home 页（#25）', () => {
 
     const page = loadPage(HOME, app)
     page.onShow()
-    page.onBrightnessChange({ detail: { value: 30 } })
+    dragBar(page, 30, 42) // 30 → 56，未连接 → 仅落盘 + pending
     resetDeviceStore()
-    expect(getDeviceBrightness(dev.id)).toBe(30)
+    expect(getDeviceBrightness(dev.id)).toBe(56)
     expect(client.sendCmd).not.toHaveBeenCalled()
     expect(snaps[snaps.length - 1]).toBe('local')
 
@@ -391,7 +524,7 @@ describe('home 页（#25）', () => {
     await flush()
     jest.useRealTimers()
 
-    expect(client.sendCmd.mock.calls).toEqual([[CMD.SET_BRIGHTNESS, [30]]])
+    expect(client.sendCmd.mock.calls).toEqual([[CMD.SET_BRIGHTNESS, [56]]])
     off()
   })
 
@@ -404,7 +537,7 @@ describe('home 页（#25）', () => {
 
     const page = loadPage(HOME, app)
     page.onShow()
-    page.onBrightnessChange({ detail: { value: 30 } }) // 未连接 → 仅落盘 + pending
+    dragBar(page, 30, 42) // 30 → 56，未连接 → 仅落盘 + pending
     page.onTogglePower() // 未连接 → 仅落盘 + pending
 
     client.connected = true
@@ -416,7 +549,7 @@ describe('home 页（#25）', () => {
 
     expect(client.sendCmd.mock.calls).toEqual([
       [CMD.SET_POWER, [0]],
-      [CMD.SET_BRIGHTNESS, [30]],
+      [CMD.SET_BRIGHTNESS, [56]],
     ])
   })
 
@@ -542,38 +675,17 @@ describe('home 页（#25）', () => {
     expect(arg.title).toMatch(/无效/)
   })
 
-  // ---- 亮度历史 sparkline ------------------------------------------------------
+  // ---- 亮度不再写历史（竖条替代 sparkline） -------------------------------------
 
-  test('亮度松手写入历史：落盘 Storage 且页面 data 同步', () => {
+  test('亮度手势不写 brightness_hist Storage 键（sparkline 已下线）', () => {
     const dev = saveDevice({ name: 'A', deviceId: 'dev-1' })
     app.globalData.currentDeviceId = dev.id
     setCurrentBleClient(fakeClient(true))
 
     const page = loadPage(HOME, app)
     page.onShow()
-    expect(page.data.brightnessHist).toEqual([]) // 初始无历史
-    page.onBrightnessChange({ detail: { value: 30 } })
-    expect(page.data.brightnessHist).toHaveLength(1)
-    expect(page.data.brightnessHist[0].v).toBe(30)
-    // Storage 里也有一份（页面重建可读回）。
-    const raw = wx.getStorageSync(`brightness_hist_${dev.id}`)
-    expect(JSON.parse(raw)).toHaveLength(1)
-  })
-
-  test('切设备后亮度历史按设备隔离（不串台）', () => {
-    const a = saveDevice({ name: 'A', deviceId: 'dev-a' })
-    setCurrentBleClient(fakeClient(true))
-    app.globalData.currentDeviceId = a.id
-    const page = loadPage(HOME, app)
-    page.onShow()
-    page.onBrightnessChange({ detail: { value: 10 } })
-    expect(page.data.brightnessHist).toHaveLength(1)
-
-    // 切到设备 B：历史应为空（各设备独立键）。
-    const b = saveDevice({ name: 'B', deviceId: 'dev-b' })
-    app.globalData.currentDeviceId = b.id
-    page._refresh()
-    expect(page.data.brightnessHist).toEqual([])
+    dragBar(page, 200, 100)
+    expect(wx.getStorageSync(`brightness_hist_${dev.id}`)).toBe('')
   })
 
   // ---- 固件版本（ADR-0034） ----------------------------------------------------
@@ -605,12 +717,12 @@ describe('home 页（#25）', () => {
     expect(page2.data.firmwareVersion).toBe('0.4')
   })
 
-  test('无当前设备：亮度回调不写历史（不凭空造 Storage 键）', () => {
+  test('无当前设备：亮度手势不写 Storage（不凭空造键）', () => {
     setCurrentBleClient(fakeClient(true))
     app.globalData.currentDeviceId = null
     const page = loadPage(HOME, app)
     page.onShow()
-    page.onBrightnessChange({ detail: { value: 88 } })
-    expect(page.data.brightnessHist).toEqual([])
+    dragBar(page, 88, 50)
+    expect(wx.getStorageSync('brightness_hist_')).toBe('')
   })
 })

@@ -1,12 +1,15 @@
 // 首页 = 设备 Tab 默认页（ADR-0027 / #25）。
-// 结构：左上设备名称（→ 设备列表页）+ 设备卡片（图片/状态/整体开关/整体亮度）
-// + 引脚卡片列表（固定 8 个，硬件引脚不可增删；未配置引脚显示占位，点击进入配置）。
-// 引脚卡片点击进入引脚配置详情页。
+// 结构：整幅设备图（不套卡片：图片铺满屏宽，名称/状态压在图顶，亮度竖条与整机开关
+// 压在图底两角）+ 引脚卡片列表（固定 8 个，硬件引脚不可增删；未配置引脚
+// 显示占位，点击进入配置）。引脚卡片点击进入引脚配置详情页。
 //
 // 整机开关/亮度（ADR-0031 / ADR-0032）：两者都是设备级状态（存设备记录、由
 // autoSync 断连补发），各下发一条 1 字节命令——开关 = SET_POWER（关 = 设备输出
 // 全黑，**各引脚状态不变**；关机时引脚卡片置灰不可操作），亮度 = SET_BRIGHTNESS
-// （固件输出级统一缩放，拖动实时下发、松手落盘）。
+// （固件输出级统一缩放，滑动中实时下发、松手落盘）。
+//
+// 亮度控件是竖条（Apple 音量条形态，不是滑块）：默认缩成方块，点一下展开成长条，
+// 展开态上下滑动调亮度，点其他位置收回。
 
 const { getCurrentBleClient } = require('../../utils/bleClient')
 const {
@@ -14,7 +17,6 @@ const {
   getDeviceConfig,
   saveDevice,
   saveDeviceConfig,
-  clampBrightness,
   getDevicePower,
   saveDevicePower,
   getDeviceBrightness,
@@ -27,13 +29,50 @@ const {
 const { friendlyMessage, logError } = require('../../utils/errorHandler')
 const { validateConfig } = require('../../utils/configCodec')
 const autoSync = require('../../utils/autoSync')
-const charts = require('../../utils/chartHelpers')
 const cloudSync = require('../../utils/cloudSync')
 const GEN = require('../../utils/protocol_gen')
 
-// 亮度历史 Storage 键（每设备一条，供 hero 卡 sparkline 画折线）。
-function brightnessHistKey(deviceId) {
-  return `brightness_hist_${deviceId}`
+// 亮度竖条（Apple 音量条的形态）：默认是左下角一个小方块，点一下展开成竖长条，
+// 展开态可直接上下滑动调节，点其他任意位置收回。
+//
+// 展开长度只用于把手指位移换算成亮度（量程跟看到的条长一致，才跟手）；
+// 视觉尺寸本身在 home.wxss 里（.hero__bar / .hero__bar--open），改样式不用动 JS。
+const BAR_EXPANDED_HEIGHT = 420
+
+// 「点击」的位移容差：按下到抬起的总位移在这个范围内才算点击。
+// 不用 bindtap——节点同时绑了 catchtouchstart/move/end，catch 会打断事件链，
+// 框架不保证再合成 tap（这正是"点方块没反应"的原因），所以自己按位移判定。
+const TAP_SLOP_RPX = 12
+
+// 拖动灵敏度：手指相对「填充区高度」的位移直接映射到 0-255，与条本身长度一致，
+// 所以手指跟手（不需要额外缩放系数）。
+function _toPercent(value) {
+  return Math.round((_clamp255(value) / 255) * 100)
+}
+
+// 拖动用的饱和钳制：越界取边界值。
+// 不用 deviceStore.clampBrightness——它把越界值当"损坏数据"回退到默认 255，
+// 放在手势里会让拖到头的那一帧突然弹亮。
+function _clamp255(value) {
+  const n = Math.round(Number(value))
+  if (!isFinite(n)) return BRIGHTNESS_DEFAULT
+  return Math.max(0, Math.min(255, n))
+}
+
+// 取触点：touches 有值取第一个（按下/拖动中），否则取 changedTouches（抬起）。
+function _touchOf(e) {
+  const t = (e && e.touches && e.touches[0]) || (e && e.changedTouches && e.changedTouches[0])
+  return t || null
+}
+
+// 进入展开态时给一次轻触感（部分机型/开发者工具不支持，静默忽略）。
+function _vibrate(wxApi) {
+  if (!wxApi || typeof wxApi.vibrateShort !== 'function') return
+  try {
+    wxApi.vibrateShort({ type: 'light', fail: () => {} })
+  } catch (e) {
+    // 旧基础库不支持 type 参数：忽略，不影响交互。
+  }
 }
 
 Page({
@@ -54,8 +93,11 @@ Page({
     // 整体亮度 0-255（ADR-0031）：落盘在设备记录，下发走 SET_BRIGHTNESS。
     // 255 = 不缩放，与固件默认一致——没设置过的设备显示的就是真实状态。
     brightness: BRIGHTNESS_DEFAULT,
-    // 亮度历史 sparkline（最近 N 次松手值）：canvas 画折线，空数组不画。
-    brightnessHist: [],
+    // 竖条填充比例（0-100，0 在下、100 在上）。收起/展开两个状态共用，
+    // 所以方块缩着时也能看出亮度比例。
+    brightnessPercent: 100,
+    // 竖条展开态：点方块展开，点其他位置收回（展开时才能滑动调节）。
+    brightnessExpanded: false,
     img: '', // 设备图片（空串显示"暂无图片"占位）
     // 引脚卡片列表（固定 8 个硬件引脚，不可增删；未配置引脚为占位卡）。
     pins: [],
@@ -86,6 +128,7 @@ Page({
 
   onHide() {
     this._unsubscribeBle()
+    this.setData({ brightnessExpanded: false })
   },
 
   onUnload() {
@@ -172,9 +215,9 @@ Page({
       // 固件版本：设备记录上的上次已知值（ADR-0034）。
       firmwareVersion = getDeviceFirmwareVersion(currentId)
       // 整机开关/亮度：设备记录上的值（缺省 开 / 255）。
-      // 亮度拖动中不覆盖，避免回弹（见 onBrightnessChanging）。
+      // 亮度拖动中不覆盖，避免回弹（见 onBrightnessDrag）。
       power = getDevicePower(currentId)
-      if (!this._draggingBrightness) brightness = getDeviceBrightness(currentId)
+      if (!this._dragOrigin) brightness = getDeviceBrightness(currentId)
       // 固定 8 个引脚：硬件引脚不可增删，未配置的显示占位卡（点击进入配置）。
       const cfg = getDeviceConfig(currentId)
       const cfgPins = (cfg && Array.isArray(cfg.pins) ? cfg.pins : []).filter(
@@ -194,7 +237,16 @@ Page({
         })
       }
     }
-    this.setData({ deviceName, img, connected, pins, power, brightness, firmwareVersion })
+    this.setData({
+      deviceName,
+      img,
+      connected,
+      pins,
+      power,
+      brightness,
+      brightnessPercent: _toPercent(brightness),
+      firmwareVersion,
+    })
     // 新手引导：首次打开空态时展示（只看设备数为空的场景，避免打扰已有设备的用户）
     if (!currentId && pins.length === 0) {
       const seen = wx.getStorageSync('bt_add_guide_seen')
@@ -202,71 +254,6 @@ Page({
     } else if (this.data.showAddGuide) {
       this.setData({ showAddGuide: false })
     }
-    // 亮度历史：切设备后重读该设备的历史点（sparkline 数据源）。
-    this._loadBrightnessHist(currentId)
-  },
-
-  // 读亮度历史 → data.brightnessHist（canvas 数据源）。
-  _loadBrightnessHist(deviceId) {
-    if (!deviceId) {
-      this.setData({ brightnessHist: [] })
-      return
-    }
-    const hist = charts.loadBrightnessHistory(
-      (k) => wx.getStorageSync(k),
-      brightnessHistKey(deviceId)
-    )
-    this.setData({ brightnessHist: hist })
-    if (wx.nextTick) wx.nextTick(() => this._drawBrightnessSpark())
-  },
-
-  // 亮度 sparkline：把历史点 (ts,v) 画成折线 + 当前值高亮点。
-  // 历史少于 2 点时不画（单点无法成线）。
-  _drawBrightnessSpark() {
-    if (typeof wx === 'undefined' || !wx.createSelectorQuery) return
-    const hist = this.data.brightnessHist || []
-    if (hist.length < 2) return
-    const query = wx.createSelectorQuery().in(this)
-    query.select('.brightness-spark').fields({ node: true, size: true })
-    query.exec((res) => {
-      const info = res && res[0]
-      if (!info || !info.node) return
-      const canvas = info.node
-      const ctx = canvas.getContext('2d')
-      const dpr = (wx.getSystemInfoSync && wx.getSystemInfoSync().pixelRatio) || 2
-      const w = info.width || 200
-      const h = info.height || 40
-      canvas.width = w * dpr
-      canvas.height = h * dpr
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      ctx.scale(dpr, dpr)
-      // 横轴按时间戳归一（同一时段的点才可比），纵轴 0-255。
-      const t0 = hist[0].ts
-      const t1 = hist[hist.length - 1].ts
-      const span = Math.max(1, t1 - t0)
-      const px = (p) => ((p.ts - t0) / span) * w
-      const py = (p) => h - 3 - (Math.max(0, Math.min(255, p.v)) / 255) * (h - 6)
-      ctx.beginPath()
-      ctx.moveTo(px(hist[0]), py(hist[0]))
-      for (let i = 1; i < hist.length; i++) ctx.lineTo(px(hist[i]), py(hist[i]))
-      // 配色与 --bt-color-accent / --bt-color-accent-soft 同源（canvas 不认 CSS 变量）。
-      ctx.strokeStyle = 'rgba(0,136,255,0.55)'
-      ctx.lineWidth = 1.5
-      ctx.lineJoin = 'round'
-      ctx.stroke()
-      // 填充到底部（品牌色 10%），做出"山形"历史感。
-      ctx.lineTo(w, h)
-      ctx.lineTo(0, h)
-      ctx.closePath()
-      ctx.fillStyle = 'rgba(0,136,255,0.1)'
-      ctx.fill()
-      // 当前值圆点。
-      const last = hist[hist.length - 1]
-      ctx.beginPath()
-      ctx.arc(px(last), py(last), 2.5, 0, Math.PI * 2)
-      ctx.fillStyle = '#0088ff'
-      ctx.fill()
-    })
   },
 
   // 左上设备名称 → 设备列表页（新增/切换）。
@@ -324,32 +311,88 @@ Page({
     this._refresh()
   },
 
-  // 整体亮度（ADR-0031）：松手落盘 Storage + 下发最终值（bindchange）。
-  onBrightnessChange(e) {
-    this._draggingBrightness = false
-    this.setData({ brightness: clampBrightness(e.detail.value) })
-    this._sendBrightness(this.data.brightness, { persist: true })
-    // 松手值记入亮度历史（sparkline 只记松手点，不记拖动中间值）。
-    const currentId = this._currentDeviceId()
-    if (currentId) {
-      const key = brightnessHistKey(currentId)
-      const hist = charts.pushBrightnessHistory(
-        (k) => wx.getStorageSync(k),
-        (k, v) => wx.setStorageSync(k, v),
-        key,
-        this.data.brightness
-      )
-      this.setData({ brightnessHist: hist })
-      if (wx.nextTick) wx.nextTick(() => this._drawBrightnessSpark())
+  // ---- 亮度竖条（ADR-0031）：点方块展开 → 上下滑动 → 点别处收回 ----------------
+  // 三态而非两态：收起（方块）/ 展开（竖长条）/ 在展开态里拖动。
+  //   - 收起时**不能**滑动：方块是入口，滑动属于页面滚动。
+  //   - 展开后滑动调亮度：0-255 直接映射填充区高度，手指跟手。
+  //   - 点其他任意位置收起（遮罩接管），收起时亮度比例继续显示。
+  // 之所以不再用长按：长按靠定时器才可靠（原生 longpress 被抖动取消），
+  // 而「点一下展开」本身就是更直白的入口——点比按好发现，也不与页面滚动冲突。
+
+  // 竖条上的按下：收起态记起点（用来判定这是点击还是滑动），展开态直接进入拖动态。
+  onBrightnessTouchStart(e) {
+    const touch = _touchOf(e)
+    if (!touch) return
+    // 展开时按下的位移换算成亮度；收起时只需要起点，用来判断"算不算点击"。
+    this._dragOrigin = {
+      y: touch.clientY,
+      startY: touch.clientY,
+      value: this.data.brightness,
     }
   },
 
-  // 拖动过程中实时下发（slider bindchanging）：不落盘，松手才写 Storage。
-  // autoSync 按"最新值待发"合并，拖动不会把空口塞满。
-  onBrightnessChanging(e) {
-    this._draggingBrightness = true
-    this.setData({ brightness: clampBrightness(e.detail.value) })
-    this._sendBrightness(this.data.brightness)
+  onBrightnessDrag(e) {
+    const touch = _touchOf(e)
+    if (!touch || !this._dragOrigin) return
+    // 收起态不调光：方块只是入口，滑动留给页面滚动。
+    if (!this.data.brightnessExpanded) return
+    // 向上为增：手指上移 → clientY 减小 → 亮度涨。
+    // 量程 = 竖条长度，滑过整条 = 走完 0-255。
+    const delta = (this._dragOrigin.y - touch.clientY) / BAR_EXPANDED_HEIGHT
+    const next = _clamp255(this._dragOrigin.value + delta * 255)
+    if (next === this.data.brightness) return
+    this.setData({ brightness: next, brightnessPercent: _toPercent(next) })
+    this._brightnessDirty = true
+    this._sendBrightness(next) // 拖动中实时下发、不落盘
+  },
+
+  // 抬手：统一在这里判定「这次是点击还是滑动」。
+  // 收起态 + 位移在容差内 = 点了方块 → 展开；展开态 = 收尾落盘。
+  onBrightnessTouchEnd(e) {
+    const origin = this._dragOrigin
+    this._dragOrigin = null
+    if (!origin) return
+    const touch = _touchOf(e)
+    const moved = touch ? Math.abs(touch.clientY - origin.startY) : 0
+
+    if (!this.data.brightnessExpanded) {
+      // 轻点（没怎么移动）→ 展开。移动超过容差视为滑屏，不响应。
+      if (moved <= TAP_SLOP_RPX) this._expandBrightnessBar()
+      return
+    }
+
+    if (this._brightnessDirty) {
+      this._brightnessDirty = false
+      this._sendBrightness(this.data.brightness, { persist: true })
+    }
+  },
+
+  // 展开成竖条（点击方块时调用；幂等）。
+  _expandBrightnessBar() {
+    if (this.data.brightnessExpanded) return
+    this.setData({ brightnessExpanded: true })
+    _vibrate(wx)
+  },
+
+  // 触摸被系统取消（来电、手势冲突等）：只收尾落盘，**不**当作点击去展开。
+  onBrightnessTouchCancel() {
+    this._dragOrigin = null
+    if (this._brightnessDirty) {
+      this._brightnessDirty = false
+      this._sendBrightness(this.data.brightness, { persist: true })
+    }
+  },
+
+  // 展开态下点遮罩（页面其他任意位置）→ 收起，并把最终值落盘。
+  // 注意：收起不重置亮度，只有真的滑动过才下发（_sent 标记）。
+  onBrightnessCollapse() {
+    if (!this.data.brightnessExpanded) return
+    this._dragOrigin = null
+    this.setData({ brightnessExpanded: false })
+    if (this._brightnessDirty) {
+      this._brightnessDirty = false
+      this._sendBrightness(this.data.brightness, { persist: true })
+    }
   },
 
   // 控制按钮“开关”：设备级总开关（ADR-0032），**不改各引脚自己的状态**。

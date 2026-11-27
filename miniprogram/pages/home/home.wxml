@@ -1,79 +1,87 @@
 <!-- 首页 = 设备 Tab 默认页（ADR-0027 / #25；design.md §7.2 舞台范式）。
-     结构：舞台（设备名/状态胶囊 + 悬浮设备图 + 柔光地面）→ 控制卡（大字亮度 + 开关 + 亮度条）
+     结构：整幅设备图（不套卡片，图铺满屏幕宽度；名称 / 状态 / 整机开关 / 亮度都压在图上）
      → 引脚 2 列网格。左上设备名 → 设备列表页；长按舞台 → 编辑设备名/占位图。 -->
 <view class="page page--dock">
   <sim-banner wx:if="{{simMode}}" />
 
-  <!-- ===== 舞台：柔光背景 + 居中悬浮设备图 + 顶部名称/状态 ===== -->
-  <view class="stage" bindlongpress="onHeroLongPress">
-    <view class="stage__glow"></view>
+  <!-- ===== 舞台：整幅设备图 + 压在图上的信息层与底部控制浮层 ===== -->
+  <view
+    class="hero {{img ? 'hero--filled' : 'hero--empty'}}"
+    bindlongpress="onHeroLongPress"
+  >
+    <image wx:if="{{img}}" class="hero__img" src="{{img}}" mode="aspectFill" />
+    <!-- 渐变压暗：上保名称、下保控制浮层的可读性（无图空态不渲染） -->
+    <view wx:if="{{img}}" class="hero__scrim"></view>
 
-    <view class="stage__head">
-      <view class="stage__title" catchtap="onTapDeviceName">
-        <text class="stage__name">{{deviceName || '未连接设备'}}</text>
-        <text class="stage__action">切换 ›</text>
+    <!-- 顶部：设备名 / 切换 → 设备列表页；右侧连接状态 + 固件版本 -->
+    <view class="hero__head">
+      <view class="hero__title" catchtap="onTapDeviceName">
+        <text class="hero__name">{{deviceName || '未连接设备'}}</text>
+        <text class="hero__action">切换 ›</text>
       </view>
-      <view class="stage__meta">
-        <view class="bt-chip {{connected ? 'bt-chip--on' : ''}}">
-          <view class="bt-chip__dot"></view>
+      <view class="hero__meta">
+        <view class="hero__chip {{connected ? 'hero__chip--on' : ''}}">
+          <view class="hero__chip-dot"></view>
           <text>{{connected ? '已连接' : '未连接'}}</text>
         </view>
         <!-- 固件版本（ADR-0034）：连接时固件主动上报；未连接显示上次已知值 -->
-        <text wx:if="{{firmwareVersion}}" class="stage__fw">v{{firmwareVersion}}</text>
+        <text wx:if="{{firmwareVersion}}" class="hero__fw">v{{firmwareVersion}}</text>
       </view>
     </view>
 
-    <view class="stage__body">
-      <!-- widthFix：按容器宽度等比缩放并自动算高，图片两侧不产生留白；
-           高度由 .stage__body 的 min/max-height 收口，超高图居中裁切。 -->
-      <image wx:if="{{img}}" class="stage__img" src="{{img}}" mode="widthFix" />
-      <view wx:else class="stage__empty">
-        <view class="stage__empty-bulb"><view class="bt-ico bt-ico--bulb"></view></view>
-        <text class="stage__empty-text">长按此处添加设备图</text>
-      </view>
-      <view class="stage__floor"></view>
+    <!-- 无图空态：灯泡占位（有图时由图片撑满，不渲染） -->
+    <view wx:if="{{!img}}" class="hero__placeholder">
+      <view class="hero__placeholder-bulb"><view class="bt-ico bt-ico--bulb"></view></view>
+      <text class="hero__placeholder-text">长按此处添加设备图</text>
     </view>
-  </view>
 
-  <!-- ===== 控制卡：大字号亮度 + 整机开关 + 亮度条（条上方叠历史 sparkline） ===== -->
-  <view class="bt-card control-card">
-    <view class="control-card__row">
-      <view class="control-card__metric">
-        <text class="control-card__label">亮度</text>
-        <view class="control-card__value">
-          <text class="bt-type-metric">{{brightness}}</text>
-          <text class="bt-type-metric-unit">/255</text>
+    <!-- 底部控制层：无卡片容器，控件直接压在图的下缘（靠自身投影保证可读）。
+         左：亮度竖条（点方块展开 → 上下滑动 → 点别处收回）；右：整机开关。
+         catchlongpress="noop"：拦住原生长按冒泡到舞台（否则长按控件会弹「编辑设备」）。
+         展开时加 --lifted：把整层抬到遮罩之上，否则竖条被遮罩盖住收不到滑动
+         （见 home.wxss 里关于层叠上下文的注释）。 -->
+    <view
+      class="hero__controls {{brightnessExpanded ? 'hero__controls--lifted' : ''}}"
+      catchlongpress="noop"
+    >
+      <!-- 亮度竖条：收起=方块，展开=竖长条。两个状态共用同一节点，
+           宽高都是 rpx 明确长度（百分比高度没法插值），才能过渡。
+           填充从底部往上长，收起时也按比例显示，缩着也能看出亮度。
+           外面套一个固定尺寸的槽：展开时竖条改 fixed 脱离布局，
+           槽继续占位，右侧开关才不会塌到左边。 -->
+      <view class="hero__bar-slot">
+        <!-- 没有 catchtap：节点同时绑了 touchstart/move/end，catch 会打断事件链，
+             框架不保证再合成 tap（点方块会没反应）。点击改由 touchend 按位移判定。 -->
+        <view
+          class="hero__bar {{brightnessExpanded ? 'hero__bar--open' : ''}}"
+          catchtouchstart="onBrightnessTouchStart"
+          catchtouchmove="onBrightnessDrag"
+          catchtouchend="onBrightnessTouchEnd"
+          catchtouchcancel="onBrightnessTouchCancel"
+        >
+          <view class="hero__bar-fill" style="height: {{brightnessPercent}}%;"></view>
+          <view class="hero__bar-ticks">
+            <view class="hero__bar-tick"></view>
+            <view class="hero__bar-tick"></view>
+            <view class="hero__bar-tick"></view>
+          </view>
+          <text class="hero__bar-value">{{brightness}}</text>
         </view>
       </view>
+
       <!-- 整机开关（ADR-0032）：按钮显示"要做的动作"，开→关机，关→开机 -->
       <view
-        class="control-card__power {{power ? 'control-card__power--on' : ''}} bt-pressable"
+        class="hero__power {{power ? 'hero__power--on' : ''}} bt-pressable"
         catchtap="onTogglePower"
       >
-        <view class="control-card__power-icon"></view>
-        <text class="control-card__power-text">{{power ? '关机' : '开机'}}</text>
+        <view class="hero__power-icon"></view>
+        <text class="hero__power-text">{{power ? '关机' : '开机'}}</text>
       </view>
     </view>
 
-    <view class="control-card__slider-wrap" catchtap="noop">
-      <canvas wx:if="{{brightnessHist.length >= 2}}" type="2d" class="brightness-spark"></canvas>
-      <slider
-        class="control-card__slider"
-        min="0"
-        max="255"
-        value="{{brightness}}"
-        activeColor="#0088FF"
-        backgroundColor="#F2F3F5"
-        block-size="24"
-        catchtap="noop"
-        bindchanging="onBrightnessChanging"
-        bindchange="onBrightnessChange"
-      />
-      <view class="control-card__scale">
-        <text class="control-card__scale-text">暗</text>
-        <text class="control-card__scale-text">亮</text>
-      </view>
-    </view>
+    <!-- 展开态的遮罩：接管「点其他任意位置收回」。
+         z-index 低于 .hero__bar--open，所以点竖条本身仍是拖动、不会误收起。 -->
+    <view wx:if="{{brightnessExpanded}}" class="brightness-mask" catchtap="onBrightnessCollapse"></view>
   </view>
 
   <!-- ===== 引脚卡片：2 列网格（固定 8 个硬件引脚，未配置为虚线占位卡） =====

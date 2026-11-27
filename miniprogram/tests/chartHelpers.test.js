@@ -1,4 +1,4 @@
-// chartHelpers 纯函数层测试：渐变 / 时间轴 / 错误聚合 / 历史与采样器。
+// chartHelpers 纯函数层测试：渐变 / 时间轴 / 错误聚合 / RSSI 采样。
 
 'use strict'
 
@@ -7,8 +7,6 @@ const {
   layerGradientCss,
   buildTimeline,
   aggregateErrorLog,
-  loadBrightnessHistory,
-  pushBrightnessHistory,
   createRssiSampler,
   RAINBOW_STOPS,
 } = require('../utils/chartHelpers')
@@ -86,41 +84,6 @@ describe('aggregateErrorLog', () => {
     expect(total).toBe(3)
     // label 形如 M/D
     expect(buckets[6].label).toMatch(/^\d{1,2}\/\d{1,2}$/)
-  })
-})
-
-describe('brightness history', () => {
-  function memStorage() {
-    const m = new Map()
-    return {
-      get: (k) => m.get(k) || null,
-      set: (k, v) => m.set(k, v),
-      map: m,
-    }
-  }
-
-  test('push 追加、近时戳去重、超上限裁剪', () => {
-    const s = memStorage()
-    const key = 'h'
-    pushBrightnessHistory(s.get, s.set, key, 100, 1000)
-    pushBrightnessHistory(s.get, s.set, key, 200, 2500) // 间隔 1500ms → 新点
-    pushBrightnessHistory(s.get, s.set, key, 255, 2600) // 100ms 内 → 覆盖上一点
-    const hist = loadBrightnessHistory(s.get, key)
-    expect(hist).toHaveLength(2)
-    expect(hist[0].v).toBe(100)
-    expect(hist[1].v).toBe(255)
-    // 越界钳制
-    pushBrightnessHistory(s.get, s.set, key, 999, 2000)
-    expect(loadBrightnessHistory(s.get, key).pop().v).toBe(255)
-    pushBrightnessHistory(s.get, s.set, key, -5, 3000)
-    expect(loadBrightnessHistory(s.get, key).pop().v).toBe(0)
-  })
-
-  test('损坏 JSON 返回空', () => {
-    const s = memStorage()
-    s.set('bad', '{oops')
-    expect(loadBrightnessHistory(s.get, 'bad')).toEqual([])
-    expect(loadBrightnessHistory(s.get, 'missing')).toEqual([])
   })
 })
 

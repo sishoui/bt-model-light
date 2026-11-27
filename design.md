@@ -170,12 +170,20 @@
 
 ### 6.1 舞台范式：`home`（设备 Tab）
 
-1. **舞台卡**（`.stage`）：40rpx 圆角白卡，内部 `--bt-stage-glow` 品牌色柔光 + 顶部渐变收向页面底色。
-   - 左上：设备名（46rpx/700）+「切换 ›」小字；右上：连接状态 `.bt-chip` + 固件版本小字。
-   - 中部：480rpx 高图片区，`aspectFit` 居中悬浮；底部 `.stage__floor` 椭圆投影让设备"站"在台上。无图时显示 CSS 灯泡 + 「长按此处添加设备图」。
+1. **整幅设备图**（`.hero`）：**不套卡片**，图片铺满屏宽（高 60vh，720–1000rpx 收口），`aspectFill` 居中裁切。
+   - 顶部压图浮层：设备名（46rpx/700，白字 + 轻投影）+「切换 ›」；右侧连接状态胶囊（白玻璃底）+ 固件版本小字。
+   - 底部控制层（`.hero__controls`）：**不套容器**（无卡片、无毛玻璃底板），控件直接压在图的下缘；靠自带的 `text-shadow` / `box-shadow` 保证可读。
+     - 左（贴左下角）**亮度竖条**（`.hero__bar`，Apple 音量条形态）：
+       - 收起 = 96rpx 方块（白玻璃 + 28rpx 圆角），内部从底部向上填充、**按亮度比例显示**（缩着也看得出亮度），底部嵌 22rpx 数值。
+       - 点一下 → `--open`：宽度 76rpx / 高度 420rpx 的竖长条，`position: fixed` + `top/left: 50%` + `translate(-50%,-50%)` 居中到屏幕中部（用 fixed 是为了不被 `.hero` 的 `overflow: hidden` 裁掉）。宽高都是明确 rpx，百分比高度无法插值，过渡动画必须是长度到长度。
+       - 展开态可直接**上下滑动**调节：位移 / 420rpx 直接映射 0-255（量程与看到的条长一致，所以跟手），拖动中实时下发、松手落盘。
+       - 点**其他任意位置** → 遮罩 `.brightness-mask`（fixed，z 35）接管收起；竖条 `z-index: 40` 在遮罩之上，所以点竖条仍是拖动、不会误收起。收起不重置亮度。
+       - 收起态**不能**滑动（方块只是入口；滑动属于页面滚动）。竖条外套 `.hero__bar-slot` 固定方块尺寸占位，展开时竖条离场后右侧开关不会塌过来。
+     - 右圆形电源按钮（关=accent / 开=danger）+ 「关机/开机」文案。
+     - 拖动中的越界钳制不能用 `clampBrightness`（它把越界当损坏数据回退 255），页面内用饱和钳制。
+   - 无图时 `.hero--empty`：`--bt-stage-glow` 品牌色柔光打底 + CSS 灯泡 + 「长按此处添加设备图」。
    - 长按舞台 → 编辑设备名/图片弹窗。
-2. **控制卡**（`.control-card`）：左侧「亮度」+ `bt-type-metric` 大数字 + `/255` 小单位；右侧圆形电源按钮（关=accent / 开=danger）+ 文案。下方亮度滑块，历史 sparkline 绝对定位叠在滑块上方（canvas 配色走 accent）。
-3. **引脚区**：`.bt-section-title` + 2 列卡片网格。卡内方形媒体区（`bg-sunken` 底、22rpx 圆角）+ 卡内底部名称/灯组数（不再压黑色渐变条）。
+2. **引脚区**：`.bt-section-title` + 2 列卡片网格。卡内方形媒体区（`bg-sunken` 底、22rpx 圆角）+ 卡内底部名称/灯组数（不再压黑色渐变条）。
    - 未配置引脚：透明底 + 虚线边框 + 大数字占位。
    - 设备关机：整卡 `opacity .45 + grayscale(1)` 且不可点（ADR-0032）。
 
@@ -211,7 +219,7 @@
 | pin-detail | 阶段时间轴（泳道甘特，含图层子条 + 过渡斜纹） | CSS 定位 | `buildTimeline(steps)` |
 | pin-detail | 3D 灯效预览（图层弹窗内，可拖动旋转） | canvas 2d | `renderStageStrip` + `stripPoints` + `projectPoints` |
 | pin-detail | 图层卡渐变色带 | CSS gradient | `layerGradientCss(effect, fields)` |
-| home | 亮度历史 sparkline（叠在亮度条上方） | canvas 2d | `brightness_hist_<deviceId>` Storage |
+| home | 亮度竖条（方块↔长条，纯 CSS 高度过渡，无 canvas） | CSS | `brightness` / `brightnessPercent` / `brightnessExpanded` |
 | profile | 近 7 天错误分布柱状图（日志弹层内） | CSS 柱 | `aggregateErrorLog(error_log, 7)` |
 | device-list | 扫描结果 RSSI 柱（行内细柱） | CSS 柱 | `createRssiSampler` 会话内采样 |
 
