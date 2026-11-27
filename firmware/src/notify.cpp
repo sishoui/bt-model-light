@@ -58,3 +58,22 @@ size_t notify_build_version(uint8_t *out, size_t out_cap, uint8_t trigger_seq) {
     return notify_build_status_ext(out, out_cap, NOTIFY_STATUS_VERSION, 0,
                                   trigger_seq, extra, 4);
 }
+size_t notify_build_progress(uint8_t *out, size_t out_cap,
+                             uint32_t written, uint32_t total) {
+    // payload = [OTA_SUB_PROGRESS][written:u32le][total:u32le] (9 bytes).
+    // The OTA progress packet reuses the STATUS_NOTIFY command but not its
+    // status/code/seq prefix: payload[0] = 0x05 is unambiguous because the
+    // normal layout's first byte is never 0x05 (see frame-spec.md).
+    uint8_t payload[9];
+    payload[0] = OTA_SUB_PROGRESS;
+    payload[1] = (uint8_t)(written & 0xFF);
+    payload[2] = (uint8_t)((written >> 8) & 0xFF);
+    payload[3] = (uint8_t)((written >> 16) & 0xFF);
+    payload[4] = (uint8_t)((written >> 24) & 0xFF);
+    payload[5] = (uint8_t)(total & 0xFF);
+    payload[6] = (uint8_t)((total >> 8) & 0xFF);
+    payload[7] = (uint8_t)((total >> 16) & 0xFF);
+    payload[8] = (uint8_t)((total >> 24) & 0xFF);
+    return notify_build_frame(out, out_cap, CMD_STATUS_NOTIFY, 0,
+                              payload, sizeof(payload));
+}

@@ -1,0 +1,29 @@
+<!-- 悬浮 Dock（design.md §7.0）：毛玻璃胶囊 + 中央圆形 FAB。
+     selected 由各 Tab 页 onShow 时经 getTabBar().setData 同步（自定义 tabBar 惯例）。 -->
+<view class="dock-wrap">
+  <view class="dock bt-glass">
+    <view
+      class="dock__item {{selected === 0 ? 'dock__item--on' : ''}}"
+      data-index="0"
+      bindtap="onSwitchTab"
+    >
+      <view class="ico ico--device"></view>
+      <text class="dock__label">设备</text>
+    </view>
+
+    <view class="dock__slot"></view>
+
+    <view
+      class="dock__item {{selected === 1 ? 'dock__item--on' : ''}}"
+      data-index="1"
+      bindtap="onSwitchTab"
+    >
+      <view class="ico ico--user"></view>
+      <text class="dock__label">我的</text>
+    </view>
+  </view>
+
+  <view class="dock__fab bt-pressable" bindtap="onAddDevice">
+    <view class="dock__fab-plus"></view>
+  </view>
+</view>

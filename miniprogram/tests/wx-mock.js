@@ -124,6 +124,63 @@ function createWxMock() {
     limitSize: 10240,
   }))
 
+  // ---- JSON API（登录 / 设备归属，ADR-0035） ----
+  // 默认 200 + 空对象；测试用 mockImplementation 注入具体响应体。
+  // wx.request 的 data 在 content-type: application/json 下是对象（与真机一致）。
+  wx.request = j.fn((opts = {}) => {
+    const res = { statusCode: 200, data: {}, header: {} }
+    if (typeof opts.success === 'function') opts.success(res)
+    if (typeof opts.complete === 'function') opts.complete(res)
+    return Promise.resolve(res)
+  })
+  // 微信登录：默认立即返回 code；测试可改成 fail 分支或改 code 值。
+  wx.login = j.fn((opts = {}) => {
+    const res = { code: 'mock-wx-code', errMsg: 'login:ok' }
+    if (typeof opts.success === 'function') opts.success(res)
+    if (typeof opts.complete === 'function') opts.complete(res)
+    return Promise.resolve(res)
+  })
+  // 头像选择（button open-type="chooseAvatar" 走 bindchooseavatar 事件，
+  // 不需要 API；这里给个 getUserProfile 桩，页面可用于拉昵称/头像的旧路径）。
+  wx.getUserProfile = j.fn((opts = {}) => {
+    const res = { userInfo: { nickName: '微信用户', avatarUrl: '' } }
+    if (typeof opts.success === 'function') opts.success(res)
+    return Promise.resolve(res)
+  })
+  // ---- 网络 / 文件（OTA 固件下载，ADR-0034） ----  // 默认下载"成功但内容为空"，测试用 mockImplementation 注入真实字节；
+  // getFileSystemManager().readFile 从同一内存表读，行为与 tempFilePath 一致。
+  const _files = Object.create(null)
+  wx.__files = _files
+  wx.downloadFile = j.fn((opts = {}) => {
+    const res = { statusCode: 200, tempFilePath: opts.url ? `wxfile://${opts.url}` : '' }
+    if (typeof opts.success === 'function') opts.success(res)
+    if (typeof opts.complete === 'function') opts.complete(res)
+    return Promise.resolve(res)
+  })
+  wx.getFileSystemManager = j.fn(() => ({
+    readFile: j.fn((opts = {}) => {
+      const filePath = opts.filePath
+      const data = _files[filePath]
+      if (!data) {
+        const err = { errMsg: `readFile:fail no such file ${filePath}` }
+        if (typeof opts.fail === 'function') opts.fail(err)
+        if (typeof opts.complete === 'function') opts.complete(err)
+        return
+      }
+      // encoding: 'utf8' → string（manifest），缺省 → ArrayBuffer（bin）。
+      const out = opts.encoding === 'utf8' ? Buffer.from(data).toString('utf8') : data
+      const res = { data: out }
+      if (typeof opts.success === 'function') opts.success(res)
+      if (typeof opts.complete === 'function') opts.complete(res)
+    }),
+    // 头像 base64 化用（同步版）：缺省返回空。
+    readFileSync: j.fn((filePath, encoding) => {
+      const data = _files[filePath]
+      if (!data) return encoding ? '' : new ArrayBuffer(0)
+      return encoding ? Buffer.from(data).toString(encoding) : data
+    }),
+  }))
+
   // ---- UI ----
   wx.showToast = j.fn()
   wx.showModal = j.fn((opts = {}) => {

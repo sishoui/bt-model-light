@@ -83,13 +83,17 @@ function buildTimeline(steps) {
     // 过渡区间：transition>0 时在段尾留 transition/ (duration+transition) 比例的斜纹带。
     const trans = Number(st.transition) || 0 // 0=无 1=淡入淡出 2=平滑
     const transRatio = trans > 0 ? Math.min(0.3, (dur * 0.15) / total) : 0
-    const layers = (st.layers || []).map((l, li) => ({
-      li,
-      effect: l.effect,
-      color: effectColor(l.effect),
+    // 空槽（占位对象，无 effect）不画子条；两格都空的阶段不产生任何子条。
+    const filled = (st.layers || [])
+      .map((l, li) => ({ l, li }))
+      .filter((it) => it.l && it.l.effect)
+    const layers = filled.map((it) => ({
+      li: it.li,
+      effect: it.l.effect,
+      color: effectColor(it.l.effect),
       // 图层在段内横向均分（视觉上叠在同一时间窗，拆成子条便于区分）。
       x: x,
-      w: w / Math.max(1, (st.layers || []).length),
+      w: w / Math.max(1, filled.length),
     }))
     return {
       si: i,

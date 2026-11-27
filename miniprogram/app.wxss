@@ -1,25 +1,34 @@
 /* 全局样式 + 设计 token（design.md §3/§4/§5/§7）。
- * 颜色一律走 --bt-color-* 语义 token，禁止页面内硬编码 hex。
- * 深浅双表：浅色为默认，深色经 prefers-color-scheme 覆盖（本轮只验收浅色）。 */
+ * 风格：柔光通透（soft-light / airy cards）——极浅冷灰底 + 纯白卡 + 极轻漫射阴影，
+ * 靠底色差与留白分层，不用 1rpx 分割线切分卡片内部。
+ * 颜色一律走 --bt-color-* 语义 token，禁止页面内硬编码 hex。 */
 page {
-  /* 品牌与功能色（Apple systemBlue 系，官方色卡） */
+  /* 品牌与功能色（Apple systemBlue 系） */
   --bt-color-accent: #0088ff;
   --bt-color-accent-pressed: #0066cc;
   --bt-color-danger: #ff383c;
   --bt-color-success: #34c759;
   --bt-color-warning: #ff8d28;
 
-  /* 中性色：文字四档（UIKit label 系） */
-  --bt-color-label: #000000;
-  --bt-color-label-secondary: rgba(60, 60, 67, 0.6);
-  --bt-color-label-tertiary: rgba(60, 60, 67, 0.3);
-  --bt-color-label-quaternary: rgba(60, 60, 67, 0.18);
+  /* 品牌色的柔光阶梯：图标胶囊底、选中态浅底、tag 底色 */
+  --bt-color-accent-soft: rgba(0, 136, 255, 0.08);
+  --bt-color-accent-soft-2: rgba(0, 136, 255, 0.14);
+  --bt-color-success-soft: rgba(52, 199, 89, 0.1);
+  --bt-color-danger-soft: rgba(255, 56, 60, 0.1);
+  --bt-color-warning-soft: rgba(255, 141, 40, 0.12);
 
-  /* 中性色：背景/分隔符（UIKit background/separator 系） */
-  --bt-color-bg: #f2f2f7;
+  /* 中性色：文字四档 */
+  --bt-color-label: #111827;
+  --bt-color-label-secondary: #6b7280;
+  --bt-color-label-tertiary: #9ca3af;
+  --bt-color-label-quaternary: #c7cad1;
+
+  /* 中性色：背景。bg = 页面底（极浅冷灰），elevated = 卡片纯白，sunken = 卡内凹陷块 */
+  --bt-color-bg: #f5f6f8;
   --bt-color-bg-elevated: #ffffff;
-  --bt-color-bg-input: #f2f2f7;
-  --bt-color-separator: rgba(60, 60, 67, 0.29);
+  --bt-color-bg-sunken: #f7f8fa;
+  --bt-color-bg-input: #f2f3f5;
+  --bt-color-separator: rgba(17, 24, 39, 0.06);
   --bt-color-gray-1: #8e8e93;
   --bt-color-gray-2: #aeaeb2;
   --bt-color-gray-3: #c7c7cc;
@@ -27,37 +36,69 @@ page {
   --bt-color-gray-5: #e5e5ea;
   --bt-color-gray-6: #f2f2f7;
 
-  /* 材质：毛玻璃（功能层） */
-  --bt-glass-bg: rgba(255, 255, 255, 0.72);
-  --bt-glass-blur: blur(20px);
-  --bt-glass-border: rgba(255, 255, 255, 0.45);
-  --bt-glass-fallback: rgba(255, 255, 255, 0.92);
-  --bt-hero-glow: radial-gradient(120rpx at 20% 0%, rgba(0, 136, 255, 0.1), transparent 60%);
+  /* 阴影：极轻漫射，两层叠加（贴地 + 扩散）。卡片靠它浮起来，不靠边框 */
+  --bt-shadow-card: 0 2rpx 6rpx rgba(17, 24, 39, 0.03), 0 10rpx 28rpx rgba(17, 24, 39, 0.05);
+  --bt-shadow-raised: 0 4rpx 12rpx rgba(17, 24, 39, 0.05), 0 16rpx 40rpx rgba(17, 24, 39, 0.08);
+  --bt-shadow-dock: 0 -2rpx 8rpx rgba(17, 24, 39, 0.02), 0 12rpx 40rpx rgba(17, 24, 39, 0.1);
+  --bt-shadow-accent: 0 6rpx 18rpx rgba(0, 136, 255, 0.28);
+
+  /* 圆角阶梯：卡片 32、内层 20、胶囊 999 */
+  --bt-radius-card: 32rpx;
+  --bt-radius-inner: 20rpx;
+  --bt-radius-pill: 999rpx;
+
+  /* 舞台柔光：设备图背后的光晕 + 地面投影 */
+  --bt-stage-glow: radial-gradient(
+    90% 70% at 50% 34%,
+    rgba(0, 136, 255, 0.13) 0%,
+    rgba(0, 136, 255, 0.05) 38%,
+    rgba(245, 246, 248, 0) 72%
+  );
+  --bt-stage-floor: radial-gradient(
+    60% 12% at 50% 78%,
+    rgba(17, 24, 39, 0.1) 0%,
+    rgba(17, 24, 39, 0) 100%
+  );
+
+  /* 材质：毛玻璃（功能层，Dock / 浮层提示） */
+  --bt-glass-bg: rgba(255, 255, 255, 0.78);
+  --bt-glass-blur: blur(24px);
+  --bt-glass-border: rgba(255, 255, 255, 0.6);
+  --bt-glass-fallback: rgba(255, 255, 255, 0.96);
 
   background-color: var(--bt-color-bg);
   color: var(--bt-color-label);
   font-size: 28rpx;
   line-height: 40rpx;
+  font-family: -apple-system, "SF Pro", "PingFang SC", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* 深色 token 覆盖（design.md §3；本轮只验收浅色，见 §9 后续事项） */
+/* 深色 token 覆盖（design.md §3；本轮只验收浅色） */
 @media (prefers-color-scheme: dark) {
   page {
-    --bt-color-accent: #0091ff;
+    --bt-color-accent: #0a84ff;
     --bt-color-accent-pressed: #3395ff;
     --bt-color-danger: #ff4245;
     --bt-color-success: #30d158;
     --bt-color-warning: #ff9230;
 
-    --bt-color-label: #ffffff;
-    --bt-color-label-secondary: rgba(235, 235, 245, 0.6);
-    --bt-color-label-tertiary: rgba(235, 235, 245, 0.3);
-    --bt-color-label-quaternary: rgba(235, 235, 245, 0.16);
+    --bt-color-accent-soft: rgba(10, 132, 255, 0.16);
+    --bt-color-accent-soft-2: rgba(10, 132, 255, 0.24);
+    --bt-color-success-soft: rgba(48, 209, 88, 0.16);
+    --bt-color-danger-soft: rgba(255, 66, 69, 0.16);
+    --bt-color-warning-soft: rgba(255, 146, 48, 0.18);
 
-    --bt-color-bg: #000000;
-    --bt-color-bg-elevated: #1c1c1e;
-    --bt-color-bg-input: #1c1c1e;
-    --bt-color-separator: rgba(84, 84, 88, 0.65);
+    --bt-color-label: #ffffff;
+    --bt-color-label-secondary: rgba(235, 235, 245, 0.62);
+    --bt-color-label-tertiary: rgba(235, 235, 245, 0.34);
+    --bt-color-label-quaternary: rgba(235, 235, 245, 0.2);
+
+    --bt-color-bg: #0b0b0d;
+    --bt-color-bg-elevated: #191a1d;
+    --bt-color-bg-sunken: #131416;
+    --bt-color-bg-input: #232427;
+    --bt-color-separator: rgba(255, 255, 255, 0.08);
     --bt-color-gray-1: #8e8e93;
     --bt-color-gray-2: #636366;
     --bt-color-gray-3: #48484a;
@@ -65,10 +106,26 @@ page {
     --bt-color-gray-5: #2c2c2e;
     --bt-color-gray-6: #1c1c1e;
 
-    --bt-glass-bg: rgba(30, 30, 30, 0.72);
-    --bt-glass-border: rgba(255, 255, 255, 0.12);
-    --bt-glass-fallback: rgba(30, 30, 30, 0.92);
-    --bt-hero-glow: radial-gradient(120rpx at 20% 0%, rgba(0, 145, 255, 0.16), transparent 60%);
+    --bt-shadow-card: 0 2rpx 6rpx rgba(0, 0, 0, 0.3), 0 10rpx 28rpx rgba(0, 0, 0, 0.34);
+    --bt-shadow-raised: 0 4rpx 12rpx rgba(0, 0, 0, 0.36), 0 16rpx 40rpx rgba(0, 0, 0, 0.42);
+    --bt-shadow-dock: 0 -2rpx 8rpx rgba(0, 0, 0, 0.2), 0 12rpx 40rpx rgba(0, 0, 0, 0.5);
+    --bt-shadow-accent: 0 6rpx 18rpx rgba(10, 132, 255, 0.36);
+
+    --bt-stage-glow: radial-gradient(
+      90% 70% at 50% 34%,
+      rgba(10, 132, 255, 0.2) 0%,
+      rgba(10, 132, 255, 0.07) 38%,
+      rgba(11, 11, 13, 0) 72%
+    );
+    --bt-stage-floor: radial-gradient(
+      60% 12% at 50% 78%,
+      rgba(0, 0, 0, 0.55) 0%,
+      rgba(0, 0, 0, 0) 100%
+    );
+
+    --bt-glass-bg: rgba(25, 26, 29, 0.8);
+    --bt-glass-border: rgba(255, 255, 255, 0.1);
+    --bt-glass-fallback: rgba(25, 26, 29, 0.97);
   }
 }
 
@@ -79,16 +136,23 @@ page {
   padding: 0 0 32rpx;
 }
 
-/* ===== 排版阶梯（design.md §4，手机端偏紧凑） ===== */
+/* 带悬浮 Dock 的 Tab 页：底部留出 Dock 高度 + 安全区，避免内容被压住 */
+.page--dock {
+  padding-bottom: 220rpx;
+}
+
+/* ===== 排版阶梯（design.md §4） ===== */
 .bt-type-large-title {
-  font-size: 44rpx;
-  line-height: 56rpx;
+  font-size: 46rpx;
+  line-height: 58rpx;
   font-weight: 700;
+  letter-spacing: -0.5rpx;
 }
 .bt-type-title1 {
   font-size: 40rpx;
   line-height: 52rpx;
   font-weight: 600;
+  letter-spacing: -0.3rpx;
 }
 .bt-type-title3 {
   font-size: 34rpx;
@@ -121,12 +185,34 @@ page {
   font-weight: 400;
 }
 
-/* ===== 分组卡片（design.md §5.2/§7.4：elevated 底、24rpx 圆角、无阴影） ===== */
+/* 展示数字：超大字号 + 轻字重（参考图的 90% / 14:00 / 20℃ 语汇） */
+.bt-type-metric {
+  font-size: 64rpx;
+  line-height: 72rpx;
+  font-weight: 300;
+  letter-spacing: -1.5rpx;
+}
+/* 数字后的小单位，与 baseline 对齐 */
+.bt-type-metric-unit {
+  font-size: 26rpx;
+  line-height: 32rpx;
+  font-weight: 400;
+  color: var(--bt-color-label-tertiary);
+}
+
+/* ===== 卡片：纯白 + 大圆角 + 极轻阴影，无边框无分隔线 ===== */
 .bt-card {
   background-color: var(--bt-color-bg-elevated);
-  border-radius: 24rpx;
-  padding: 24rpx;
+  border-radius: var(--bt-radius-card);
+  padding: 28rpx;
   margin: 16rpx 32rpx;
+  box-shadow: var(--bt-shadow-card);
+}
+
+/* 卡片内的凹陷块（参数区、图表容器）：用底色差而非边框表达层级 */
+.bt-inset {
+  background-color: var(--bt-color-bg-sunken);
+  border-radius: var(--bt-radius-inner);
 }
 
 /* ===== 行与文本 ===== */
@@ -141,15 +227,17 @@ page {
 
 .bt-text--secondary {
   color: var(--bt-color-label-secondary);
-  font-size: 30rpx;
-  line-height: 40rpx;
+  font-size: 28rpx;
+  line-height: 38rpx;
 }
 
 .bt-section-title {
-  padding: 24rpx 32rpx 8rpx;
-  color: var(--bt-color-label-tertiary);
+  padding: 32rpx 40rpx 12rpx;
+  color: var(--bt-color-label-secondary);
   font-size: 26rpx;
   line-height: 36rpx;
+  font-weight: 600;
+  letter-spacing: 0.5rpx;
 }
 
 .bt-divider {
@@ -158,52 +246,362 @@ page {
   margin-left: 24rpx;
 }
 
-/* ===== 功能层毛玻璃 + 降级（design.md §5.3） ===== */
-/* 微信小程序 backdrop-filter 支持不稳定，叠加渐变模拟玻璃质感；
- * 即使 blur 不生效，渐变 + 高光边框也能呈现玻璃观感。 */
-.bt-glass {
-  background-color: rgba(255, 255, 255, 0.4);
-  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0.15) 100%);
-  backdrop-filter: blur(30px);
-  -webkit-backdrop-filter: blur(30px);
-  transform: translateZ(0);
-  border-top: 1rpx solid rgba(255, 255, 255, 0.6);
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.5), 0 -1rpx 12rpx rgba(0, 0, 0, 0.04);
+/* ===== 图标胶囊：浅 tint 底 + 图标（参考图的圆形快捷入口语汇） ===== */
+.bt-icon-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 50%;
+  background-color: var(--bt-color-accent-soft);
+  color: var(--bt-color-accent);
+  font-size: 34rpx;
+  line-height: 1;
+  transition: background-color 0.25s ease-out, transform 0.25s ease-out;
 }
 
-@supports not (backdrop-filter: blur(1px)) {
-  .bt-glass {
-    background-color: rgba(255, 255, 255, 0.92);
-    background-image: none;
-    box-shadow: 0 -1rpx 12rpx rgba(0, 0, 0, 0.06);
-  }
+/* 选中/激活态：实心品牌色 + 白图标 */
+.bt-icon-pill--on {
+  background-color: var(--bt-color-accent);
+  color: #ffffff;
+  box-shadow: var(--bt-shadow-accent);
+}
+
+.bt-icon-pill--muted {
+  background-color: var(--bt-color-bg-input);
+  color: var(--bt-color-label-tertiary);
+}
+
+.bt-icon-pill--success {
+  background-color: var(--bt-color-success-soft);
+  color: var(--bt-color-success);
+}
+
+.bt-icon-pill--danger {
+  background-color: var(--bt-color-danger-soft);
+  color: var(--bt-color-danger);
+}
+
+/* ===== 线性图标（纯 CSS 几何，随 currentColor 变色；无图标字体/图片依赖） =====
+   每个图标在 36×36rpx 的画框内用伪元素拼形状，尺寸与 .bt-icon-pill 同心。 */
+.bt-ico {
+  position: relative;
+  flex-shrink: 0;
+  width: 36rpx;
+  height: 36rpx;
+}
+
+/* 列表：三条横线 */
+.bt-ico--list::before {
+  content: '';
+  position: absolute;
+  top: 8rpx;
+  left: 2rpx;
+  width: 32rpx;
+  height: 4rpx;
+  border-radius: 2rpx;
+  background: currentColor;
+  box-shadow: 0 8rpx 0 currentColor, 0 16rpx 0 currentColor;
+}
+
+/* 云：下半圆角矩形 + 上半圆凸起（相邻边透明，两块拼成一朵云） */
+.bt-ico--cloud::before {
+  content: '';
+  position: absolute;
+  left: 2rpx;
+  right: 2rpx;
+  bottom: 7rpx;
+  height: 16rpx;
+  border: 3rpx solid currentColor;
+  border-top-color: transparent;
+  border-radius: 10rpx;
+  box-sizing: border-box;
+}
+
+.bt-ico--cloud::after {
+  content: '';
+  position: absolute;
+  top: 3rpx;
+  left: 50%;
+  width: 20rpx;
+  height: 20rpx;
+  margin-left: -10rpx;
+  border: 3rpx solid currentColor;
+  border-bottom-color: transparent;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+/* 灯控芯片：圆角方块 + 中心灯珠 */
+.bt-ico--chip::before {
+  content: '';
+  position: absolute;
+  inset: 3rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 9rpx;
+  box-sizing: border-box;
+}
+
+.bt-ico--chip::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10rpx;
+  height: 10rpx;
+  margin: -5rpx 0 0 -5rpx;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* 文档：外框 + 两条内容线 */
+.bt-ico--doc::before {
+  content: '';
+  position: absolute;
+  top: 2rpx;
+  left: 6rpx;
+  right: 6rpx;
+  bottom: 4rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 6rpx;
+  box-sizing: border-box;
+}
+
+.bt-ico--doc::after {
+  content: '';
+  position: absolute;
+  top: 14rpx;
+  left: 13rpx;
+  width: 10rpx;
+  height: 3rpx;
+  border-radius: 2rpx;
+  background: currentColor;
+  box-shadow: 0 7rpx 0 currentColor;
+}
+
+/* 垃圾桶：盖子横线 + 下收的桶身 */
+.bt-ico--trash::before {
+  content: '';
+  position: absolute;
+  top: 8rpx;
+  left: 2rpx;
+  width: 32rpx;
+  height: 3rpx;
+  border-radius: 2rpx;
+  background: currentColor;
+}
+
+.bt-ico--trash::after {
+  content: '';
+  position: absolute;
+  top: 13rpx;
+  left: 8rpx;
+  width: 20rpx;
+  height: 17rpx;
+  border: 3rpx solid currentColor;
+  border-top: none;
+  border-radius: 0 0 8rpx 8rpx;
+  box-sizing: border-box;
+}
+
+/* 刷新：留缺口的圆环 + 缺口处的方形箭头 */
+.bt-ico--refresh::before {
+  content: '';
+  position: absolute;
+  inset: 4rpx;
+  border: 3rpx solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.bt-ico--refresh::after {
+  content: '';
+  position: absolute;
+  top: 5rpx;
+  right: 5rpx;
+  width: 9rpx;
+  height: 9rpx;
+  border-radius: 1rpx;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+/* 信息：圆环 + 感叹号点与杆 */
+.bt-ico--info::before {
+  content: '';
+  position: absolute;
+  inset: 3rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.bt-ico--info::after {
+  content: '';
+  position: absolute;
+  top: 14rpx;
+  left: 50%;
+  width: 3rpx;
+  height: 12rpx;
+  margin-left: -2rpx;
+  border-radius: 2rpx;
+  background: currentColor;
+  box-shadow: 0 -6rpx 0 currentColor;
+}
+
+/* 对话气泡：圆角矩形 + 左下小尖角 */
+.bt-ico--chat::before {
+  content: '';
+  position: absolute;
+  top: 4rpx;
+  left: 3rpx;
+  right: 3rpx;
+  bottom: 10rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 10rpx;
+  box-sizing: border-box;
+}
+
+.bt-ico--chat::after {
+  content: '';
+  position: absolute;
+  bottom: 6rpx;
+  left: 11rpx;
+  width: 9rpx;
+  height: 9rpx;
+  border-left: 3rpx solid currentColor;
+  border-bottom: 3rpx solid currentColor;
+  transform: rotate(-45deg);
+}
+
+/* 灯泡：上半圆罩 + 底部灯座 + 两侧短光线（空态主视觉） */
+.bt-ico--bulb {
+  position: relative;
+  width: 72rpx;
+  height: 72rpx;
+}
+
+.bt-ico--bulb::before {
+  content: '';
+  position: absolute;
+  top: 6rpx;
+  left: 50%;
+  width: 44rpx;
+  height: 44rpx;
+  margin-left: -22rpx;
+  border: 4rpx solid currentColor;
+  border-bottom-color: transparent;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.bt-ico--bulb::after {
+  content: '';
+  position: absolute;
+  bottom: 8rpx;
+  left: 50%;
+  width: 20rpx;
+  height: 16rpx;
+  margin-left: -10rpx;
+  border-bottom: 4rpx solid currentColor;
+  border-radius: 0 0 6rpx 6rpx;
+  box-sizing: border-box;
+  box-shadow: 0 -8rpx 0 -4rpx currentColor;
+}
+
+/* ===== 状态胶囊（左上「已连接」/ 卡内状态标签） ===== */
+.bt-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6rpx 18rpx;
+  border-radius: var(--bt-radius-pill);
+  background-color: var(--bt-color-bg-input);
+  color: var(--bt-color-label-secondary);
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 500;
+}
+
+.bt-chip__dot {
+  width: 10rpx;
+  height: 10rpx;
+  margin-right: 8rpx;
+  border-radius: 50%;
+  background-color: var(--bt-color-label-quaternary);
+}
+
+.bt-chip--on {
+  background-color: var(--bt-color-success-soft);
+  color: #1f9254;
+}
+
+.bt-chip--on .bt-chip__dot {
+  background-color: var(--bt-color-success);
 }
 
 @media (prefers-color-scheme: dark) {
-  .bt-glass {
-    background-color: rgba(30, 30, 30, 0.4);
-    background-image: linear-gradient(135deg, rgba(60, 60, 60, 0.25) 0%, rgba(30, 30, 30, 0.1) 100%);
-    border-top-color: rgba(255, 255, 255, 0.12);
-    box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
-  }
-
-  @supports not (backdrop-filter: blur(1px)) {
-    .bt-glass {
-      background-color: rgba(30, 30, 30, 0.92);
-      background-image: none;
-    }
+  .bt-chip--on {
+    color: #4ade80;
   }
 }
 
-/* ===== 按钮（design.md §5.2/§7.3：胶囊主按钮） ===== */
-.bt-btn {
+/* ===== 药丸分段器（参考图的「通透/降噪/关闭」三段语汇） ===== */
+.bt-segmented {
+  display: flex;
+  padding: 6rpx;
+  border-radius: var(--bt-radius-pill);
+  background-color: var(--bt-color-bg-input);
+}
+
+.bt-segmented__item {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   height: 64rpx;
-  border-radius: 999rpx;
-  font-size: 28rpx;
+  border-radius: var(--bt-radius-pill);
+  color: var(--bt-color-label-secondary);
+  font-size: 26rpx;
   line-height: 64rpx;
+  font-weight: 500;
+  transition: background-color 0.25s ease-out, color 0.25s ease-out, box-shadow 0.25s ease-out;
+}
+
+.bt-segmented__item--on {
+  background-color: var(--bt-color-bg-elevated);
+  color: var(--bt-color-label);
+  font-weight: 600;
+  box-shadow: 0 1rpx 4rpx rgba(17, 24, 39, 0.08);
+}
+
+/* ===== 功能层毛玻璃 + 降级（Dock / 浮层） ===== */
+.bt-glass {
+  background-color: var(--bt-glass-bg);
+  backdrop-filter: var(--bt-glass-blur);
+  -webkit-backdrop-filter: var(--bt-glass-blur);
+  transform: translateZ(0);
+  border: 1rpx solid var(--bt-glass-border);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .bt-glass {
+    background-color: var(--bt-glass-fallback);
+    border-color: transparent;
+  }
+}
+
+/* ===== 按钮 ===== */
+.bt-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 88rpx;
+  border-radius: var(--bt-radius-pill);
+  font-size: 30rpx;
+  line-height: 88rpx;
   font-weight: 600;
   box-sizing: border-box;
   transition: background-color 0.25s ease-out, transform 0.25s ease-out, opacity 0.25s ease-out;
@@ -213,18 +611,34 @@ page {
   border: none;
 }
 
+/* 主按钮：品牌色实心 + 品牌色投影（参考图的悬浮 FAB 语汇） */
 .bt-btn--primary {
   background-color: var(--bt-color-accent);
   color: #ffffff;
+  box-shadow: var(--bt-shadow-accent);
 }
 
 .bt-btn--primary:active {
   background-color: var(--bt-color-accent-pressed);
+  transform: scale(0.985);
+}
+
+/* 次按钮：白底 + 轻阴影 */
+.bt-btn--secondary {
+  background-color: var(--bt-color-bg-elevated);
+  color: var(--bt-color-label);
+  box-shadow: var(--bt-shadow-card);
 }
 
 .bt-btn--danger {
   background-color: var(--bt-color-danger);
   color: #ffffff;
+}
+
+/* 弱点按钮：浅 tint 底 + 品牌色字，用于弹窗内次要动作 */
+.bt-btn--tint {
+  background-color: var(--bt-color-accent-soft);
+  color: var(--bt-color-accent);
 }
 
 /* ===== 按压反馈（design.md §5.4） ===== */
@@ -233,6 +647,6 @@ page {
 }
 
 .bt-pressable:active {
-  transform: scale(0.97);
-  opacity: 0.8;
+  transform: scale(0.975);
+  opacity: 0.85;
 }

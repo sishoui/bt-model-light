@@ -161,6 +161,7 @@ function buildLayerCard(fields) {
 }
 
 // 图层 VM 的卡片摘要重算（字段改动后调用）：色板摘要 + 渐变色带。
+// Object.assign 保留 slot/lid/role 等位置元数据（ADR-0033）。
 function refreshLayerCard(layer) {
   const base = Object.assign({}, layer, buildLayerCard(layer.fields || []))
   // 渐变色带：RAINBOW/DUAL_GRADIENT/METEOR 等多色灯效在卡片底部画一条
@@ -176,14 +177,44 @@ function uid() {
   return _uidSeq++
 }
 
+// 图层槽位：每阶段固定两格，0 = 背景、1 = 动效。槽位是位置语义而不是顺序——
+// 删掉背景后动效仍留在第二格；两格都空即该阶段不亮（ADR-0033）。
+const LAYER_SLOTS = [
+  { slot: 0, role: '背景' },
+  { slot: 1, role: '动效' },
+]
+
+// 空槽占位：卡片渲染用（保留在数组里让两格位置固定），不参与下发编码。
+function emptyLayer(slot) {
+  return {
+    lid: `slot-${slot}`,
+    slot,
+    role: LAYER_SLOTS[slot].role,
+    empty: true,
+    effect: null,
+    effectName: '',
+    fields: [],
+    swatch: null,
+    summary: '',
+    gradientCss: null,
+  }
+}
+
+function emptyLayerSlots() {
+  return LAYER_SLOTS.map((s) => emptyLayer(s.slot))
+}
+
 // 图层 VM：effectName 供 WXML 直接显示（避免依赖 EFF id 连续假设的下标运算）；
 // swatch/summary 供两列卡片只读展示（详见弹窗编辑）。
-function makeLayer(effectId, params, lid) {
+function makeLayer(effectId, params, lid, slot) {
   const fields = buildParamFields(effectId, params)
   const card = buildLayerCard(fields)
   return Object.assign(
     {
       lid: lid || uid(),
+      slot: slot || 0,
+      role: LAYER_SLOTS[slot || 0].role,
+      empty: false,
       effect: effectId,
       effectName: EFFECT_LABELS[effectId] || `效果 ${effectId}`,
       fields,
@@ -195,8 +226,8 @@ function makeLayer(effectId, params, lid) {
   )
 }
 
-function defaultLayer(effectId) {
-  return makeLayer(effectId || EFF.SOLID, null)
+function defaultLayer(effectId, slot) {
+  return makeLayer(effectId || EFF.SOLID, null, null, slot)
 }
 
 // 阶段默认名：阶段一/二/…（上限 5，超出回退数字）。
@@ -208,7 +239,15 @@ function stageDefaultName(i) {
 // 阶段条分段宽度：最小长度(rpx) + 按时长比例分配剩余宽度（运行时测量容器宽）。
 
 function defaultStep(index) {
-  return { sid: uid(), name: stageDefaultName(index || 0), duration: 5, transition: 0, loopMode: 1, layers: [defaultLayer(EFF.SOLID)] }
+  // 只启用背景槽（默认常亮），动效槽留空——与旧行为一致（每阶段至少一层）。
+  return {
+    sid: uid(),
+    name: stageDefaultName(index || 0),
+    duration: 5,
+    transition: 0,
+    loopMode: 1,
+    layers: [defaultLayer(EFF.SOLID, 0), emptyLayer(1)],
+  }
 }
 
 function defaultGroup(name) {
@@ -248,24 +287,36 @@ function inCancelZone(clientY, winH) {
 }
 
 // Storage / wire 模型 → 页面编辑态 VM（补 gid/sid/lid 与 fields）。
+// 图层按槽位落格：优先读存储里的 slot 字段，旧配置（无 slot）按数组序 0/1 推断，
+// 缺槽补空占位——两格位置始终固定（ADR-0033）。
 function groupToVM(g, index) {
   return {
     gid: uid(),
     name: g.name || `灯组 ${index + 1}`,
     ledStart: g.ledStart,
     ledEnd: g.ledEnd,
-    steps: (g.steps || []).map((s, i) => ({
-      sid: uid(),
-      name: s.name || stageDefaultName(i),
-      duration: s.duration,
-      transition: s.transition,
-      loopMode: s.loopMode,
-      layers: (s.layers || []).map((l) => makeLayer(l.effect, l.params)),
-    })),
+    steps: (g.steps || []).map((s, i) => {
+      const slots = emptyLayerSlots()
+      ;(s.layers || []).forEach((l, li) => {
+        if (!l || !l.effect) return
+        const slot = l.slot === 0 || l.slot === 1 ? l.slot : li
+        if (!slots[slot] || !slots[slot].empty) return // 槽位越界/重复：丢弃异常项
+        slots[slot] = makeLayer(l.effect, l.params, null, slot)
+      })
+      return {
+        sid: uid(),
+        name: s.name || stageDefaultName(i),
+        duration: s.duration,
+        transition: s.transition,
+        loopMode: s.loopMode,
+        layers: slots,
+      }
+    }),
   }
 }
 
 // 页面编辑态 VM → Storage / wire 模型（去掉 gid/sid/lid/fields）。
+// 空槽不下发；只发有图层的槽位，并带上 slot 以便重载后回到同一格。
 function vmToGroup(g) {
   return {
     name: g.name,
@@ -276,7 +327,9 @@ function vmToGroup(g) {
       duration: s.duration,
       transition: s.transition,
       loopMode: s.loopMode,
-      layers: s.layers.map((l) => ({ effect: l.effect, params: fieldsToParams(l.fields) })),
+      layers: s.layers
+        .filter((l) => l && !l.empty)
+        .map((l) => ({ slot: l.slot, effect: l.effect, params: fieldsToParams(l.fields) })),
     })),
   }
 }
@@ -351,6 +404,8 @@ Page({
     groupsPerPinMax: LIMITS.groupsPerPinMax,
     stepsPerGroupMax: LIMITS.stepsPerGroupMax,
     layersPerStepMax: LIMITS.layersPerStepMax,
+    // 当前阶段两格都空 → WXML 提示"灯珠不亮"（_refreshTimeline 维护）。
+    activeStepEmpty: false,
   },
 
   onLoad(options) {
@@ -574,11 +629,17 @@ Page({
   },
 
   // 点图层卡片：打开该图层的配置弹窗（灯效 + 参数表单都在弹窗里）。
+  // 点空槽卡片 = 在该槽位新建图层，不打开弹窗。
   onOpenLayerEditor(e) {
     const si = Number(e.currentTarget.dataset.si)
     const li = Number(e.currentTarget.dataset.li)
     const step = this.data.groups[this.data.activeGroup].steps[si]
-    if (!step || !step.layers[li]) return
+    const layer = step && step.layers && step.layers[li]
+    if (!layer) return
+    if (layer.empty) {
+      this.onAddLayer(e)
+      return
+    }
     this.setData({ layerEditorOpen: true, layerEditorSi: si, layerEditorLi: li })
     this._preparePreview(si, li, true)
     // canvas 节点在 wx:if 内，必须等下一帧再取节点。
@@ -596,10 +657,11 @@ Page({
     const group = this.data.groups[this.data.activeGroup]
     const step = group && group.steps[si]
     if (!step) return
-    // 预览按阶段整体合成（1~2 个图层），编辑中的图层自然包含在内——
+    // 预览按阶段整体合成（0~2 个图层），编辑中的图层自然包含在内——
     // 这才能反映"动效层亮灯珠覆盖背景层"的真实输出（镜像固件 compose_layer）。
+    // 空槽不参与合成；两格都空时预览画布整条不亮。
     this._previewLayers = (step.layers || [])
-      .filter((l) => l && l.effect)
+      .filter((l) => l && !l.empty && l.effect)
       .map((l) => ({ effect: l.effect, params: fieldsToParams(l.fields || []) }))
     const leds = effectPreview.stripLength(group)
     this._previewLeds = leds
@@ -753,7 +815,7 @@ Page({
   _refreshTimeline() {
     const group = this.data.groups[this.data.activeGroup]
     if (!group) {
-      this.setData({ timeline: [], timelineTotal: 0, timelineLegend: [] })
+      this.setData({ timeline: [], timelineTotal: 0, timelineLegend: [], activeStepEmpty: true })
       return
     }
     const timeline = charts.buildTimeline(group.steps || [])
@@ -775,7 +837,10 @@ Page({
         })
       }
     }
-    this.setData({ timeline, timelineTotal: Math.round(total * 10) / 10, timelineLegend: legend })
+    // 当前阶段两格都空 → 页面提示"灯珠不亮"（与下发语义一致）。
+    const layers = (group.steps && group.steps[si] && group.steps[si].layers) || []
+    const activeStepEmpty = !layers.some((l) => l && !l.empty)
+    this.setData({ timeline, timelineTotal: Math.round(total * 10) / 10, timelineLegend: legend, activeStepEmpty })
   },
 
   // 3D 灯效预览 canvas：把阶段的灯效逐灯珠渲染后投影成长条灯条。
@@ -785,7 +850,7 @@ Page({
     const step = this.data.groups[this.data.activeGroup] &&
       this.data.groups[this.data.activeGroup].steps[this.data.layerEditorSi]
     const layer = step && step.layers && step.layers[this.data.layerEditorLi]
-    if (!layer) return
+    if (!layer || layer.empty) return
     const query = wx.createSelectorQuery().in(this)
     query.select('.effect3d-canvas').fields({ node: true, size: true })
     query.exec((res) => {
@@ -1235,29 +1300,45 @@ Page({
     })
   },
 
+  // 在指定槽位加图层：点空槽卡片（或「添加图层」占位）把该格填成默认常亮。
   onAddLayer(e) {
     const si = Number(e.currentTarget.dataset.si)
     const step = this.data.groups[this.data.activeGroup].steps[si]
-    if (!step || step.layers.length >= LIMITS.layersPerStepMax) {
+    if (!step) return
+    const slot = Number(e.currentTarget.dataset.slot)
+    const target = Number.isInteger(slot) && slot >= 0 && slot < LAYER_SLOTS.length
+      ? slot
+      : this._firstEmptySlot(step)
+    if (target === -1) {
       wx.showToast({ title: `每阶段最多 ${LIMITS.layersPerStepMax} 个图层`, icon: 'none' })
       return
     }
     this._editActiveGroup((group, steps) => {
-      steps[si] = Object.assign({}, steps[si], { layers: steps[si].layers.concat([defaultLayer(EFF.SOLID)]) })
+      const layers = (steps[si].layers || []).slice()
+      layers[target] = defaultLayer(EFF.SOLID, target)
+      steps[si] = Object.assign({}, steps[si], { layers })
     })
   },
 
+  // 第一个空槽下标；两格都占满返回 -1。
+  _firstEmptySlot(step) {
+    const layers = (step && step.layers) || []
+    for (let i = 0; i < LAYER_SLOTS.length; i++) {
+      if (!layers[i] || layers[i].empty) return i
+    }
+    return -1
+  },
+
+  // 删除图层：清空该槽位但保留占位，另一层原位不动；两格都空则该阶段不亮。
   onDeleteLayer(e) {
     const si = Number(e.currentTarget.dataset.si)
     const li = Number(e.currentTarget.dataset.li)
     const step = this.data.groups[this.data.activeGroup].steps[si]
-    if (!step || step.layers.length <= 1) {
-      wx.showToast({ title: '至少保留一个图层', icon: 'none' })
-      return
-    }
+    if (!step || !step.layers || !step.layers[li]) return
     this._editActiveGroup((group, steps) => {
       const layers = steps[si].layers.slice()
-      layers.splice(li, 1)
+      const slot = layers[li].slot === undefined ? li : layers[li].slot
+      layers[slot] = emptyLayer(slot)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
     this.setData({ layerEditorOpen: false })
@@ -1271,7 +1352,10 @@ Page({
     if (!opt) return
     this._editActiveGroup((group, steps) => {
       const layers = steps[si].layers.slice()
-      layers[li] = makeLayer(opt.id, null, layers[li].lid)
+      const old = layers[li]
+      if (!old || old.empty) return
+      // 换灯效只换 effect/params，槽位与 lid 保持不变（位置语义，ADR-0033）。
+      layers[li] = makeLayer(opt.id, null, old.lid, old.slot)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
   },

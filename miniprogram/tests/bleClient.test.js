@@ -378,6 +378,75 @@ describe('bleClient', () => {
     expect(getCurrentBleClient()).toBeNull()
   })
 
+  // ---- 写空口串行化（ADR-0034） -------------------------------------------------
+
+  test('并发 sendCmd 不乱序：同一时刻只有一帧在写（分片不交错）', async () => {
+    await client.connect('dev-1')
+    wx.writeBLECharacteristicValue.mockClear()
+    // 让写按微任务节奏完成，制造真实的"并发"窗口。
+    wx.writeBLECharacteristicValue.mockImplementation(() => new Promise((r) => setImmediate(r)))
+
+    const big = Array.from({ length: 1200 }, (_, i) => i & 0xff)
+    await Promise.all([
+      client.sendCmd(CMD.WRITE_CONFIG, big),
+      client.sendCmd(CMD.SET_BRIGHTNESS, [7]),
+      client.sendCmd(CMD.SET_POWER, [1]),
+    ])
+
+    // 流式重组所有写：必须得到 3 条完整帧，且顺序 == 调用顺序。
+    const parser = new (require('../utils/frameParser').FrameParser)()
+    const frames = []
+    for (const call of wx.writeBLECharacteristicValue.mock.calls) {
+      expect(parser.feed(new Uint8Array(call[0].value))).toBe(PARSE_OK)
+      const out = {}
+      while (parser.next(out) === PARSE_OK) frames.push(out)
+    }
+    expect(frames.map((f) => f.cmd)).toEqual([CMD.WRITE_CONFIG, CMD.SET_BRIGHTNESS, CMD.SET_POWER])
+    expect(frames[0].payload.length).toBe(big.length)
+  })
+
+  test('OTA 可绕过版本不兼容（仅升级自救），普通命令仍被拦截', async () => {
+    await client.connect('dev-1')
+    notify(wx, statusFrame(NOTIFY.VERSION, 0, 0, [9, 9, FIRMWARE_VERSION.major, FIRMWARE_VERSION.minor]))
+    await flush()
+    expect(client.compatible).toBe(false)
+
+    await expect(client.sendCmd(CMD.APPLY, [])).rejects.toThrow(/协议版本不兼容/)
+    // bypassVersionCheck：OTA 必须能发出去，否则旧固件永远升不上来。
+    await expect(
+      client.sendCmd(CMD.OTA, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], { bypassVersionCheck: true })
+    ).resolves.toBeUndefined()
+  })
+
+  test('OTA PROGRESS 帧解析为事件（不受 3 字节布局限制）', async () => {
+    await client.connect('dev-1')
+    const got = []
+    const off = client.onStatus((e) => got.push(e))
+    // payload = [0x05][written:u32le][total:u32le]
+    const written = 262144
+    const total = 1048576
+    const pl = [
+      0x05,
+      written & 0xff, (written >>> 8) & 0xff, (written >>> 16) & 0xff, (written >>> 24) & 0xff,
+      total & 0xff, (total >>> 8) & 0xff, (total >>> 16) & 0xff, (total >>> 24) & 0xff,
+    ]
+    notify(wx, buildFrameBytes(CMD.STATUS_NOTIFY, 0, pl))
+    off()
+    expect(got).toHaveLength(1)
+    expect(got[0]).toEqual({ type: 'ota-progress', written, total })
+  })
+
+  test('断连后排队中的帧作废（不污染新连接）', async () => {
+    await client.connect('dev-1')
+    // 第一帧在途（写慢），第二帧排在队尾；此时断连 → 排队的第二帧必须作废。
+    wx.writeBLECharacteristicValue.mockImplementation(() => new Promise((r) => setImmediate(r)))
+    const inFlight = client.sendCmd(CMD.APPLY, [])
+    const queued = client.sendCmd(CMD.SET_POWER, [1])
+    await client.disconnect()
+    await expect(queued).rejects.toThrow(/连接已切换/)
+    await inFlight.catch(() => {}) // 在途帧可能成功也可能因断连失败，不在此断言
+  })
+
   // ---- 序列号回绕 --------------------------------------------------------------
 
   test('seq 在 256 次发送后回绕（uint8）', async () => {

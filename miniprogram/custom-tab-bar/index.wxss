@@ -1,0 +1,148 @@
+/* 悬浮 Dock（design.md §7.0）：毛玻璃胶囊 + 中央圆形 FAB。
+   整块用 left:50% + translateX 居中（不用 pointer-events 透传，避免真机差异）；
+   页面用 .page--dock 留出底部空间，避免内容被压住。 */
+.dock-wrap {
+  position: fixed;
+  left: 50%;
+  bottom: calc(20rpx + constant(safe-area-inset-bottom));
+  bottom: calc(20rpx + env(safe-area-inset-bottom));
+  z-index: 90;
+  width: 560rpx;
+  margin-left: -280rpx;
+  height: 112rpx;
+}
+
+.dock {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  border-radius: var(--bt-radius-pill);
+  box-shadow: var(--bt-shadow-dock);
+}
+
+/* 左右两个 Tab 均分，中间留出 FAB 的凹位 */
+.dock__item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--bt-color-label-tertiary);
+  transition: color 0.25s ease-out;
+}
+
+.dock__item--on {
+  color: var(--bt-color-accent);
+}
+
+.dock__label {
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  line-height: 26rpx;
+  font-weight: 500;
+}
+
+.dock__slot {
+  flex: 0 0 136rpx;
+  height: 100%;
+}
+
+/* 中央 FAB：品牌色实心圆 + 品牌色投影，向上探出 Dock */
+.dock__fab {
+  position: absolute;
+  left: 50%;
+  top: -52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 108rpx;
+  height: 108rpx;
+  margin-left: -54rpx;
+  border-radius: 50%;
+  background-color: var(--bt-color-accent);
+  box-shadow: var(--bt-shadow-accent);
+}
+
+.dock__fab-plus {
+  position: relative;
+  width: 36rpx;
+  height: 36rpx;
+}
+
+.dock__fab-plus::before,
+.dock__fab-plus::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  background-color: #ffffff;
+  border-radius: 2rpx;
+}
+
+.dock__fab-plus::before {
+  width: 36rpx;
+  height: 4rpx;
+  margin: -2rpx 0 0 -18rpx;
+}
+
+.dock__fab-plus::after {
+  width: 4rpx;
+  height: 36rpx;
+  margin: -18rpx 0 0 -2rpx;
+}
+
+/* 图标：纯 CSS 几何图形（不依赖图标字体/图片，避免包体与加载抖动） */
+.ico {
+  position: relative;
+  width: 40rpx;
+  height: 40rpx;
+}
+
+/* 设备：圆角方块 + 内部小圆点（像一颗灯珠） */
+.ico--device::before {
+  content: '';
+  position: absolute;
+  inset: 2rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 10rpx;
+}
+
+.ico--device::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10rpx;
+  height: 10rpx;
+  margin: -5rpx 0 0 -5rpx;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+/* 我的：圆头 + 半圆肩 */
+.ico--user::before {
+  content: '';
+  position: absolute;
+  top: 1rpx;
+  left: 50%;
+  width: 16rpx;
+  height: 16rpx;
+  margin-left: -8rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 50%;
+}
+
+.ico--user::after {
+  content: '';
+  position: absolute;
+  bottom: 2rpx;
+  left: 50%;
+  width: 30rpx;
+  height: 17rpx;
+  margin-left: -15rpx;
+  border: 3rpx solid currentColor;
+  border-bottom: none;
+  border-radius: 16rpx 16rpx 0 0;
+}

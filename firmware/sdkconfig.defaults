@@ -3,3 +3,10 @@
 CONFIG_BT_BTC_TASK_STACK_SIZE=12288
 # Also bump the main Arduino task stack slightly for safety.
 CONFIG_ARDUINO_LOOP_STACK_SIZE=8192
+
+# OTA rollback gate (ADR-0034): a freshly written image must call
+# esp_ota_mark_app_valid_cancel_rollback() (main.cpp setup) before the
+# bootloader treats it as good — otherwise it rolls back to the previous
+# app. Serial-flashed images are booted with otadata already valid and are
+# unaffected.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

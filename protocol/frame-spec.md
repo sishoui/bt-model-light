@@ -158,6 +158,7 @@ blob 总长 = `10 + body_len`。
 - 最坏情况（8×5×5×2）超 1500，按超限拒绝（ADR-0013a 预算针对典型场景）。
 - `effect_id` 未知 / `param_len` 与查表不符 / 索引越界 → 固件回 `0x04 参数非法`，不崩溃。
 - `group_count = 0` 表示该引脚无灯组：固件渲染时清空整条灯带。小程序把"引脚灯带开关关闭"编码为这一形态（灯组配置仍保留在 Storage，ADR-0028）。
+- `layer_count` 仍为 1~2（固件校验不变）。小程序 UI 允许把某阶段的两个图层槽位都删空，此时以**单层 SOLID 全黑**（`color=000`、`brightness=0`）下发，渲染结果同样是该阶段不亮；"固定双槽（背景/动效）"的槽位语义只在 App 层维护，不上线（ADR-0033）。
 - spiffs 加载：magic/version/crc 任一不符 → 视为损坏，fallback 出厂默认（ADR-0015）。
 
 ## SET_BRIGHTNESS（0x0A）负载
@@ -185,3 +186,43 @@ blob 总长 = `10 + body_len`。
 - `len != 1` 或取值不为 0/1 → 固件回 `0x04 参数非法`，开关状态保持不变。
 - 任意状态可发（含 IDLE/CONNECTED）：整机开关不是状态迁移，不改变状态机状态。
 - 整机开关是设备 RAM 态，不落 spiffs（ADR-0032）；断连/重启后由小程序补发。
+## OTA（0xF0）负载
+
+固件升级走 BLE 直传（设备只跑 BLE，无 WiFi 凭据，无法自行 HTTP 下载），
+小程序先从 HTTP 拉 `.bin`、校验，再按帧分块写入（ADR-0034）。
+
+### 子命令（`payload[0]`，见 `protocol/ota.csv`）
+
+| 值 | 名称 | 方向 | 负载 |
+|---|---|---|---|
+| `0x01` | `BEGIN` | app→fw | `[0x01][total:u32le][crc32:u32le][version_major:u8][version_minor:u8]` |
+| `0x02` | `DATA` | app→fw | `[0x02][offset:u32le][bytes...]` |
+| `0x03` | `END` | app→fw | `[0x03]` |
+| `0x04` | `ABORT` | app→fw | `[0x04]` |
+| `0x05` | `PROGRESS` | fw→app（STATUS_NOTIFY 载荷） | `[0x05][written:u32le][total:u32le]` |
+
+### 语义
+
+- **一个 seq 一条命令**：`BEGIN` / 每块 `DATA` / `END` / `ABORT` 各自编一帧，固件对每条命令
+  回 `STATUS_NOTIFY OK`（`code` 回显命令码 `0xF0`），因此上传是"发一帧等一帧"的停等流控，
+  不引入额外的应用层 ACK。
+- **`DATA.offset` 必须等于已接收字节数**：乱序/重发直接回 `0x04 参数非法`。丢帧由停等
+  超时在小程序侧重发同一块（offset 不变），固件不需要支持随机写。
+- **`total` 上限 = `ota_0`/`ota_1` 分区大小 `0x1E0000`（1.875MB）**，超出回
+  `0x03 配置超限`（不新开 error code，语义就是"超出容量"）。
+- **`BEGIN` 时 `crc32` 是整份镜像的 CRC-32（IEEE 802.3，`zlib.crc32` 同款）**；`END`
+  时固件比对累计值，不符回 `0x01 校验和错误` 且**不**切换分区。帧级 CRC-16 只保护单帧，
+  整镜像完整性靠这层 CRC-32。
+- **`END` 成功**：写入 `otadata` 切到新分区并延迟重启（约 300ms 让 OK notify 先发出去）。
+  重启后新镜像未调用 `esp_ota_mark_app_valid_cancel_rollback()` 就崩溃/复位，bootloader
+  回滚到上一版（`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`）。
+- **`version_major/minor`**：被升级镜像期望的 `firmware_version`（仅回显/日志用，固件不做
+  兼容性校验——版本判定在小程序侧，见 ADR-0009 / ADR-0034）。
+- **升级中拒绝其它写命令**：`WRITE_CONFIG` / `APPLY` / `READ_CONFIG` / `RESET_DEFAULT`
+  回 `0x05 状态非法`，避免闪写与配置写交错；`GET_VERSION` / `READ_STATUS` 始终可用。
+- **`PROGRESS`** 走 `STATUS_NOTIFY`（`cmd=0x81`）通道，`payload[0]=0x05` 区分于普通
+  status/code 布局（3 字节前缀在 OTA 包里不适用）。每累计 256KB 与终态各发一次，
+  小程序只用来画进度条，不作为正确性前提。
+- **MTU 下限**：写分片 < 64 字节（如退回 20）时小程序拒绝升级并提示"信号/MTU 不足"，
+  1.875MB ÷ 35B ≈ 5.5 万帧，实际不可完成（ADR-0034）。
+- **中断**：`ABORT` 或断连 → 固件 `esp_ota_abort()`，当前固件继续运行，已写分区作废。

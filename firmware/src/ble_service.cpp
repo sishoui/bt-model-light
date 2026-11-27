@@ -22,9 +22,18 @@
 #include "notify.h"
 #include "config_persist.h"
 #include "master_output.h"
+#include "ota_service.h"
 
-// ATT MTU 23 -> 20-byte notify/write chunk (frame-spec.md).
+// ATT MTU 23 -> 20-byte notify/write chunk (frame-spec.md). This is the
+// floor: notify_send() uses the negotiated MTU when the stack reports one
+// (ADR-0029 / ADR-0034), which keeps OTA progress/version frames off the
+// "35 bytes per round trip" path.
 #define BLE_CHUNK 20
+// Largest notify chunk: the stack may report the local MTU 517, but the
+// central negotiated 512 (Android) -> 509 payload. Capping at 509 keeps us
+// inside whatever was actually agreed instead of overrunning the first
+// notify and retrying.
+#define BLE_CHUNK_MAX 509
 
 // ---- module state --------------------------------------------------------
 
@@ -51,11 +60,17 @@ static const uint8_t PERSIST_MAX_ATTEMPTS = 3;
 
 // ---- notify helper -------------------------------------------------------
 
-// Send a built frame over the notify char in BLE_CHUNK-sized writes.
+// Send a built frame over the notify char, chunked to the negotiated MTU.
+// The stack's MTU is authoritative (Android 512 -> 509, iOS 185 -> 182);
+// BLE_CHUNK_MAX caps it so an unexpected large value cannot overflow the
+// stack's notify buffer. Falls back to BLE_CHUNK when the MTU is unknown.
 static void notify_send(const uint8_t *frame, size_t len) {
     if (!sNotifyChar) return;
-    for (size_t off = 0; off < len; off += BLE_CHUNK) {
-        size_t n = (len - off < BLE_CHUNK) ? (len - off) : BLE_CHUNK;
+    uint16_t mtu = BLEDevice::getMTU();
+    size_t chunk = (mtu > 3) ? (size_t)(mtu - 3) : (size_t)BLE_CHUNK;
+    if (chunk > BLE_CHUNK_MAX) chunk = BLE_CHUNK_MAX;
+    for (size_t off = 0; off < len; off += chunk) {
+        size_t n = (len - off < chunk) ? (len - off) : chunk;
         sNotifyChar->setValue((uint8_t *)(frame + off), n);
         sNotifyChar->notify();
     }
@@ -73,6 +88,15 @@ static void notify_status(uint8_t status, uint8_t code, uint8_t seq) {
 static void notify_version(uint8_t seq) {
     static uint8_t buf[FRAME_TOTAL_MAX];
     size_t n = notify_build_version(buf, sizeof(buf), seq);
+    if (n > 0) notify_send(buf, n);
+}
+
+// OTA PROGRESS forwarding for ota_service.cpp (ADR-0034). Remaining in the
+// BLE layer keeps the frame builder (notify.cpp) and the char (here) in
+// one place; ota_service only knows "written/total".
+void bleNotifyProgress(uint32_t written, uint32_t total) {
+    static uint8_t buf[FRAME_TOTAL_MAX];
+    size_t n = notify_build_progress(buf, sizeof(buf), written, total);
     if (n > 0) notify_send(buf, n);
 }
 
@@ -232,11 +256,39 @@ static void handle_get_pin_caps(uint8_t seq) {
     if (n > 0) notify_send(frame, n);
 }
 
+// OTA (0xF0, ADR-0034): payload[0] selects BEGIN/DATA/END/ABORT. Session
+// legality lives in ota_protocol.c (native-tested); the partition writes in
+// ota_service.cpp. Replying OK per frame gives the app a stop-and-wait
+// flow control without a separate ACK.
+static void handle_ota(uint8_t seq, const uint8_t *payload, size_t len) {
+    uint8_t rc = otaServiceHandle(payload, len);
+    if (rc != 0) {
+        notify_status(NOTIFY_STATUS_ERROR, rc, seq);
+        return;
+    }
+    notify_status(NOTIFY_STATUS_OK, CMD_OTA, seq);
+}
+
 // Dispatch one decoded frame. `payload` points into the parser buffer and
 // is only valid for this call.
 static void dispatch_frame(const parsed_frame_t *fr) {
     const uint8_t *pl = fr->payload;
     size_t len = fr->len;
+    // 升级期间拒绝会与 flash 写交错或打断播放的命令（ADR-0034）。
+    // GET_VERSION / READ_STATUS / SET_POWER / SET_BRIGHTNESS 保持可用。
+    if (otaServiceBusy()) {
+        switch (fr->cmd) {
+            case CMD_WRITE_CONFIG:
+            case CMD_READ_CONFIG:
+            case CMD_APPLY:
+            case CMD_TRIGGER_STEP:
+            case CMD_RESET_DEFAULT:
+                notify_status(NOTIFY_STATUS_ERROR, ERR_INVALID_STATE, fr->seq);
+                return;
+            default:
+                break;
+        }
+    }
     switch (fr->cmd) {
         case CMD_GET_VERSION:    handle_get_version(fr->seq); break;
         case CMD_WRITE_CONFIG:   handle_write_config(fr->seq, pl, len); break;
@@ -249,8 +301,8 @@ static void dispatch_frame(const parsed_frame_t *fr) {
         case CMD_GET_PIN_CAPS:   handle_get_pin_caps(fr->seq); break;
         case CMD_SET_BRIGHTNESS: handle_set_brightness(fr->seq, pl, len); break;
         case CMD_SET_POWER:      handle_set_power(fr->seq, pl, len); break;
+        case CMD_OTA:            handle_ota(fr->seq, pl, len); break;
         default:
-            // Unknown command (incl. OTA 0xF0 which is reserved for v2).
             notify_status(NOTIFY_STATUS_ERROR, ERR_UNSUPPORTED_COMMAND, fr->seq);
             break;
     }
@@ -309,10 +361,19 @@ class ServerCallbacks : public BLEServerCallbacks {
         }
         // Send current state so the app knows where we are.
         notify_status(NOTIFY_STATUS_STATE, (uint8_t)stateMachineState(), 0);
+        // 连接即上报固件版本（ADR-0034）：小程序无需等到 GET_VERSION 就能
+        // 显示版本号，也用它判定"该固件是否具备 OTA 能力"。
+        notify_version(0);
     }
     void onDisconnect(BLEServer *s) override {
         (void)s;
         sConnected = false;
+        // 断连中断升级：否则分区只写了一半，且下一次 BEGIN 会撞上"进行中"
+        // 状态。ABORT 是幂等的（无会话时什么也不做）。
+        if (otaServiceBusy()) {
+            uint8_t abort_pl[1] = {OTA_SUB_ABORT};
+            otaServiceHandle(abort_pl, sizeof(abort_pl));
+        }
         // 保持当前灯效：PLAYING/PREVIEW/PAUSED 状态下不断电、不回 IDLE，
         // 让 frameTask 继续用 sConfig 渲染用户配置（ADR-0015 修订：断连
         // 不丢配置）。仅 CONNECTED/CONFIGURED（尚未 APPLY）回 IDLE 显示

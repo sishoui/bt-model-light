@@ -1,7 +1,8 @@
 // 设备持久化（ADR-0023 / ADR-0025 / ADR-0026）。
 //
 // Storage 布局（小程序 Storage 为真相源，SPEC 持久化节）：
-//   bt_devices        已保存设备数组：[{ id, name, deviceId, power?, brightness? }]
+//   bt_devices        已保存设备数组：[{ id, name, deviceId, power?, brightness?,
+//                       firmwareVersion?, firmwareVersionAt? }]
 //   bt_current_device 当前选中设备 id（'' 表示未选择）
 //   device_config_<id> 每设备配置（T7 引脚配置写入，本文件只提供读写通道）
 //
@@ -22,7 +23,23 @@ const STORAGE_KEY_CURRENT = 'bt_current_device'
 
 // 进程内缓存：listDevices 的写穿缓存（Storage mock 每个测试重建，
 // 测试钩子 resetDeviceStore 清掉缓存）。
-let _memDevices = null
+//
+// 存 globalThis 槽而不是模块级变量（与 bleClient 的 __btBleClient、autoSync 的
+// __btAutoSync 同一模式）：页面经 jest.isolateModules 加载时与测试各持一份模块
+// 副本，模块级缓存会让"测试先写、页面后读"的用例看到旧快照。
+const CACHE_KEY = '__btDevicesCache'
+
+function _cacheRoot() {
+  return typeof globalThis !== 'undefined' ? globalThis : global
+}
+
+function _getCache() {
+  return _cacheRoot()[CACHE_KEY] || null
+}
+
+function _setCache(devices) {
+  _cacheRoot()[CACHE_KEY] = devices
+}
 
 function _wx() {
   if (typeof wx === 'undefined') {
@@ -33,7 +50,8 @@ function _wx() {
 
 // 读 bt_devices；损坏（非 JSON / 非数组）按空表处理（ADR-0026 容错）。
 function _readDevices() {
-  if (_memDevices) return _memDevices
+  const cached = _getCache()
+  if (cached) return cached
   const raw = _wx().getStorageSync(STORAGE_KEY_DEVICES)
   let arr = []
   if (typeof raw === 'string' && raw) {
@@ -44,12 +62,12 @@ function _readDevices() {
       arr = [] // 损坏存储视为空表，后续 save 覆盖
     }
   }
-  _memDevices = arr
-  return _memDevices
+  _setCache(arr)
+  return arr
 }
 
 function _writeDevices(devices) {
-  _memDevices = devices
+  _setCache(devices)
   _wx().setStorageSync(STORAGE_KEY_DEVICES, JSON.stringify(devices))
 }
 
@@ -150,6 +168,26 @@ function saveDeviceBrightness(id, value) {
   return v
 }
 
+// ---- 固件版本（ADR-0034） ---------------------------------------------------
+// 连接时固件主动上报，GET_VERSION 也会补一次。存设备记录：设备列表/首页/
+// 我的页都要显示"这台设备跑的是哪个固件"，且 App 重开时先显示上次已知值。
+// 这是观测值而非用户配置，读不到（老记录）返回 ''。
+
+function getDeviceFirmwareVersion(id) {
+  const dev = _readDevices().find((d) => d.id === id)
+  return (dev && dev.firmwareVersion) || ''
+}
+
+// 写固件版本（值未变则不落盘，避免每次连接都写 Storage）。
+function saveDeviceFirmwareVersion(id, version) {
+  const v = String(version || '')
+  if (!v) return ''
+  const dev = _readDevices().find((d) => d.id === id)
+  if (dev && dev.firmwareVersion === v) return v
+  saveDevice({ id, firmwareVersion: v, firmwareVersionAt: Date.now() })
+  return v
+}
+
 // ---- 每设备配置（device_config_<id>） ----------------------------------------
 
 function _configKey(id) {
@@ -175,7 +213,7 @@ function saveDeviceConfig(id, config) {
 
 // 测试钩子：清掉进程内缓存（Storage mock 每个测试重建，缓存必须同步失效）。
 function resetDeviceStore() {
-  _memDevices = null
+  _cacheRoot()[CACHE_KEY] = null
 }
 
 module.exports = {
@@ -195,5 +233,7 @@ module.exports = {
   saveDevicePower,
   getDeviceBrightness,
   saveDeviceBrightness,
+  getDeviceFirmwareVersion,
+  saveDeviceFirmwareVersion,
   resetDeviceStore,
 }

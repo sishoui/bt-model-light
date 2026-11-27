@@ -14,9 +14,10 @@ Single-context glossary for `bt-model-light`. Terms here are the canonical vocab
 | 灯组 (LightGroup) | A configured range on one pin's strip with up to 5 steps. | "灯段","灯区" |
 | 灯珠区间 (LED range) | Inclusive `[start, end]` indices into a pin's strip, 0-based. | "灯珠段" |
 | 步骤 (Step) | One playback state of a light group: duration, transition, loop mode, 1–2 layers. | "帧"（UI 文案作"阶段"，见引脚配置详情页） |
-| 图层 (Layer) | An effect layer; background or effect in two-layer mode. | "层" |
-| 背景层 (Background layer) | The base layer in two-layer composition. | "底图" |
-| 动效层 (Effect layer) | The foreground layer in two-layer composition; lit pixels win. | "前景层" |
+| 图层 (Layer) | An effect layer bound to a fixed slot: 0 = background, 1 = effect. | "层" |
+| 图层槽位 (Layer slot) | 每阶段固定的两格位置（0=背景 / 1=动效）。槽位是位置语义而非顺序：删掉背景后动效仍留第二格。两格都可删空，全空 = 该阶段不亮，下发时以单层全黑 SOLID 表达（ADR-0033）。 | "插槽" |
+| 背景层 (Background layer) | The base layer in two-layer composition (slot 0). | "底图" |
+| 动效层 (Effect layer) | The foreground layer in two-layer composition; lit pixels win (slot 1). | "前景层" |
 | 效果 (Effect) | One of the 8 built-in effect types. | "灯效","动画" |
 | 合成 (Composition) | Two-layer rule: effect-layer pixel is non-black → use effect; else background. | "混合","叠加" |
 | 设备配置 (DeviceConfig) | The complete configuration of one device (8 pins → groups → steps → layers). | "配置文件" |
@@ -43,7 +44,11 @@ Single-context glossary for `bt-model-light`. Terms here are the canonical vocab
 | 状态机 (State machine) | `IDLE → CONNECTED → CONFIGURED → PLAYING → (PREVIEW/PAUSED)`. | "状态" |
 | 看门狗 (Watchdog) | Independent task that resets firmware on hang. | "狗" |
 | 分区表 (Partition table) | `nvs + otadata + ota_0/1 + spiffs`. | "分区" |
-| OTA | Deferred to v2; bootloader/partition/command code reserved now. | — |
+| OTA | 固件升级：小程序下载镜像 → BLE `0xF0` 分块写入 → 切分区重启；失败/断电回滚上一版（ADR-0034）。 | "在线升级","DFU" |
+| OTA 会话 (OTA session) | 从 `BEGIN` 到 `END`/`ABORT` 的一次升级过程；期间固件拒绝配置类命令。 | "升级任务" |
+| 镜像 (Image) | 一份完整的 `firmware.bin`，以整份 CRC-32 标识完整性。 | "固件包","bin 文件" |
+| 固件版本 (Firmware version) | 设备上报的 `X.Y`（`versions.csv`）；连接时主动上报并落设备记录，用于展示与判断"是否有新版本"。 | "设备版本"（"协议版本"是另一件事） |
+| 固件清单 (manifest) | 服务器上的 `manifest.json`：`version/size/crc32/file`；小程序据它决定升级并校验下载结果。 | "版本文件" |
 | 纯函数解析 (Pure-function parsing) | Protocol parsing isolated from hardware so it is unit-testable. | "解析器" |
 
 ## Mini program
@@ -53,10 +58,27 @@ Single-context glossary for `bt-model-light`. Terms here are the canonical vocab
 | 首页 (Home) | The device detail page shown on the "设备" tab; current/last device. | "设备详情页" |
 | 设备列表页 (Device list page) | Scan/connect/switch/add entry page, reached from home top-left title. | "设备管理" |
 | 引脚配置详情页 (Pin detail page) | Per-pin page: pin switch + group dropdown + LED range + step/layer editor. | "灯组编辑页" |
-| 我的 (Mine) | Bottom-nav second tab: settings, about, help. | "设置页" |
+| 我的 (Mine) | Bottom-nav second tab; now the 用户配置页. | "设置页" |
+| 用户配置页 (Profile page) | `pages/profile`：底部第二 Tab 内容 = 账号卡（微信登录/头像/昵称）+ 数据卡（设备数/云端同步）+ 设置 + 设备固件升级 + 关于 + 帮助。取代原「我的」页（ADR-0035）。 | "我的页","个人中心" |
 | 灯组编辑 (Group editor) | The in-page editing area under the selected group on the pin detail page. | — |
 | 修改即推送 (Auto sync) | 编辑即写 Storage，并经 `autoSync` 500ms 防抖下发固件（`WRITE_CONFIG` + `APPLY`）；无保存按钮（取代"保存"，见 ADR-0023 现状注记）。 | "保存" |
 | 同步状态 (Sync state) | 引脚配置详情页顶部状态条：同步中 / 已同步 / 仅本机（未连接）/ 同步失败。 | "保存状态" |
+
+## Backend / account
+
+| Term | Definition | Avoid |
+|---|---|---|
+| 用户 (User) | 一个微信身份（`openid` 唯一）：昵称、头像、角色（`user`/`admin`）、状态（`active`/`disabled`）。ADR-0035。 | "账号"（易与管理员混淆） |
+| 微信登录 (WeChat login) | 小程序 `wx.login` 取 `code` → 后端 `code2Session` 换 `openid` → 建号并发会话 token。**可选**：不登录照常 BLE 使用。 | "授权","绑定微信" |
+| 会话 token (Session token) | 服务端随机串（存 `sessions` 表，30 天），Bearer 头携带；禁用用户/退出登录即失效。不用 JWT 就是为了能即时吊销。 | "JWT","access token" |
+| 设备归属 (Device ownership) | 服务端 `devices` 表按 `(user_id, device_id)` 一行：谁用过哪台 BLE 设备。**只存身份与名称**，不含灯组配置。 | "设备绑定","配对" |
+| 云端同步 (Cloud sync) | 本地 Storage 仍是真相源；登录后拉/推设备清单做 best-effort 镜像，按 BLE `deviceId` 合并。失败不阻塞 BLE。 | "云备份","主从同步" |
+| 管理后台 (Admin console) | `admin/`（Vue 3 + Vite）→ nginx `/admin/`：概览、用户启停、设备删除、审计日志。ADR-0036。 | "后台管理系统","CMS" |
+| 审计日志 (Audit log) | `audit_log` 表：管理员登录成功/失败、用户状态变更、设备删除，含操作者、对象、IP、时间。 | "操作记录" |
+| 遥测 (Telemetry) | 小程序在关键路径的只读打点（`metric`/`dim`/`value`/`at`）→ `telemetry` 表 → 后台图表。指标名由服务端白名单约束；**不含**配置内容与个人输入（ADR-0037）。 | "埋点数据","日志"（那是 error_log/audit_log） |
+| 指标 (Metric) | 遥测的事件名（如 `ble.mtu`、`config.write`、`error`），白名单在 `server/src/telemetry.js` 的 `METRICS`。 | "事件类型","key" |
+| 维度 (Dim) | 指标的可选细分（错误码、固件版本、`sim`/`real`…），后台据此画 Top N 分布。 | "标签"(label 指 UI) |
+| 日汇总 (Daily rollup) | `daily_stats` 表：把某天事件按指标聚合（事件数/数值合计/去重用户数），供长期趋势，不扫全表。 | "统计表" |
 
 ## Engineering
 

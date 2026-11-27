@@ -1,5 +1,5 @@
-<!-- 引脚配置详情页（ADR-0027 / #27 / T7；灯珠拖选 #31）。
-     顶部图片/名称/开关 + 灯组下拉（同一卡片，「配置」开弹窗改名称/灯珠范围）→ 阶段/图层/灯效编辑。
+<!-- 引脚配置详情页（ADR-0027 / #27 / T7；灯珠拖选 #31；design.md §7.3 工具页范式）。
+     顶部信息卡（图/名称/开关 + 药丸灯组选择）→ 阶段分段条 / 时间轴 → 阶段详情气泡卡（图层双槽）。
      修改即推送（autoSync 防抖下发），无保存按钮。 -->
 <view class="page">
   <sim-banner wx:if="{{simMode}}" />
@@ -12,23 +12,36 @@
     <text class="sync-bar__text" wx:elif="{{syncState === 'local'}}">仅本机（未连接）</text>
   </view>
 
-  <!-- 顶部卡片：图片 / 名称 / 开关，下方分隔线内嵌灯组下拉选择（固定 5 组，无增删） -->
+  <!-- 顶部卡片：引脚图 / 名称 / 开关 + 药丸灯组选择 -->
   <view class="bt-card pin-head-card">
     <view class="pin-head">
       <image class="pin-head__img" src="{{img}}" mode="aspectFill" />
       <view class="pin-head__info">
-        <input class="pin-head__name" value="{{pinName}}" placeholder="引脚名称" bindinput="onPinNameInput" />
-        <view class="bt-row bt-row--between">
-          <text class="bt-text--secondary">引脚 {{pin + 1}}</text>
+        <input
+          class="pin-head__name"
+          value="{{pinName}}"
+          placeholder="引脚名称"
+          placeholder-class="pin-head__placeholder"
+          bindinput="onPinNameInput"
+        />
+        <view class="pin-head__switch-row">
+          <text class="pin-head__pin-no">引脚 {{pin + 1}}</text>
           <!-- 灯带开关：设备关机（整机开关 off，ADR-0032）时置灰不可切换 -->
           <switch checked="{{power}}" disabled="{{!masterPower}}" color="#0088FF" bindchange="onPowerChange" />
         </view>
       </view>
     </view>
 
-    <!-- 灯组选择：下拉框（左，占满）+「配置」开名称/灯珠范围弹窗 -->
+    <!-- 灯组选择：药丸容器（左，占满）+「配置」开名称/灯珠范围弹窗 -->
     <view wx:if="{{groups.length}}" class="group-select">
-      <picker class="group-select__picker" mode="selector" range="{{groups}}" range-key="name" value="{{activeGroup}}" bindchange="onGroupPick">
+      <picker
+        class="group-select__picker"
+        mode="selector"
+        range="{{groups}}"
+        range-key="name"
+        value="{{activeGroup}}"
+        bindchange="onGroupPick"
+      >
         <view class="group-select__value">
           <view class="group-select__text">
             <text class="group-select__name">{{groups[activeGroup].name}}</text>
@@ -151,49 +164,59 @@
         </view>
       </view>
 
-      <!-- 图层：两列卡片只读展示（图层序 + 灯效 + 色块 + 关键参数摘要），
-           点卡片在弹窗里改灯效/参数/删除。 -->
+      <!-- 图层：两列固定槽位卡（背景 / 动效）。占用槽显示灯效/色块/摘要，点开弹窗编辑；
+           空槽显示「＋ 添加」，点它在该槽位新建。每格右下角都带删除，删完该格回到空槽，
+           另一格原位不动；两格都空 = 该阶段不亮（ADR-0033）。 -->
       <view class="layer-grid">
         <view
           wx:for="{{groups[activeGroup].steps[activeStepSi].layers}}"
           wx:key="lid"
           wx:for-item="layer"
           wx:for-index="li"
-          class="layer-card bt-pressable"
+          class="layer-card {{layer.empty ? 'layer-card--empty' : ''}} bt-pressable"
           data-si="{{activeStepSi}}"
           data-li="{{li}}"
+          data-slot="{{li}}"
           bindtap="onOpenLayerEditor"
         >
           <view class="layer-card__top">
-            <text class="layer-card__title">图层 {{li + 1}}{{groups[activeGroup].steps[activeStepSi].layers.length > 1 ? (li === 0 ? ' · 背景' : ' · 动效') : ''}}</text>
-            <text class="layer-card__arrow">›</text>
-          </view>
-          <view class="layer-card__mid">
+            <text class="layer-card__title">图层 {{li + 1}} · {{layer.role}}</text>
+            <!-- 右上角删除：catchtap 拦住冒泡，删图层不打开配置弹窗。每个占用槽都有 -->
             <view
-              class="layer-card__swatch {{layer.swatch ? '' : 'layer-card__swatch--none'}}"
-              style="{{layer.swatch ? 'background-color: ' + layer.swatch + ';' : ''}}"
-            ></view>
-            <text class="layer-card__effect">{{layer.effectName}}</text>
+              wx:if="{{!layer.empty}}"
+              class="layer-card__del bt-pressable"
+              data-si="{{activeStepSi}}"
+              data-li="{{li}}"
+              catchtap="onDeleteLayer"
+            >✕</view>
           </view>
-          <!-- 渐变色带：多色灯效（彩虹/双色渐变/流星等）一眼可见；单色灯效不显示 -->
-          <view
-            wx:if="{{layer.gradientCss}}"
-            class="layer-card__gradient"
-            style="background-image: {{layer.gradientCss}};"
-          ></view>
-          <text class="layer-card__summary">{{layer.summary || '默认参数'}}</text>
-        </view>
-
-        <view
-          wx:if="{{groups[activeGroup].steps[activeStepSi].layers.length < layersPerStepMax}}"
-          class="layer-card layer-card--add bt-pressable"
-          data-si="{{activeStepSi}}"
-          bindtap="onAddLayer"
-        >
-          <text class="layer-card__plus">＋</text>
-          <text class="layer-card__add-text">添加图层</text>
+          <block wx:if="{{layer.empty}}">
+            <view class="layer-card__empty-body">
+              <text class="layer-card__plus">＋</text>
+              <text class="layer-card__add-text">添加{{layer.role}}</text>
+            </view>
+          </block>
+          <block wx:else>
+            <view class="layer-card__mid">
+              <view
+                class="layer-card__swatch {{layer.swatch ? '' : 'layer-card__swatch--none'}}"
+                style="{{layer.swatch ? 'background-color: ' + layer.swatch + ';' : ''}}"
+              ></view>
+              <text class="layer-card__effect">{{layer.effectName}}</text>
+            </view>
+            <!-- 渐变色带：多色灯效（彩虹/双色渐变/流星等）一眼可见；单色灯效不显示 -->
+            <view
+              wx:if="{{layer.gradientCss}}"
+              class="layer-card__gradient"
+              style="background-image: {{layer.gradientCss}};"
+            ></view>
+            <text class="layer-card__summary">{{layer.summary || '默认参数'}}</text>
+          </block>
         </view>
       </view>
+
+      <!-- 两格都空时的提示：该阶段下发后灯珠不亮 -->
+      <text wx:if="{{activeStepEmpty}}" class="layer-empty-hint">本阶段没有图层，灯珠不亮</text>
     </view>
 
     <view wx:if="{{groups[activeGroup].steps.length > 1}}" class="del-stage bt-pressable" data-si="{{activeStepSi}}" catchtap="onDeleteStep">删除当前阶段</view>
@@ -252,7 +275,7 @@
     <view class="layer-editor-backdrop" bindtap="onCloseLayerEditor"></view>
     <view class="layer-editor-panel">
       <view class="layer-editor-head">
-        <text class="layer-editor-title">图层 {{layerEditorLi + 1}} · {{groups[activeGroup].steps[layerEditorSi].layers[layerEditorLi].effectName}}</text>
+        <text class="layer-editor-title">图层 {{layerEditorLi + 1}} · {{groups[activeGroup].steps[layerEditorSi].layers[layerEditorLi].role}} · {{groups[activeGroup].steps[layerEditorSi].layers[layerEditorLi].effectName}}</text>
         <text class="layer-editor-close" bindtap="onCloseLayerEditor">✕</text>
       </view>
 
@@ -358,8 +381,8 @@
         />
       </view>
 
+      <!-- 弹窗内删除：清空该槽位（另一格不受影响）；两格都空后本阶段灯珠不亮 -->
       <view
-        wx:if="{{groups[activeGroup].steps[layerEditorSi].layers.length > 1}}"
         class="layer-editor__del bt-pressable"
         data-si="{{layerEditorSi}}"
         data-li="{{layerEditorLi}}"

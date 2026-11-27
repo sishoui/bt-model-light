@@ -101,13 +101,24 @@ function getErrorLog() {
 }
 
 // 写一条错误日志（环形：超上限裁最旧）。context 标注发生场景（如"下发配置"）。
+//
+// 顺手打一条遥测（ADR-0037）：这是全应用错误汇聚点，所以这里打点最划算——
+// 各页面不必各自埋点，也能得到"哪个错误码最多"的分布。懒加载 telemetry
+// 是为了避免 errorHandler ↔ telemetry ↔ apiClient 的循环 require 在初始化期出问题。
 function logError(err, context) {
   const wx = _wxOrNull()
+  const code = typeof err === 'number' ? err : _wxErrCode(err)
   const entry = {
     ts: Date.now(),
     context: context || '',
-    code: typeof err === 'number' ? err : _wxErrCode(err),
+    code,
     message: friendlyMessage(err),
+  }
+  try {
+    const telemetry = require('./telemetry')
+    telemetry.trackError(code || context || 'unknown', context)
+  } catch (_e) {
+    /* 遥测不可用不影响本地日志 */
   }
   if (!wx) return entry
   const log = getErrorLog()

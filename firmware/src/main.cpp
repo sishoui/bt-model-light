@@ -38,9 +38,9 @@
 // starting. Console logging is introduced in T8 (ADR-0026).
 
 #include <Arduino.h>
+#include <esp_ota_ops.h>
 
 #include "protocol_gen.h"
-#include "led_driver.h"
 #include "effects.h"
 #include "config.h"
 #include "composition.h"
@@ -48,7 +48,9 @@
 #include "ble_service.h"
 #include "factory_default.h"
 #include "boot_button.h"
+#include "led_driver.h"
 #include "master_output.h"
+#include "ota_service.h"
 #include "state_machine.h"
 #include "watchdog.h"
 
@@ -107,6 +109,9 @@ static void frameTask(void *) {
         // 配置落盘轮询（ADR-0030）：WRITE_CONFIG 只改 RAM，flash 写在这里按
         // 尾部防抖执行，命令路径（含紧随其后的 APPLY）不再等落盘。
         bleServicePollPersist(now_ms);
+
+        // OTA 提交后的延迟重启（ADR-0034）：留时间让 OK notify 先发出。
+        otaServicePollRestart();
 
         // Frame loop is the heartbeat; the BLE command handler also feeds
         // (ADR-0016). A hang in rendering or scheduling trips the reset.
@@ -168,6 +173,11 @@ void setup() {
     xTaskCreate(frameTask, "frame", 4096, nullptr, 5, nullptr);
     xTaskCreate(bootButtonTask, "bootbtn", 2048, nullptr, 3, nullptr);
     xTaskCreate(watchdogTask, "wdt", 2048, nullptr, 1, nullptr);
+
+    // OTA 回滚门禁（ADR-0034 / sdkconfig CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE）：
+    // 新镜像跑到这里即视为"启动成功"，取消回滚。放在任务创建之后，确保
+    // BLE/渲染/看门狗都已起来——若在 setup 早期崩溃，bootloader 会回滚。
+    esp_ota_mark_app_valid_cancel_rollback();
 }
 
 void loop() {
