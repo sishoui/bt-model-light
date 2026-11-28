@@ -2,8 +2,9 @@
 //
 // 结构：顶部（图片/名称/开关）+ 灯组选择（药丸 picker，右侧「配置」改名称/灯珠范围）
 // + 竖向时间轴（左轴圆点管时长，右侧每段一张卡片）。阶段卡片里图层纵向排列，
-// 每个可调参数是一个细边圆环控件：环的进度 = 当前值占量程的比例，点一下在卡片
-// 下方展开刻度轴，拖动刻度轴实时改值（环同步走），松手才下发。
+// 每个可调数字参数是一个细边圆环控件：环长与环下数值都按量程显示成 1-100%，
+// 点一下在该图层卡片内展开一行数字轴，拖动实时改值（环同步走），松手才下发；
+// 枚举参数不占圆环，直接给一排选项卡，点一下即换档。
 // 列表顺序即播放顺序，段内 ↑↓ 调整先后。修改即推送：任何有效改动落盘 Storage 后
 // 经 autoSync 防抖下发固件（WRITE_CONFIG + APPLY），无保存按钮。
 // 引脚固定 8 个（硬件不可增删），本页无删除引脚入口。
@@ -34,14 +35,26 @@ const EFFECT_LABELS = {
   [EFF.RHYTHM]: '律动跳变',
 }
 
+// 效果 id → 磁贴图标类名（纯 CSS 画的方形图标，见 pin-detail.wxss）。
+// 灯效选择从原生 picker 换成磁贴面板：图标比文字更快辨认，也容得下 8 种。
+const EFFECT_ICONS = {
+  [EFF.SOLID]: 'solid',
+  [EFF.BREATH]: 'breath',
+  [EFF.BLINK]: 'blink',
+  [EFF.MARQUEE]: 'marquee',
+  [EFF.RAINBOW]: 'rainbow',
+  [EFF.METEOR]: 'meteor',
+  [EFF.DUAL_GRADIENT]: 'dual',
+  [EFF.RHYTHM]: 'rhythm',
+}
+
 // picker 选项：索引即 EFF id 顺序（1..8）。
 const EFFECT_OPTIONS = Object.keys(EFF)
   .map((k) => EFF[k])
   .sort((a, b) => a - b)
-  .map((id) => ({ id, label: EFFECT_LABELS[id] || `效果 ${id}` }))
-const EFFECT_NAMES = EFFECT_OPTIONS.map((o) => o.label)
+  .map((id) => ({ id, label: EFFECT_LABELS[id] || `效果 ${id}`, icon: EFFECT_ICONS[id] || 'solid' }))
 
-// 参数名 → 中文标签（圆环下方小字；带单位会让圆环一行拥挤，单位改由刻度轴展示）。
+// 参数名 → 中文标签（圆环下方小字）。
 const PARAM_LABELS = {
   color: '颜色',
   color2: '色 2',
@@ -60,13 +73,6 @@ const PARAM_LABELS = {
   mode: '模式',
   pattern: '节奏',
   step_size: '步长',
-}
-
-// 参数名 → 刻度轴上的单位后缀（无单位的不显示）。
-const PARAM_UNITS = {
-  period: 'ms',
-  on_time: 'ms',
-  off_time: 'ms',
 }
 
 // 参数名 → 圆环内的图标类名（纯 CSS 伪元素画的极简线条图形，见 pin-detail.wxss）。
@@ -104,19 +110,19 @@ function defaultParamValue(p) {
   return p.min
 }
 
-// 枚举型参数：刻度轴按档位分格（选项标签 → 值由 min 起算的序号）。
+// ---- 图层参数：schema ↔ 表单字段 -------------------------------------------
+
+// 枚举型参数：不占圆环，渲染成一排选项卡（选项标签 → 值由 min 起算的序号）。
 const PARAM_OPTIONS = {
   direction: ['正向', '反向'],
   waveform: ['正弦', '方波'],
   mode: ['渐变', '渐变回卷'],
 }
 
-// ---- 图层参数：schema ↔ 表单字段 -------------------------------------------
-
 // ---- 刻度轴（gauge）-----------------------------------------------------------
-// 所有可调量（阶段时长 / 灯效参数）走同一个刻度轴：点圆环展开，横向拖动改值。
-// 轴 = 量程 min..max 均分 steps 格，拖动位置按"格"量化，避免 u8 参数拖出小数。
-// 圆环进度与刻度轴位置都从同一个 value 派生，天然同步。
+// 点数值圆环 → 在该图层卡片内展开一行数字轴（横向拖动改值）。
+// 轴 = 量程 min..max 均分 steps 格，拖动位置按"格"量化，避免 u8 参数拖出小数；
+// 刻度文字与环下数值同口径（1-100%），圆环进度与轴位置都从同一个 value 派生。
 //
 // 注意：比例（0~1）必须用 clampRatio 而不是 clamp——clamp 走 clampInt，
 // 会把 0.4 取整成 0，拖动/环长全部退化成两端。
@@ -127,61 +133,40 @@ function clampRatio(v) {
   return n < 0 ? 0 : n > 1 ? 1 : n
 }
 
+// 比例（0~1）→ 展示用百分比（1~100）。全页数字统一走这一处：
+// 环长 / 环下文字 / 数字轴刻度不会各算各的。0 显示 1%（不显示"无"）。
+function percentOfRatio(ratio) {
+  return Math.max(1, Math.min(100, 1 + Math.round(clampRatio(ratio) * 99)))
+}
+
 // 拖动位置（0~1）→ 刻度值：先落到最近的格，再换算回实际单位。
 function gaugeValueAt(ratio, min, max, steps) {
   const n = Math.max(1, steps || 1)
   if (n === 1) return min
   const idx = Math.round(clampRatio(ratio) * (n - 1))
-  // 连续量的步长恒为 1（schema 里的量程都是整数），枚举量按档位还原成协议值。
+  // 连续量的步长恒为 1（schema 里的量程都是整数）。
   const span = max - min
   const stride = span / (n - 1)
   return clamp(Math.round(min + idx * stride), min, max)
 }
 
-// 刻度值 → 拖动位置（0~1）：gaugeValueAt 的逆，用于初始摆放手柄。
+// 刻度值 → 拖动位置（0~1）：gaugeValueAt 的逆，用于初始摆放高亮档。
 function gaugeRatioOf(value, min, max) {
   const span = max - min
   if (!(span > 0)) return 0
   return clampRatio((value - min) / span)
 }
 
-// 刻度轴的刻度点数组：连续量只画首/中/末（细节太多没意义），
-// 枚举量每档一个点。返回 [{ ratio, label }]，label 为空则不画文字。
-function buildGaugeTicks(field) {
-  const { min, max, steps, options } = field
-  if (options) {
-    return options.map((opt, i) => ({
-      ratio: gaugeRatioOf(min + i, min, max),
-      label: opt,
-    }))
-  }
-  const n = Math.max(1, steps || 1)
-  // 连续量：只在档位足够少（≤10）时逐格画点，否则只画首/中/末三个。
-  const idxs = n <= 10 ? Array.from({ length: n }, (_, i) => i) : [0, Math.floor((n - 1) / 2), n - 1]
-  return idxs.map((i) => {
-    const v = gaugeValueAt(n === 1 ? 0 : i / (n - 1), min, max, n)
-    return {
-      ratio: n === 1 ? 0 : i / (n - 1),
-      label: i === 0 || i === n - 1 || n <= 10 ? String(v) : '',
-    }
-  })
-}
+// 数字轴只有一个手柄在细线上滑动，不排刻度数字：名称与当前百分比已经在同一行，
+// 再铺 5 档数字只会让人读成"第二条进度条"。
 
-// 圆环进度：当前值占量程的比例（0~100），供 WXML 画环。
-// 量程为 0 的退化情况给 100（满环），避免除零。
-function ringPercent(value, min, max) {
-  const span = max - min
-  if (!(span > 0)) return 100
-  return Math.round(gaugeRatioOf(value, min, max) * 100)
-}
-
-// 按 effect 的 EFFECT_PARAMS schema 生成圆环控件描述（供 WXML 渲染）。
-// 每个控件 = 一个细边圆环（环长表示当前值）+ 下方两行小字（名称 / 值）。
-// rgb 类型不开圆环：它没有量程，走颜色弹层，用色盘圆点表示。
+// 按 effect 的 EFFECT_PARAMS schema 生成控件描述（供 WXML 渲染）。
+// 三类控件：rgb → 实心色盘（走颜色弹层）；枚举 → 选项卡；其余数值 → 细边圆环，
+// 环长与环下数值都是 1-100% 的百分比。下发固件的仍是原始值，百分比只是展示口径。
 function buildParamFields(effectId, params) {
   const spec = EFFECT_PARAMS[effectName(effectId)] || []
   const src = params || {}
-  return spec.map((p) => {
+  return spec.map((p, fi) => {
     let value
     let hex = null
     if (p.type === 'rgb') {
@@ -193,26 +178,30 @@ function buildParamFields(effectId, params) {
       value = clamp(v, p.min, p.max)
     }
     const options = p.type === 'rgb' ? null : PARAM_OPTIONS[p.name] || null
-    // 刻度轴分档：枚举型按选项数分档（档位序号 0 起），连续量按 1 递增一格。
-    const steps = p.type === 'rgb' ? 0 : options ? options.length : p.max - p.min + 1
-    // 刻度轴上显示的值：rgb 无刻度，枚举显示选项文本，其余显示数字 + 单位。
-    const valueText = p.type === 'rgb'
-      ? ''
-      : options
-        ? options[clamp(value - p.min, 0, options.length - 1)]
-        : `${value}${PARAM_UNITS[p.name] || ''}`
+    const isEnum = !!options
+    // 刻度轴分档：连续量按 1 递增一格。
+    const steps = p.type === 'rgb' ? 0 : p.max - p.min + 1
+    const percent = p.type === 'rgb' || isEnum ? null : percentOfRatio(gaugeRatioOf(value, p.min, p.max))
+    const optionIndex = isEnum ? clamp(value - p.min, 0, options.length - 1) : 0
+    // 展示文本：色盘无文字；枚举是选中项名；数值是百分比（与环长同源）。
+    const valueText = p.type === 'rgb' ? '' : isEnum ? options[optionIndex] : `${percent}%`
     return {
       name: p.name,
       label: PARAM_LABELS[p.name] || p.name,
+      // 在 layer.fields 里的下标：色盘弹层按它定位目标字段。
+      index: fi,
       type: p.type,
       min: p.min,
       max: p.max,
       value,
       hex,
       options,
-      displayValue: options ? value - p.min : value,
-      // 圆环进度（0~100）：rgb 不画环，给 null 让 WXML 走色盘分支。
-      ring: p.type === 'rgb' ? null : ringPercent(value, p.min, p.max),
+      optionIndex,
+      // 枚举选项序号（0 起），供选项卡高亮：value 是协议值，不能直接当索引。
+      displayValue: isEnum ? optionIndex : value,
+      percent,
+      // 圆环进度（1~100）：rgb / 枚举不画环，给 null 让 WXML 走别的分支。
+      ring: percent,
       // 环内图标（极简线条图形），色盘参数没有。
       icon: p.type === 'rgb' ? '' : PARAM_ICONS[p.name] || 'dot',
       steps,
@@ -221,7 +210,23 @@ function buildParamFields(effectId, params) {
   })
 }
 
-// 表单字段 → params 对象（编码用）。
+// 把一个数值写进字段并重算派生项（百分比 / 环长 / 展示文本）。
+// 刻度轴拖动、枚举选项卡、灯效切换都汇到这里，三处口径不会漂。
+function applyNumberFieldValue(f, value) {
+  f.value = clamp(value, f.min, f.max)
+  if (f.options) {
+    f.optionIndex = clamp(f.value - f.min, 0, f.options.length - 1)
+    f.displayValue = f.optionIndex
+    f.valueText = f.options[f.optionIndex]
+    return f
+  }
+  f.percent = percentOfRatio(gaugeRatioOf(f.value, f.min, f.max))
+  f.ring = f.percent
+  f.valueText = `${f.percent}%`
+  return f
+}
+
+// 表单字段 → params 对象（编码用）：发出去的永远是协议原值，不是百分比。
 function fieldsToParams(fields) {
   const out = {}
   for (const f of fields) {
@@ -236,21 +241,22 @@ function fieldsToParams(fields) {
 // 摘要参数：这几个是用户最常看的（灯效节奏感与亮度），纵向整行放得下。
 const SUMMARY_PARAMS = ['brightness', 'speed', 'spread', 'tail_length']
 
-// 字段 → 卡片摘要：首个 rgb 字段作色块，关键参数拼一行文案。
+// 字段 → 卡片摘要：首个 rgb 字段作色块，关键参数拼一行文案（数值同口径 = 百分比）。
 function buildLayerCard(fields) {
   const color = fields.find((f) => f.type === 'rgb')
   const parts = []
   for (const name of SUMMARY_PARAMS) {
-    const f = fields.find((fd) => fd.name === name && fd.type !== 'rgb')
-    if (f) parts.push(`${f.label} ${f.valueText || f.value}`)
+    const f = fields.find((fd) => fd.name === name && fd.type !== 'rgb' && !fd.options)
+    if (f) parts.push(`${f.label} ${f.valueText || f.percent}`)
   }
   return { swatch: color ? color.hex : null, summary: parts.join(' · ') }
 }
 
-// 图层 VM 的卡片摘要重算（字段改动后调用）：色板摘要 + 渐变色带。
+// 图层 VM 的卡片摘要重算（字段改动后调用）：色板摘要 + 渐变色带 + 分组字段。
 // Object.assign 保留 slot/lid/role 等位置元数据（ADR-0033）。
 function refreshLayerCard(layer) {
-  const base = Object.assign({}, layer, buildLayerCard(layer.fields || []))
+  const fields = layer.fields || []
+  const base = Object.assign({}, layer, buildLayerCard(fields), splitFields(fields))
   // 渐变色带：RAINBOW/DUAL_GRADIENT/METEOR 等多色灯效在卡片底部画一条
   // CSS linear-gradient，让效果一眼可见（SOLID/BLINK 返回 null 不画）。
   base.gradientCss = charts.layerGradientCss(base.effect, base.fields || [])
@@ -280,7 +286,11 @@ function emptyLayer(slot) {
     empty: true,
     effect: null,
     effectName: '',
+    effectIcon: '',
+    accent: '',
     fields: [],
+    ringFields: [],
+    optionFields: [],
     swatch: null,
     summary: '',
     gradientCss: null,
@@ -291,8 +301,17 @@ function emptyLayerSlots() {
   return LAYER_SLOTS.map((s) => emptyLayer(s.slot))
 }
 
-// 图层 VM：effectName 供 WXML 直接显示（避免依赖 EFF id 连续假设的下标运算）；
-// swatch/summary 供两列卡片只读展示（详见弹窗编辑）。
+// 图层 VM：effectName/effectIcon 供 WXML 直接显示（避免依赖 EFF id 连续假设的下标运算）；
+// swatch/summary 供图层卡片只读展示。
+// fields 保持 schema 原序（编码与测试都按它走），渲染另按控件形态分成两组：
+// ringFields（圆环/色盘，四列）+ optionFields（枚举选项卡，整行）。
+function splitFields(fields) {
+  return {
+    ringFields: fields.filter((f) => !f.options),
+    optionFields: fields.filter((f) => !!f.options),
+  }
+}
+
 function makeLayer(effectId, params, lid, slot) {
   const fields = buildParamFields(effectId, params)
   const card = buildLayerCard(fields)
@@ -304,7 +323,11 @@ function makeLayer(effectId, params, lid, slot) {
       empty: false,
       effect: effectId,
       effectName: EFFECT_LABELS[effectId] || `效果 ${effectId}`,
+      effectIcon: EFFECT_ICONS[effectId] || 'solid',
+      // 灯效主题色：磁贴图标底/描边走它（与时间轴左轴节点同源）。
+      accent: charts.effectColor(effectId),
       fields,
+      ...splitFields(fields),
       swatch: card.swatch,
       summary: card.summary,
       // 渐变色带 CSS（多色灯效用，单色返回 null）。
@@ -345,6 +368,11 @@ function defaultGroup(name) {
 // ---- 灯珠拖选几何（#31） ----------------------------------------------------
 // 长按激活阈值：ms。短触（点击）不触发拖选，避免误改配置。
 const LONG_PRESS_MS = 1000
+
+// 刻度轴展开/收起动画时长（ms）：与 pin-detail.wxss 的 .gauge--* 关键帧保持一致。
+// 收起时先把 gauge 置空、把快照放进 gaugeClosing 播完动画再摘掉节点，
+// 展开则直接挂载（高 0 → auto 用 grid-template-rows 过渡）。
+const GAUGE_ANIM_MS = 200
 
 // 坐标 → 灯珠格号：按每格真实渲染 rect 找最近中心。
 // 不用"列数均分 rect"假设（实际列数随屏宽变化，是旧版偏移的根因）。
@@ -444,6 +472,8 @@ Page({
     dragRange: null,
     inCancelZone: false,
     ledCells: [], // [{ i, state }] 渲染用（state: empty/selected/occupied/drag-*）
+    // 灯组磁贴面板（点顶部灯组药丸打开）：与灯效面板同款底部弹板。
+    groupPickerOpen: false,
     // 灯组配置弹窗（长按灯组 Tab 打开）：名称 + 灯珠范围拖选内嵌其中。
     groupConfigOpen: false,
     // 竖向时间轴左轴的派生数据：每段起始时刻(s) / 节点环色 / 是否两格都空。
@@ -452,10 +482,19 @@ Page({
     stepsTotal: 0,
     // 新增阶段的进入动画标记（该下标播放一次淡入后清除）。
     enterIndex: -1,
-    // 展开中的刻度轴：{ si, li, kind, name, label, min, max, steps, options,
-    //   ticks, value, valueText, ratio }。kind = 'duration' | 'param'，
-    //   kind === 'param' 时用 li/name 定位具体参数。同一时刻只开一个。
+    // 展开中的刻度轴：{ si, li, kind, name, label, min, max, steps,
+    //   value, readout, ratio }。kind = 'duration' | 'param'，
+    //   kind === 'param' 时轴渲染在 li 这张图层卡片内；duration 渲染在阶段卡片底部。
+    //   同一时刻只开一个，切走/删除/换灯组都会收起。
     gauge: null,
+    // 正在收起的那条轴的快照：播完收缩动画后置 null（WXML 据此保留节点）。
+    gaugeClosing: null,
+    // 灯效磁贴面板：effectPickerOpen + 目标定位（si/li）。点卡头图标方块打开，
+    // 选一个灯效后按 schema 重建参数区（ADR-0018）。
+    effectPickerOpen: false,
+    effectPickerTarget: null,
+    // 面板里高亮"当前灯效"用：目标图层的 effect id（打开时写入）。
+    currentEffectId: 0,
     // 颜色弹层（#33）。
     colorPickerOpen: false,
     colorPickerTarget: null, // 目标 field 定位（si/li/fi），随 setData 同步给 WXML
@@ -468,8 +507,8 @@ Page({
     // 同步状态条（autoSync 驱动）：state 为 syncing/synced/failed/local，idle 不显示。
     syncState: 'idle',
     syncAt: '',
-    // 静态选项
-    effectNames: EFFECT_NAMES,
+    // 静态选项：灯效磁贴面板的数据源（id/label/icon）
+    effectOptions: EFFECT_OPTIONS,
     // 上限透传给 WXML（避免模板里硬编码 5/2 与 JS 校验漂移）。
     groupsPerPinMax: LIMITS.groupsPerPinMax,
     stepsPerGroupMax: LIMITS.stepsPerGroupMax,
@@ -494,6 +533,8 @@ Page({
 
   onUnload() {
     if (this._offSync) this._offSync()
+    // 收起动画的定时器：卸载后不该再回调 setData。
+    this._clearGaugeTimer()
     this._syncUnloadGuard()
   },
 
@@ -550,14 +591,15 @@ Page({
       const moved = arr.splice(si, 1)[0]
       arr.splice(to, 0, moved)
     })
-    this.setData({ gauge: null })
+    this._resetGauge()
     if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
   },
 
   // ---- 刻度轴（圆环 = 参数，点开后在卡片下方展开轴） --------------------------
 
-  // 点圆环：展开/收起该量的刻度轴。同一个圆环再点一次收起；点别的圆环直接换过去。
-  // 阶段时长也走这条路径（kind='duration'），圆环就是左轴上的那个节点。
+  // 点数值圆环：展开/收起该参数的刻度轴。同一枚环再点一次收起；点别的环直接换过去。
+  // 阶段时长也走这条路径（kind='duration'），圆环就是左轴上的那个节点——
+  // 参数轴渲染在所属图层卡片内（不再往阶段卡片底部另起一块）。
   onToggleGauge(e) {
     const ds = e.currentTarget.dataset
     const si = Number(ds.si)
@@ -566,7 +608,7 @@ Page({
     const name = ds.name || ''
     const cur = this.data.gauge
     if (cur && cur.si === si && cur.kind === kind && cur.li === li && cur.name === name) {
-      this.setData({ gauge: null })
+      this._closeGauge()
       return
     }
     const step = this.data.groups[this.data.activeGroup].steps[si]
@@ -577,15 +619,46 @@ Page({
     } else {
       const layer = step.layers[li]
       const field = layer && (layer.fields || []).find((f) => f.name === name)
-      if (!field || field.type === 'rgb') return // rgb 走颜色弹层，没有量程
+      if (!field || field.type === 'rgb' || field.options) return // 色盘走弹层，枚举走选项卡
       gauge = this._paramGauge(si, li, field)
     }
     if (!gauge) return
-    this.setData({ gauge })
+    this._openGauge(gauge)
     if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
   },
 
-  // 阶段时长刻度轴。
+  _openGauge(gauge) {
+    this._clearGaugeTimer()
+    this.setData({ gauge, gaugeClosing: null })
+  },
+
+  // 收起刻度轴：gauge 立刻置空（各处都按"没有开着的轴"判断），
+  // 快照交给 gaugeClosing 播一次收缩动画，之后摘掉节点。
+  _closeGauge() {
+    const cur = this.data.gauge
+    if (!cur) return
+    this._clearGaugeTimer()
+    this.setData({ gauge: null, gaugeClosing: cur })
+    this._gaugeTimer = setTimeout(() => {
+      this._gaugeTimer = null
+      this.setData({ gaugeClosing: null })
+    }, GAUGE_ANIM_MS)
+  },
+
+  // 结构性改动（换组/删段/删图层/换灯效）直接清掉轴，不播动画。
+  _resetGauge() {
+    this._clearGaugeTimer()
+    this.setData({ gauge: null, gaugeClosing: null })
+  },
+
+  _clearGaugeTimer() {
+    if (this._gaugeTimer) {
+      clearTimeout(this._gaugeTimer)
+      this._gaugeTimer = null
+    }
+  },
+
+  // 阶段时长刻度轴。时长没有"图层"，渲染在阶段卡片底部。
   _durationGauge(si, step) {
     const min = LIMITS.stepDurationMin
     const max = LIMITS.stepDurationMax
@@ -599,17 +672,17 @@ Page({
       min,
       max,
       steps: max - min + 1,
-      options: null,
-      ticks: buildGaugeTicks({ min, max, steps: max - min + 1, options: null }),
       value,
-      valueText: `${value}s`,
+      // 时长读数是秒：1-60s 换算成百分比反而看不出还剩多久。
+      readout: `${value}s`,
       ratio: gaugeRatioOf(value, min, max),
     }
   },
 
-  // 灯效参数刻度轴（枚举型按档位分格，轴标签换成选项文本）。
+  // 灯效参数刻度轴（都是连续量，刻度不排数字，只留一条线与手柄）。
   _paramGauge(si, li, field) {
     const value = clamp(field.value, field.min, field.max)
+    const ratio = gaugeRatioOf(value, field.min, field.max)
     return {
       si,
       li,
@@ -619,35 +692,31 @@ Page({
       min: field.min,
       max: field.max,
       steps: field.steps,
-      options: field.options,
-      ticks: buildGaugeTicks(field),
       value,
-      valueText: field.valueText,
-      ratio: gaugeRatioOf(value, field.min, field.max),
+      readout: `${percentOfRatio(ratio)}%`,
+      ratio,
     }
   },
 
   // 刻度轴拖动：像素位置 → 量程比例 → 量化后的值，实时写回 VM 并同步圆环。
-  // 拖动中 silent（不下发）；松手由 onGaugeEnd 落盘。
+  // 拖动中 silent（不下发）；松手由 onGaugeTouchEnd 落盘。
   _applyGaugeX(touchX) {
     const gauge = this.data.gauge
     if (!gauge || !this._gaugeRect || !this._gaugeRect.width) return
     const ratio = (touchX - this._gaugeRect.left) / this._gaugeRect.width
     const value = gaugeValueAt(ratio, gauge.min, gauge.max, gauge.steps)
     if (value === gauge.value) return
-    this.setData({ 'gauge.value': value, 'gauge.ratio': gaugeRatioOf(value, gauge.min, gauge.max), 'gauge.valueText': this._gaugeValueText(gauge, value) })
+    const nextRatio = gaugeRatioOf(value, gauge.min, gauge.max)
+    this.setData({
+      'gauge.value': value,
+      'gauge.ratio': nextRatio,
+      'gauge.readout': gauge.kind === 'duration' ? `${value}s` : `${percentOfRatio(nextRatio)}%`,
+    })
     this._writeGauge(value, { silent: true })
   },
 
-  // 刻度轴上显示的值文本：枚举换选项名，连续量补单位。
-  _gaugeValueText(gauge, value) {
-    if (gauge.kind === 'duration') return `${value}s`
-    if (gauge.options) return gauge.options[clamp(value - gauge.min, 0, gauge.options.length - 1)] || ''
-    return `${value}${PARAM_UNITS[gauge.name] || ''}`
-  },
-
   // 把刻度轴的值写回该量的真相源：时长写 step.duration，参数写 field.value。
-  // 参数写回后重算该图层的圆环与摘要（refreshLayerCard），圆环进度才算同步。
+  // 参数写回后重算该图层的圆环/百分比文字/摘要（refreshLayerCard），环与数字才算同步。
   _writeGauge(value, opts) {
     const gauge = this.data.gauge
     if (!gauge) return
@@ -666,12 +735,7 @@ Page({
       const fields = layer.fields.slice()
       const f = Object.assign({}, fields.find((fd) => fd.name === name))
       if (!f || f.type === 'rgb') return
-      f.value = clamp(value, f.min, f.max)
-      f.displayValue = f.options ? f.value - f.min : f.value
-      f.ring = ringPercent(f.value, f.min, f.max)
-      f.valueText = f.options
-        ? f.options[clamp(f.value - f.min, 0, f.options.length - 1)]
-        : `${f.value}${PARAM_UNITS[f.name] || ''}`
+      applyNumberFieldValue(f, clamp(value, f.min, f.max))
       const idx = fields.findIndex((fd) => fd.name === name)
       fields[idx] = f
       layer.fields = fields
@@ -856,14 +920,28 @@ Page({
   _activateGroup(index) {
     if (!this.data.groups[index]) return
     if (index === this.data.activeGroup) return
-    this.setData({ activeGroup: index, gauge: null, dragging: false, dragRange: null, inCancelZone: false })
+    this._clearGaugeTimer()
+    this.setData({ activeGroup: index, gauge: null, gaugeClosing: null, dragging: false, dragRange: null, inCancelZone: false })
     this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount, this._computeOccupied(index), null) })
     this._refreshStepAxis()
   },
 
-  // 下拉框选组（picker selector）：越界/同组忽略。
-  onGroupPick(e) {
-    this._activateGroup(Number(e.detail.value))
+  // 点灯组药丸：打开灯组磁贴面板（与灯效面板同款底部弹板）。
+  onOpenGroupPicker() {
+    if (!this.data.groups.length) return
+    this.setData({ groupPickerOpen: true })
+    if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
+  },
+
+  onCloseGroupPicker() {
+    this.setData({ groupPickerOpen: false })
+  },
+
+  // 磁贴面板里选一个灯组：面板收起后切组（重建灯珠网格与时间轴）。
+  onPickGroup(e) {
+    const index = Number(e.currentTarget.dataset.group)
+    this.setData({ groupPickerOpen: false })
+    this._activateGroup(index)
   },
 
   // 打开当前组配置弹窗（名称 + 灯珠范围拖选内嵌，修改即推送）。
@@ -1038,7 +1116,8 @@ Page({
       steps.push(defaultStep(newSi))
     })
     // 新卡片播放一次淡入；新阶段在最底部，滚动落点交给系统即可。
-    this.setData({ enterIndex: newSi, gauge: null })
+    this._resetGauge()
+    this.setData({ enterIndex: newSi })
     setTimeout(() => {
       if (this.data.enterIndex === newSi) this.setData({ enterIndex: -1 })
     }, 300)
@@ -1054,7 +1133,7 @@ Page({
     this._editActiveGroup((group, arr) => {
       arr.splice(si, 1)
     })
-    this.setData({ gauge: null })
+    this._resetGauge()
   },
 
   onStageNameInput(e) {
@@ -1106,23 +1185,79 @@ Page({
       layers[slot] = emptyLayer(slot)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
-    this.setData({ gauge: null })
+    this._resetGauge()
   },
 
-  // 切换灯效：重建该图层参数表单（schema 联动，ADR-0018）。
-  onEffectChange(e) {
-    const si = Number(e.currentTarget.dataset.si)
-    const li = Number(e.currentTarget.dataset.li)
-    const opt = EFFECT_OPTIONS[Number(e.detail.value)]
-    if (!opt) return
+  // 点卡头灯效方块：打开磁贴面板（8 种灯效一屏铺开，比原生 picker 好认）。
+  onOpenEffectPicker(e) {
+    const ds = e.currentTarget.dataset
+    const si = Number(ds.si)
+    const li = Number(ds.li)
+    const step = this.data.groups[this.data.activeGroup].steps[si]
+    const layer = step && step.layers && step.layers[li]
+    if (!layer || layer.empty) return
+    this._clearGaugeTimer()
+    this.setData({
+      effectPickerOpen: true,
+      effectPickerTarget: { si, li },
+      currentEffectId: layer.effect,
+      gauge: null,
+      gaugeClosing: null,
+    })
+    if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
+  },
+
+  onCloseEffectPicker() {
+    this.setData({ effectPickerOpen: false, effectPickerTarget: null })
+  },
+
+  // 磁贴面板里选一个灯效：面板收起，参数区按新 schema 重建。
+  onPickEffect(e) {
+    const id = Number(e.currentTarget.dataset.effect)
+    const target = this.data.effectPickerTarget || {}
+    if (!Number.isFinite(target.si) || !Number.isFinite(target.li)) return
+    this.setData({ effectPickerOpen: false, effectPickerTarget: null })
+    this._selectEffect(target.si, target.li, id)
+  },
+
+  // 换灯效的唯一写入口：只换 effect/params，槽位与 lid 保持不变（位置语义，ADR-0033）。
+  _selectEffect(si, li, effectId) {
+    if (!effectId) return
     this._editActiveGroup((group, steps) => {
       const layers = steps[si].layers.slice()
       const old = layers[li]
       if (!old || old.empty) return
-      // 换灯效只换 effect/params，槽位与 lid 保持不变（位置语义，ADR-0033）。
-      layers[li] = makeLayer(opt.id, null, old.lid, old.slot)
+      layers[li] = makeLayer(effectId, null, old.lid, old.slot)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
+    this._resetGauge()
+  },
+
+  // 枚举参数选项卡：点一下直接换档（不再拖刻度轴），并收起已开着的轴。
+  onPickOption(e) {
+    const ds = e.currentTarget.dataset
+    const si = Number(ds.si)
+    const li = Number(ds.li)
+    const name = ds.name || ''
+    const optIndex = Number(ds.index)
+    const step = this.data.groups[this.data.activeGroup].steps[si]
+    const layer = step && step.layers && step.layers[li]
+    const field = layer && (layer.fields || []).find((f) => f.name === name)
+    if (!field || !field.options || !Number.isFinite(optIndex)) return
+    this._editActiveGroup((group, steps) => {
+      const layers = steps[si].layers.slice()
+      const next = Object.assign({}, layers[li])
+      const fields = next.fields.slice()
+      const f = Object.assign({}, fields.find((fd) => fd.name === name))
+      applyNumberFieldValue(f, f.min + optIndex)
+      const idx = fields.findIndex((fd) => fd.name === name)
+      fields[idx] = f
+      next.fields = fields
+      layers[li] = refreshLayerCard(next)
+      steps[si] = Object.assign({}, steps[si], { layers })
+    })
+    this._resetGauge()
+    if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
   },
 
     // ---- 颜色弹层（#33） ---------------------------------------------------------

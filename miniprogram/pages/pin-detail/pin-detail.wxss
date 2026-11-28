@@ -1,7 +1,7 @@
 /* 引脚配置详情页样式（ADR-0027 / #27 / T7；design.md §7.3 工具页范式）。
    柔光通透语言：白卡 + 大圆角 + 极轻阴影，控件走药丸/tint 底。
    阶段区是竖向时间轴：左列细轴（时刻 + 时长圆点 + 连线），右侧每段一张可编辑卡片。
-   图层纵向排列，每个参数是一枚细边圆环（环长 = 值比例），点开在卡内展开刻度轴。
+   图层纵向排列，数值参数是细边圆环（百分比 = 环长），点开在卡内展开一行数字轴。
    注意：canvas / 拖选选择器类名（.color-wheel / .picker-wheel / .led-grid /
    .led-cell / .gauge__track）被 JS 的 createSelectorQuery 使用，
    改名会让真机画布/拖选/刻度轴失效。 */
@@ -97,12 +97,9 @@
   margin-top: 24rpx;
 }
 
-.group-select__picker {
+.group-select__value {
   flex: 1;
   min-width: 0;
-}
-
-.group-select__value {
   display: flex;
   align-items: center;
   height: 96rpx;
@@ -110,6 +107,11 @@
   border-radius: var(--bt-radius-pill);
   background: var(--bt-color-bg-input);
   box-sizing: border-box;
+  transition: background-color 0.2s ease-out;
+}
+
+.group-select__value:active {
+  background: var(--bt-color-gray-5);
 }
 
 .group-select__text {
@@ -505,25 +507,64 @@
   line-height: 32rpx;
 }
 
-/* 灯效名：picker 容器（点它弹原生选择器）+ 内层排版（▾ 提示可点） */
-.layer-row__effect {
-  flex: 1;
-  min-width: 0;
-}
-
-.layer-row__effect-inner {
+/* 灯效磁贴：方框 + 图标 + 名称，整块可点（换灯效）。
+   主题色由内联 style 注入 --tile-color（灯效 id → 主题色）。 */
+.effect-tile {
   display: flex;
   align-items: center;
-  gap: 8rpx;
-  color: var(--bt-color-label);
-  font-size: 28rpx;
-  line-height: 40rpx;
-  font-weight: 600;
+  gap: 10rpx;
+  flex: 1;
+  min-width: 0;
+  height: 72rpx;
+  padding: 0 18rpx;
+  border-radius: var(--bt-radius-inner);
+  background: var(--bt-color-bg-elevated);
+  box-shadow: var(--bt-shadow-card);
+  box-sizing: border-box;
+  transition: box-shadow 0.2s ease-out, background-color 0.2s ease-out;
 }
 
-.layer-row__caret {
+/* 触点反馈：按下时内描边（不位移，避免卡内元素抖动） */
+.effect-tile:active {
+  background: var(--bt-color-bg-input);
+}
+
+/* 该图层开着数字轴：磁贴描一圈主题色，跟圆环/轴的归属对上 */
+.effect-tile--on {
+  box-shadow: 0 0 0 2rpx var(--tile-color, var(--bt-color-accent));
+}
+
+.effect-tile__icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 12rpx;
+  /* 图标画框随方块缩小：--ico-size 驱动 .bt-ico--e-* 的所有尺寸 */
+  --ico-size: 30rpx;
+  background: var(--bt-color-accent-soft);
+  color: var(--tile-color, var(--bt-color-accent));
+}
+
+.effect-tile__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--bt-color-label);
+  font-size: 26rpx;
+  line-height: 36rpx;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.effect-tile__caret {
+  flex: 0 0 auto;
   color: var(--bt-color-label-tertiary);
-  font-size: 20rpx;
+  font-size: 18rpx;
   line-height: 1;
 }
 
@@ -570,20 +611,23 @@
   border-radius: 999rpx;
 }
 
-/* ===== 参数圆环行：细边环 + 环下名称/值 ===== */
+/* ===== 参数区：细边环（数值，环下百分比同一行）/ 选项卡（枚举） ===== */
 .ring-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8rpx 4rpx;
+  align-items: flex-start;
+  gap: 4rpx 0;
   margin-top: 16rpx;
 }
 
+/* 每格 1/4 宽：圆环居中、说明文字在环下同一行（名称 + 百分比） */
 .ring-item {
   display: flex;
   flex-direction: column;
   align-items: center;
   width: 25%;
-  padding: 4rpx 0;
+  padding: 4rpx 4rpx 0;
+  box-sizing: border-box;
 }
 
 /* 细边进度环：conic-gradient 底层画进度，内层挖空成环（2rpx 细边）。
@@ -614,7 +658,7 @@
   transition: color 0.25s ease-out;
 }
 
-/* 展开刻度轴的圆环：只描边高亮 + 图标转品牌色。
+/* 展开数字轴的圆环：只描边高亮 + 图标转品牌色。
    内圈不染底色——进度弧配半透明圆盘会被读成"扇形"。 */
 .ring-item__ring--on {
   box-shadow: 0 0 0 2rpx var(--bt-color-accent-soft-2);
@@ -622,6 +666,67 @@
 
 .ring-item__ring--on .ring-item__hole {
   color: var(--bt-color-accent);
+}
+
+/* 环下说明：名称 + 数值同一行（数值已是百分比），一行读完，不占两行高度 */
+.ring-item__caption {
+  margin-top: 8rpx;
+  color: var(--bt-color-label-tertiary);
+  font-size: 20rpx;
+  line-height: 26rpx;
+  white-space: nowrap;
+}
+
+/* ===== 枚举参数：整行「名称 + 一排选项卡」（点一下即换档，不占圆环） ===== */
+.option-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 14rpx;
+}
+
+.option-row__label {
+  flex: 0 0 auto;
+  width: 72rpx;
+  color: var(--bt-color-label-tertiary);
+  font-size: 22rpx;
+  line-height: 52rpx;
+}
+
+.option-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  padding: 4rpx;
+  border-radius: var(--bt-radius-pill);
+  background: var(--bt-color-bg-input);
+  box-sizing: border-box;
+}
+
+.option-tabs__item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 52rpx;
+  padding: 0 8rpx;
+  border-radius: var(--bt-radius-pill);
+  color: var(--bt-color-label-secondary);
+  font-size: 24rpx;
+  line-height: 52rpx;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color 0.2s ease-out, color 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
+.option-tabs__item--on {
+  background: var(--bt-color-bg-elevated);
+  color: var(--bt-color-accent);
+  font-weight: 600;
+  box-shadow: 0 1rpx 4rpx rgba(17, 24, 39, 0.08);
 }
 
 /* ===== 参数图标（环内，28rpx 画框，全用 currentColor 细线） ===== */
@@ -966,113 +1071,106 @@
   transition: transform 0.25s ease-out;
 }
 
-.ring-item__dot--on {
-  transform: scale(1.06);
-  box-shadow: inset 0 0 0 2rpx rgba(17, 24, 39, 0.08), 0 0 0 3rpx var(--bt-color-accent);
+/* ===== 数字轴（点数值圆环展开，横向拖动） =====
+   极简一行：一条细线（手柄在上面滑）+ 当前值。
+   名称与百分比在圆环下面那行，这里不重复；不铺刻度数字、不画进度填充——
+   它只是"改这个数"的入口，不是第二块图表。 */
+.gauge-slot {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: 0;
+  transition: grid-template-rows 0.2s ease-out, margin-top 0.2s ease-out;
 }
 
-.ring-item__label {
-  margin-top: 8rpx;
-  color: var(--bt-color-label-tertiary);
-  font-size: 20rpx;
-  line-height: 26rpx;
+/* 展开态：0fr → 1fr，容器高度跟着内容自然长出来 */
+.gauge-slot--open {
+  grid-template-rows: 1fr;
+  margin-top: 10rpx;
 }
 
-.ring-item__value {
-  color: var(--bt-color-label-secondary);
-  font-size: 20rpx;
-  line-height: 26rpx;
-  font-weight: 600;
+/* 过渡期间内容不能溢出，否则收起时会先"露头"再消失 */
+.gauge-slot__inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
-/* ===== 刻度轴（点圆环展开，横向拖动） ===== */
+/* 一行两段：轴（吃掉剩余宽度）+ 当前值（定宽右对齐） */
 .gauge {
-  margin-top: 16rpx;
-  padding: 16rpx 20rpx 20rpx;
-  border-radius: var(--bt-radius-inner);
-  background: var(--bt-color-accent-soft);
-}
-
-.gauge__head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 12rpx;
+  align-items: center;
+  gap: 16rpx;
+  padding: 10rpx 8rpx 6rpx;
+  border-top: 2rpx solid var(--bt-color-separator);
 }
 
-.gauge__label {
-  color: var(--bt-color-accent);
-  font-size: 22rpx;
-  line-height: 30rpx;
-  font-weight: 600;
+/* 展开：淡入 + 轻微下推；收起：反向淡出（时长与 GAUGE_ANIM_MS 对齐） */
+.gauge--in {
+  animation: gauge-in 0.2s ease-out both;
 }
 
+.gauge--out {
+  animation: gauge-out 0.2s ease-in both;
+}
+
+@keyframes gauge-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gauge-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6rpx);
+  }
+}
+
+/* 当前值：与环下百分比同源，拖动时同步刷新（时长轴是秒，参数轴是百分比） */
 .gauge__value {
+  flex: 0 0 auto;
+  width: 96rpx;
   color: var(--bt-color-label);
-  font-size: 28rpx;
-  line-height: 34rpx;
+  font-size: 24rpx;
+  line-height: 32rpx;
   font-weight: 700;
+  text-align: right;
 }
 
-/* 轨道：触摸区高 88rpx（含刻度文字），视觉细线在垂直居中处 */
+/* 轨道：只有一条细线（触摸区高 48rpx，手指好按），手柄沿线滑动 */
 .gauge__track {
   position: relative;
-  height: 88rpx;
+  flex: 1;
+  min-width: 0;
+  height: 48rpx;
 }
 
-/* 细线轨道：绝对定位在垂直中线，左右各留 12rpx 让端点刻度不被裁 */
 .gauge__track::before {
   content: '';
   position: absolute;
-  top: 32rpx;
-  left: 12rpx;
-  right: 12rpx;
+  top: 23rpx;
+  left: 8rpx;
+  right: 8rpx;
   height: 2rpx;
   border-radius: 2rpx;
   background: var(--bt-color-gray-4);
 }
 
-/* 已选区间：品牌色细线，宽度随 ratio 走 */
-.gauge__fill {
-  position: absolute;
-  top: 32rpx;
-  left: 12rpx;
-  height: 2rpx;
-  border-radius: 2rpx;
-  background: var(--bt-color-accent);
-}
-
-/* 刻度点：竖线 + 下方数字（首末与档位少的才写数字） */
-.gauge__tick {
-  position: absolute;
-  top: 26rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transform: translateX(-50%);
-}
-
-.gauge__tick-mark {
-  width: 2rpx;
-  height: 14rpx;
-  background: var(--bt-color-gray-3);
-}
-
-.gauge__tick-text {
-  margin-top: 4rpx;
-  color: var(--bt-color-label-tertiary);
-  font-size: 18rpx;
-  line-height: 24rpx;
-  white-space: nowrap;
-}
-
-/* 手柄：白色圆心 + 细边环，落在当前值位置 */
+/* 手柄：一枚落在轴上的小圆头（拖它改值） */
 .gauge__handle {
   position: absolute;
-  top: 22rpx;
-  width: 22rpx;
-  height: 22rpx;
-  margin-left: -11rpx;
+  top: 16rpx;
+  width: 16rpx;
+  height: 16rpx;
+  margin-left: -8rpx;
   border-radius: 50%;
   border: 2rpx solid var(--bt-color-accent);
   background: var(--bt-color-bg-elevated);
@@ -1293,6 +1391,331 @@
 
 .color-cell--recent:active {
   transform: scale(0.92);
+}
+
+/* ===== 底部磁贴面板（灯组 / 灯效共用一套外壳） =====
+   遮罩 + 从底部升起的弹板 + 标题 + 磁贴网格；两种选择只是在网格里放不同的卡。 */
+.pick-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: flex-end;
+}
+
+.pick-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.4);
+}
+
+.pick-panel {
+  position: relative;
+  width: 100%;
+  padding: 28rpx 28rpx 48rpx;
+  border-radius: 40rpx 40rpx 0 0;
+  background: var(--bt-color-bg-elevated);
+  box-shadow: var(--bt-shadow-raised);
+  box-sizing: border-box;
+  animation: pick-panel-in 0.24s ease-out both;
+}
+
+@keyframes pick-panel-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.pick-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.pick-panel__title {
+  color: var(--bt-color-label);
+  font-size: 32rpx;
+  line-height: 42rpx;
+  font-weight: 600;
+}
+
+.pick-panel__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
+  background: var(--bt-color-bg-input);
+  color: var(--bt-color-label-secondary);
+  font-size: 24rpx;
+  line-height: 1;
+}
+
+/* 磁贴网格：默认 4 列（灯效 8 种 = 4×2） */
+.pick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16rpx;
+}
+
+/* 灯组只有 5 个：单行 5 列，名称不被挤成两行 */
+.pick-grid--groups {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.pick-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  min-height: 112rpx;
+  padding: 16rpx 8rpx;
+  border-radius: var(--bt-radius-inner);
+  background: var(--bt-color-bg-sunken);
+  box-sizing: border-box;
+  transition: background-color 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
+/* 当前选中（当前灯组 / 当前灯效）：品牌色描边 + tint 底 */
+.pick-card--on {
+  background: var(--bt-color-accent-soft);
+  box-shadow: inset 0 0 0 2rpx var(--bt-color-accent);
+}
+
+/* 灯效磁贴：方框图标 + 名称（灯组卡没有图标，只有名称 + 灯珠区间） */
+.pick-card__icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 16rpx;
+  /* 面板磁贴里的图标画框（比卡头方块大，一眼可辨） */
+  --ico-size: 44rpx;
+  background: var(--bt-color-bg-elevated);
+  color: var(--bt-color-label-secondary);
+  box-sizing: border-box;
+  box-shadow: var(--bt-shadow-card);
+}
+
+.pick-card--on .pick-card__icon {
+  color: var(--bt-color-accent);
+}
+
+.pick-card__name {
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--bt-color-label-secondary);
+  font-size: 22rpx;
+  line-height: 30rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pick-card--on .pick-card__name {
+  color: var(--bt-color-accent);
+  font-weight: 600;
+}
+
+/* 灯组卡副标题：灯珠区间 */
+.pick-card__sub {
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--bt-color-label-tertiary);
+  font-size: 18rpx;
+  line-height: 26rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== 灯效图标（纯 CSS，在 --ico-size 方框内作图，图标随容器缩放） =====
+   卡头方块 48rpx、面板磁贴 72rpx，同一套图形按比例套用，不用维护两份尺寸。 */
+.bt-ico {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--ico-size, 56rpx);
+  height: var(--ico-size, 56rpx);
+}
+
+/* 常亮：实心方块（稳定输出） */
+.bt-ico--e-solid::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.25);
+  left: calc(var(--ico-size, 56rpx) * 0.25);
+  width: calc(var(--ico-size, 56rpx) * 0.5);
+  height: calc(var(--ico-size, 56rpx) * 0.5);
+  border-radius: calc(var(--ico-size, 56rpx) * 0.14);
+  background: currentColor;
+}
+
+/* 呼吸：外圈淡、内核实心（由小到大的呼吸） */
+.bt-ico--e-breath::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.25);
+  left: calc(var(--ico-size, 56rpx) * 0.25);
+  width: calc(var(--ico-size, 56rpx) * 0.5);
+  height: calc(var(--ico-size, 56rpx) * 0.5);
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.bt-ico--e-breath::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.375);
+  left: calc(var(--ico-size, 56rpx) * 0.375);
+  width: calc(var(--ico-size, 56rpx) * 0.25);
+  height: calc(var(--ico-size, 56rpx) * 0.25);
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* 闪烁：上下两块（亮-灭切换） */
+.bt-ico--e-blink::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.23);
+  left: calc(var(--ico-size, 56rpx) * 0.25);
+  width: calc(var(--ico-size, 56rpx) * 0.5);
+  height: calc(var(--ico-size, 56rpx) * 0.18);
+  border-radius: calc(var(--ico-size, 56rpx) * 0.07);
+  background: currentColor;
+}
+
+.bt-ico--e-blink::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.59);
+  left: calc(var(--ico-size, 56rpx) * 0.25);
+  width: calc(var(--ico-size, 56rpx) * 0.5);
+  height: calc(var(--ico-size, 56rpx) * 0.18);
+  border-radius: calc(var(--ico-size, 56rpx) * 0.07);
+  background: currentColor;
+  opacity: 0.35;
+}
+
+/* 跑马灯：一列点，末位高亮（逐灯珠点亮） */
+.bt-ico--e-marquee::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.45);
+  left: calc(var(--ico-size, 56rpx) * 0.18);
+  width: calc(var(--ico-size, 56rpx) * 0.14);
+  height: calc(var(--ico-size, 56rpx) * 0.14);
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: calc(var(--ico-size, 56rpx) * 0.18) 0 0 currentColor,
+    calc(var(--ico-size, 56rpx) * 0.36) 0 0 currentColor;
+  opacity: 0.45;
+}
+
+.bt-ico--e-marquee::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.41);
+  left: calc(var(--ico-size, 56rpx) * 0.64);
+  width: calc(var(--ico-size, 56rpx) * 0.22);
+  height: calc(var(--ico-size, 56rpx) * 0.22);
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* 彩虹渐变：上半弧 + 下半浅色（色相环） */
+.bt-ico--e-rainbow::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.18);
+  left: calc(var(--ico-size, 56rpx) * 0.18);
+  width: calc(var(--ico-size, 56rpx) * 0.64);
+  height: calc(var(--ico-size, 56rpx) * 0.64);
+  border-radius: 50%;
+  border: calc(var(--ico-size, 56rpx) * 0.09) solid currentColor;
+  box-sizing: border-box;
+  clip-path: inset(0 0 50% 0);
+}
+
+.bt-ico--e-rainbow::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.46);
+  left: calc(var(--ico-size, 56rpx) * 0.18);
+  width: calc(var(--ico-size, 56rpx) * 0.64);
+  height: calc(var(--ico-size, 56rpx) * 0.18);
+  border-radius: 0 0 50% 50%;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+/* 流星拖尾：亮头 + 斜向渐隐尾 */
+.bt-ico--e-meteor::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.36);
+  left: calc(var(--ico-size, 56rpx) * 0.6);
+  width: calc(var(--ico-size, 56rpx) * 0.22);
+  height: calc(var(--ico-size, 56rpx) * 0.22);
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.bt-ico--e-meteor::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.44);
+  left: calc(var(--ico-size, 56rpx) * 0.14);
+  width: calc(var(--ico-size, 56rpx) * 0.43);
+  height: calc(var(--ico-size, 56rpx) * 0.07);
+  border-radius: calc(var(--ico-size, 56rpx) * 0.04);
+  background: linear-gradient(to right, transparent, currentColor);
+  transform: rotate(-15deg);
+}
+
+/* 双色渐变：左右两块拼合（左实右浅） */
+.bt-ico--e-dual::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.25);
+  left: calc(var(--ico-size, 56rpx) * 0.25);
+  width: calc(var(--ico-size, 56rpx) * 0.23);
+  height: calc(var(--ico-size, 56rpx) * 0.5);
+  border-radius: calc(var(--ico-size, 56rpx) * 0.14) 0 0 calc(var(--ico-size, 56rpx) * 0.14);
+  background: currentColor;
+}
+
+.bt-ico--e-dual::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.25);
+  left: calc(var(--ico-size, 56rpx) * 0.52);
+  width: calc(var(--ico-size, 56rpx) * 0.23);
+  height: calc(var(--ico-size, 56rpx) * 0.5);
+  border-radius: 0 calc(var(--ico-size, 56rpx) * 0.14) calc(var(--ico-size, 56rpx) * 0.14) 0;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+/* 律动跳变：高低不一的柱（节奏） */
+.bt-ico--e-rhythm::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--ico-size, 56rpx) * 0.43);
+  left: calc(var(--ico-size, 56rpx) * 0.21);
+  width: calc(var(--ico-size, 56rpx) * 0.12);
+  height: calc(var(--ico-size, 56rpx) * 0.32);
+  border-radius: calc(var(--ico-size, 56rpx) * 0.06);
+  background: currentColor;
+  box-shadow: calc(var(--ico-size, 56rpx) * 0.21) calc(var(--ico-size, 56rpx) * -0.21) 0 currentColor,
+    calc(var(--ico-size, 56rpx) * 0.43) calc(var(--ico-size, 56rpx) * 0.07) 0 currentColor;
 }
 
 /* ===== 灯珠拖选取消区 ===== */

@@ -125,12 +125,38 @@ describe('pin-detail 竖向时间轴布局约束', () => {
     expect(gradientLine).toBeTruthy()
   })
 
-  test('环内放参数图标：洞里嵌 bt-ico，图标画框小于挖空直径', () => {
+  test('参数图标：环内 bt-ico 画框小于挖空直径', () => {
     expect(wxml).toMatch(/ring-item__hole[\s\S]{0,200}bt-ico--p-\{\{fld\.icon\}\}/)
-    // 挖空直径 60rpx（64 - 2×2），图标 28rpx 留出足够内边距。
+    // 挖空直径 60rpx（64 - 2×2），参数图标 28rpx 留出足够内边距。
     const ico = ruleBody(css, '.ring-item__hole .bt-ico')
     expect(prop(ico, 'width')).toBe('28rpx')
     expect(prop(ico, 'height')).toBe('28rpx')
+  })
+
+  test('灯效磁贴：卡头是方框图标 + 名称，8 种灯效图标都有定义', () => {
+    // 卡头方块 + 面板磁贴共用一套图标，靠 --ico-size 缩放。
+    expect(prop(ruleBody(css, '.effect-tile__icon'), '--ico-size')).not.toBe('')
+    expect(prop(ruleBody(css, '.pick-card__icon'), '--ico-size')).not.toBe('')
+    for (const name of ['solid', 'breath', 'blink', 'marquee', 'rainbow', 'meteor', 'dual', 'rhythm']) {
+      expect(css).toContain(`.bt-ico--e-${name}::before`)
+    }
+    // 面板里每枚磁贴都有图标 + 名称，点它换灯效。
+    expect(wxml).toMatch(/pick-card__icon[\s\S]{0,200}pick-card__name/)
+    expect(wxml).toContain('onPickEffect')
+  })
+
+  test('灯组与灯效共用同一套磁贴面板外壳（不再用原生 picker 下拉）', () => {
+    // 两者都走 .pick-mask / .pick-panel / .pick-card，只有网格列数与卡内容不同。
+    expect(wxml).toContain('class="pick-mask"')
+    expect(wxml).toMatch(/pick-panel__title">选择灯组/)
+    expect(wxml).toMatch(/pick-panel__title">选择灯效/)
+    // 旧的原生 picker 与独立样式类已清理。
+    expect(wxml).not.toContain('mode="selector"')
+    expect(wxml).not.toContain('group-select__picker')
+    expect(css).not.toContain('.effect-panel')
+    expect(css).not.toContain('.effect-card')
+    // 5 个灯组单行铺开，不成两行。
+    expect(prop(ruleBody(css, '.pick-grid--groups'), 'grid-template-columns')).toBe('repeat(5, 1fr)')
   })
 
   test('点击只描边高亮，不给内圈染底（否则进度弧 + 染盘会被读成扇形）', () => {
@@ -143,13 +169,42 @@ describe('pin-detail 竖向时间轴布局约束', () => {
     expect(prop(on, 'transform')).toBe('')
   })
 
-  test('刻度轴：轨道有固定触摸高度，填充与手柄都按同一 ratio 定位', () => {
+  test('数字轴极简：一行 flex（轴 + 读数），轴上只有手柄', () => {
     const track = ruleBody(css, '.gauge__track')
-    expect(track).not.toBe('')
     expect(prop(track, 'position')).toBe('relative')
-    // 填充宽度与手柄 left 都绑 gauge.ratio（同一个值 → 天然同步）
-    expect(wxml).toMatch(/gauge__fill"[^>]*width:\s*\{\{gauge\.ratio/)
+    expect(prop(track, 'flex')).toMatch(/^1(\s|$)/)
+    // 手柄 left 绑 gauge.ratio；不画进度填充、不排刻度数字。
     expect(wxml).toMatch(/gauge__handle"[^>]*left:\s*\{\{gauge\.ratio/)
+    expect(wxml).not.toContain('gauge__fill')
+    expect(wxml).not.toContain('gauge__tick')
+    expect(wxml).not.toContain('gauge__head')
+    // 两段横排，轴吃剩余宽度；名称不再占一列（圆环下那行已有）。
+    expect(prop(ruleBody(css, '.gauge'), 'align-items')).toBe('center')
+    expect(prop(ruleBody(css, '.gauge__value'), 'flex')).toMatch(/^0/)
+    // 轴本身不再是一块 tint 底色卡片，只用分隔线标记"这是卡片内的附加行"。
+    expect(prop(ruleBody(css, '.gauge'), 'background')).toBe('')
+  })
+
+  test('数字轴展开/收起走高度过渡，容器不再瞬时挪动', () => {
+    const slot = ruleBody(css, '.gauge-slot')
+    expect(prop(slot, 'grid-template-rows')).toBe('0fr')
+    expect(prop(slot, 'transition')).not.toBe('')
+    const open = ruleBody(css, '.gauge-slot--open')
+    expect(prop(open, 'grid-template-rows')).toBe('1fr')
+  })
+
+  test('数值参数的说明文字与百分比同一行（不再分两行）', () => {
+    // 模板里环下只有一条 caption（名称 + 值），旧的 label/value 双行已移除。
+    expect(wxml).not.toContain('ring-item__label')
+    expect(wxml).not.toContain('ring-item__value')
+    expect(wxml).toMatch(/ring-item__caption">\{\{fld\.label\}\} \{\{fld\.valueText\}\}/)
+  })
+
+  test('枚举参数是选项卡：模板不再给枚举画圆环', () => {
+    expect(wxml).toContain('option-tabs__item')
+    // 圆环区只遍历 ringFields（数值 + 色盘），枚举走 optionFields。
+    expect(wxml).toMatch(/wx:for="\{\{layer\.ringFields\}\}"/)
+    expect(wxml).toMatch(/wx:for="\{\{layer\.optionFields\}\}"/)
   })
 
   test('左轴圆点同时是时长入口：数据绑 kind="duration"', () => {

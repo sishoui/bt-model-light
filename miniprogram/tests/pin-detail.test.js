@@ -202,7 +202,7 @@ describe('pin-detail 页（#27）', () => {
     expect(client.sendCmd).not.toHaveBeenCalled()
   })
 
-  test('灯组下拉：onGroupPick 切换 activeGroup 并重建灯珠网格', () => {
+  test('灯组磁贴面板：onPickGroup 切换 activeGroup 并重建灯珠网格', () => {
     saveDeviceConfig(dev.id, {
       version: 1,
       pins: [
@@ -219,7 +219,7 @@ describe('pin-detail 页（#27）', () => {
       ],
     })
     const page = load(0)
-    page.onGroupPick({ detail: { value: 1 } })
+    page.onPickGroup({ currentTarget: { dataset: { group: 1 } } })
     expect(page.data.activeGroup).toBe(1)
     expect(page.data.groups[1].name).toBe('彩虹')
     // 灯珠网格按新灯组范围重建：[4,9] 共 6 颗。
@@ -231,7 +231,32 @@ describe('pin-detail 页（#27）', () => {
     // 切换不动 groups VM、不触发同步。
     expect(page.data.syncState).toBe('idle')
     // 越界 index 忽略。
-    page.onGroupPick({ detail: { value: 9 } })
+    page.onPickGroup({ currentTarget: { dataset: { group: 9 } } })
+    expect(page.data.activeGroup).toBe(1)
+  })
+
+  // 灯组选择：与灯效面板同款底部磁贴面板（不再用原生 picker 滚轮）。
+  test('灯组药丸：点开磁贴面板、选中后收起并切组，点同一组不重复切', () => {
+    const page = load(0)
+    expect(page.data.groupPickerOpen).toBe(false)
+    page.onOpenGroupPicker()
+    expect(page.data.groupPickerOpen).toBe(true)
+    // 面板列出全部 5 个灯组（名称 + 灯珠区间由 groups 直接驱动）。
+    expect(page.data.groups).toHaveLength(5)
+    // 选中第 2 组：面板收起 + activeGroup 跟上。
+    page.onPickGroup({ currentTarget: { dataset: { group: 1 } } })
+    expect(page.data.groupPickerOpen).toBe(false)
+    expect(page.data.activeGroup).toBe(1)
+    // 再选当前组：面板收起但配置不动、不触发同步。
+    page.onOpenGroupPicker()
+    page.onPickGroup({ currentTarget: { dataset: { group: 1 } } })
+    expect(page.data.groupPickerOpen).toBe(false)
+    expect(page.data.activeGroup).toBe(1)
+    expect(page.data.syncState).toBe('idle')
+    // 关闭按钮只收面板，不切组。
+    page.onOpenGroupPicker()
+    page.onCloseGroupPicker()
+    expect(page.data.groupPickerOpen).toBe(false)
     expect(page.data.activeGroup).toBe(1)
   })
 
@@ -246,7 +271,7 @@ describe('pin-detail 页（#27）', () => {
   test('「配置」按钮：打开当前组配置弹窗，关闭后复位', () => {
     const page = load(0)
     expect(page.data.groupConfigOpen).toBe(false)
-    page.onGroupPick({ detail: { value: 2 } })
+    page.onPickGroup({ currentTarget: { dataset: { group: 2 } } })
     page.onOpenGroupConfig()
     expect(page.data.groupConfigOpen).toBe(true)
     expect(page.data.activeGroup).toBe(2)
@@ -555,13 +580,62 @@ describe('pin-detail 页（#27）', () => {
     // 常亮字段：color + brightness。
     expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'period')).toBeUndefined()
     // 切到 BREATH（EFFECT_OPTIONS 按 id 升序，索引 1 = BREATH）。
-    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 0 } }, detail: { value: 1 } })
+    page._selectEffect(0, 0, EFF.BREATH)
     const layer = page.data.groups[0].steps[0].layers[0]
     expect(layer.effect).toBe(EFF.BREATH)
     expect(layer.effectName).toBe('呼吸') // WXML 直接显示，不依赖 id 下标运算
     expect(fieldOf(layer, 'period')).toBeDefined()
     expect(fieldOf(layer, 'waveform')).toBeDefined()
     expect(fieldOf(layer, 'speed')).toBeDefined()
+  })
+
+  // 百分比口径（本轮改版）：环长 / 环下文字 / 数字轴刻度统一 1-100%。
+  test('数值参数一律按百分比展示：1-100%，环下文字与名称同一行', () => {
+    const page = load(0)
+    const brightness = fieldOf(page.data.groups[0].steps[0].layers[0], 'brightness')
+    // 默认亮度 128 → 量程 0~255 → 1 + round(128/255*99) = 51%。
+    expect(brightness.percent).toBe(51)
+    expect(brightness.ring).toBe(51)
+    expect(brightness.valueText).toBe('51%')
+    // 下限也显示 1%（不显示 0%，避免与"关闭"混淆）。
+    page.onToggleGauge({ currentTarget: { dataset: { si: 0, li: 0, name: 'brightness', kind: 'param' } } })
+    page._gaugeRect = { left: 0, width: 100 }
+    page.onGaugeTouchMove({ touches: [{ clientX: 0 }] })
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'brightness').valueText).toBe('1%')
+  })
+
+  test('数字轴极简一行：只有手柄位置与读数，不排刻度数字', () => {
+    const page = load(0)
+    page.onToggleGauge({ currentTarget: { dataset: { si: 0, li: 0, name: 'brightness', kind: 'param' } } })
+    const g = page.data.gauge
+    expect(g.ticks).toBeUndefined()
+    expect(g.activeTick).toBeUndefined()
+    // 名称在圆环下那行，轴上不重复。
+    expect(g.label).toBe('亮度')
+    expect(g.readout).toBe('51%')
+    // 手柄位置 = 量程比例，拖动时只更新这一个数字。
+    page._gaugeRect = { left: 0, width: 100 }
+    page.onGaugeTouchMove({ touches: [{ clientX: 100 }] })
+    expect(page.data.gauge.ratio).toBe(1)
+    expect(page.data.gauge.readout).toBe('100%')
+    // 轴渲染在所属图层卡片内：gauge.li 指向它。
+    expect(g.li).toBe(0)
+  })
+
+  test('收起数字轴：立刻摘掉 gauge 但保留快照播收缩动画，动画结束清空', () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    const page = load(0)
+    const ds = { si: 0, li: 0, name: 'brightness', kind: 'param' }
+    page.onToggleGauge({ currentTarget: { dataset: ds } })
+    expect(page.data.gauge).toBeTruthy()
+    expect(page.data.gaugeClosing).toBeNull()
+    // 再点同一枚环：gauge 立刻清空（各处按"没开轴"判断），快照留给动画。
+    page.onToggleGauge({ currentTarget: { dataset: ds } })
+    expect(page.data.gauge).toBeNull()
+    expect(page.data.gaugeClosing.name).toBe('brightness')
+    jest.advanceTimersByTime(200)
+    expect(page.data.gaugeClosing).toBeNull()
+    jest.useRealTimers()
   })
 
   test('刻度轴调参数：拖动写回亮度并落盘，圆环进度同步', () => {
@@ -576,8 +650,10 @@ describe('pin-detail 页（#27）', () => {
     const after = page.data.groups[0].steps[0].layers[0]
     const expectVal = Math.round(0.4 * 255)
     expect(fieldOf(after, 'brightness').value).toBe(expectVal)
-    // 圆环进度 = 值占量程比例，必须跟着变。
-    expect(fieldOf(after, 'brightness').ring).toBe(Math.round((expectVal / 255) * 100))
+    // 圆环进度 = 值占量程比例（1-100%），必须跟着变；环下文字同口径。
+    expect(fieldOf(after, 'brightness').percent).toBe(Math.round((expectVal / 255) * 99) + 1)
+    expect(fieldOf(after, 'brightness').ring).toBe(fieldOf(after, 'brightness').percent)
+    expect(fieldOf(after, 'brightness').valueText).toBe(`${fieldOf(after, 'brightness').percent}%`)
     // 拖动中不下发，松手才落盘。
     expect(getDeviceConfig(dev.id)).toBeNull()
     page.onGaugeTouchEnd()
@@ -651,10 +727,10 @@ describe('pin-detail 页（#27）', () => {
     const [l0, l1] = page.data.groups[0].steps[0].layers
     // 常亮：有 color → 色块 + 亮度摘要（常亮无 speed/spread，只有一项）。
     expect(l0.swatch).toBe('#ff8800')
-    expect(l0.summary).toBe('亮度 200')
+    expect(l0.summary).toBe('亮度 79%')
     // 彩虹渐变：无 rgb 参数 → 无色块 + 亮度/速度/扩散三项摘要。
     expect(l1.swatch).toBeNull()
-    expect(l1.summary).toBe('亮度 128 · 速度 40 · 扩散 1')
+    expect(l1.summary).toBe('亮度 51% · 速度 40% · 扩散 1%')
   })
 
   test('点圆环展开刻度轴：再点同一圆环收起，点别的圆环直接换过去', () => {
@@ -693,7 +769,7 @@ describe('pin-detail 页（#27）', () => {
     expect(saved.pins.find((p) => p.pin === 0).groups[0].steps[0].duration).toBe(dur)
   })
 
-  test('刻度轴枚举档：拖动换档位，值按档还原', () => {
+  test('枚举参数走选项卡：点一下换档，不展开刻度轴（ADR-0018 schema 联动）', () => {
     saveDeviceConfig(dev.id, {
       version: 1,
       pins: [{
@@ -709,13 +785,20 @@ describe('pin-detail 页（#27）', () => {
       }],
     })
     const page = load(0)
+    const layer = page.data.groups[0].steps[0].layers[0]
+    // 枚举字段不画圆环（ring === null），也不进 ringFields（四列圆环区）。
+    expect(fieldOf(layer, 'waveform').ring).toBeNull()
+    expect(layer.ringFields.map((f) => f.name)).not.toContain('waveform')
+    expect(layer.optionFields.map((f) => f.name)).toContain('waveform')
+    // 点枚举环不会开轴。
     page.onToggleGauge({ currentTarget: { dataset: { si: 0, li: 0, name: 'waveform', kind: 'param' } } })
-    expect(page.data.gauge.options).toEqual(['正弦', '方波'])
-    page._gaugeRect = { left: 0, width: 100 }
-    page.onGaugeTouchMove({ touches: [{ clientX: 100 }] })
-    // 方波 = min(0) + 档位 1。
+    expect(page.data.gauge).toBeNull()
+    // 选项卡点击：方波 = min(0) + 档位 1，并落盘。
+    page.onPickOption({ currentTarget: { dataset: { si: 0, li: 0, name: 'waveform', index: 1 } } })
     expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'waveform').value).toBe(1)
-    expect(page.data.gauge.valueText).toBe('方波')
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'waveform').optionIndex).toBe(1)
+    const saved = getDeviceConfig(dev.id)
+    expect(saved.pins.find((p) => p.pin === 0).groups[0].steps[0].layers[0].params.waveform).toBe(1)
   })
 
   test('点色盘圆点：开颜色弹层，选色后图层色块同步', () => {
@@ -727,15 +810,27 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.groups[0].steps[0].layers[0].swatch).toBe('#12ab34')
   })
 
-  test('点灯效名：弹系统选择器换灯效，圆环组跟着换 schema', () => {
+  test('点灯效方块：磁贴面板换灯效，参数区跟着换 schema', () => {
     const page = load(0)
-    // showActionSheet 由 wx mock 触发 success；这里直接验证换灯效后的圆环重建。
-    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 0 } }, detail: { value: 4 } })
+    page.onOpenEffectPicker({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    expect(page.data.effectPickerOpen).toBe(true)
+    expect(page.data.currentEffectId).toBe(EFF.SOLID) // 当前灯效高亮
+    // 磁贴数据源：8 种灯效各带 id/名称/图标。
+    expect(page.data.effectOptions).toHaveLength(8)
+    expect(page.data.effectOptions.every((o) => o.label && o.icon)).toBe(true)
+    // 选彩虹渐变（EFF.RAINBOW = 5）。
+    page.onPickEffect({ currentTarget: { dataset: { effect: EFF.RAINBOW } } })
+    expect(page.data.effectPickerOpen).toBe(false)
     const layer = page.data.groups[0].steps[0].layers[0]
     expect(layer.effectName).toBe('彩虹渐变')
+    expect(layer.effectIcon).toBe('rainbow')
+    expect(layer.accent).toBe(effectColor(EFF.RAINBOW))
     expect(layer.swatch).toBeNull()
-    // 彩虹没有 rgb 参数 → 全是进度环（ring 非 null），且亮度/速度都在。
-    expect(layer.fields.every((f) => f.ring !== null)).toBe(true)
+    // 彩虹没有 rgb 参数：数值参数全落在圆环区（百分比非 null），
+    // 唯一的枚举参数（方向）落在选项卡区，不进圆环。
+    expect(layer.optionFields.map((f) => f.name)).toEqual(['direction'])
+    expect(layer.ringFields.map((f) => f.name)).not.toContain('direction')
+    expect(layer.ringFields.every((f) => f.ring !== null && /%$/.test(f.valueText))).toBe(true)
     expect(layer.fields.map((f) => f.name)).toContain('brightness')
   })
 
@@ -762,7 +857,7 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.gauge).toBeNull()
 
     page.onToggleGauge({ currentTarget: { dataset: { si: 0, kind: 'duration' } } })
-    page.onGroupPick({ detail: { value: 1 } })
+    page.onPickGroup({ currentTarget: { dataset: { group: 1 } } })
     expect(page.data.gauge).toBeNull()
   })
 
@@ -1140,7 +1235,7 @@ describe('pin-detail 页（#27）', () => {
     const page = load(0)
     page.onAddLayer({ currentTarget: { dataset: { si: 0, slot: 1 } } })
     // 动效槽换成彩虹，便于区分是哪一层。
-    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 1 } }, detail: { value: 4 } })
+    page._selectEffect(0, 1, EFF.RAINBOW)
     // 删掉背景槽。
     page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
     jest.advanceTimersByTime(500)
@@ -1296,7 +1391,7 @@ describe('pin-detail 页（#27）', () => {
     const page = load(0)
     page.onAddStep() // 组 0 变 2 阶段
     expect(page.data.stepAxis).toHaveLength(2)
-    page.onGroupPick({ detail: { value: 1 } }) // 组 1 仍是默认 1 阶段
+    page.onPickGroup({ currentTarget: { dataset: { group: 1 } } }) // 组 1 仍是默认 1 阶段
     expect(page.data.stepAxis).toHaveLength(1)
     expect(page.data.stepsTotal).toBe(5)
   })
@@ -1305,7 +1400,7 @@ describe('pin-detail 页（#27）', () => {
     const page = load(0)
     const solid = page.data.groups[0].steps[0].layers[0]
     expect(solid.gradientCss).toBeNull()
-    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 0 } }, detail: { value: 4 } }) // 彩虹
+    page._selectEffect(0, 0, EFF.RAINBOW)
     expect(page.data.groups[0].steps[0].layers[0].gradientCss).toContain('linear-gradient')
   })
 

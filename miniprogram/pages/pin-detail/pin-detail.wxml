@@ -1,7 +1,8 @@
 <!-- 引脚配置详情页（ADR-0027 / #27 / T7；灯珠拖选 #31；design.md §7.3 工具页范式）。
      顶部信息卡（图/名称/开关 + 药丸灯组选择）→ 竖向时间轴（左轴圆点管时长，
-     右侧每段一张卡片）。卡片里图层纵向排列，每个可调参数是一枚细边圆环：
-     环长 = 当前值比例，点开在该卡片下方展开刻度轴拖动改值（环同步走）。
+     右侧每段一张卡片）。卡片里图层纵向排列：数值参数是细边圆环，环长与环下文字
+     都是 1-100% 的百分比；点环在该图层卡片内展开一行数字轴拖值（环同步走）。
+     枚举参数不占圆环，整行一排选项卡直接换档。卡头的灯效方块开磁贴面板换灯效。
      列表顺序即播放顺序，段内 ↑↓ 调整先后。修改即推送（autoSync 防抖下发），无保存按钮。 -->
 <view class="page">
   <sim-banner wx:if="{{simMode}}" />
@@ -34,24 +35,15 @@
       </view>
     </view>
 
-    <!-- 灯组选择：药丸容器（左，占满）+「配置」开名称/灯珠范围弹窗 -->
+    <!-- 灯组选择：药丸（左，占满，点它开灯组磁贴面板）+「配置」开名称/灯珠范围弹窗 -->
     <view wx:if="{{groups.length}}" class="group-select">
-      <picker
-        class="group-select__picker"
-        mode="selector"
-        range="{{groups}}"
-        range-key="name"
-        value="{{activeGroup}}"
-        bindchange="onGroupPick"
-      >
-        <view class="group-select__value">
-          <view class="group-select__text">
-            <text class="group-select__name">{{groups[activeGroup].name}}</text>
-            <text class="group-select__range">{{groups[activeGroup].ledStart === 255 ? '未配置灯珠' : '灯珠 ' + groups[activeGroup].ledStart + '-' + groups[activeGroup].ledEnd}}</text>
-          </view>
-          <text class="group-select__arrow">▼</text>
+      <view class="group-select__value bt-pressable" bindtap="onOpenGroupPicker">
+        <view class="group-select__text">
+          <text class="group-select__name">{{groups[activeGroup].name}}</text>
+          <text class="group-select__range">{{groups[activeGroup].ledStart === 255 ? '未配置灯珠' : '灯珠 ' + groups[activeGroup].ledStart + '-' + groups[activeGroup].ledEnd}}</text>
         </view>
-      </picker>
+        <text class="group-select__arrow">▼</text>
+      </view>
       <view class="group-select__config bt-pressable" bindtap="onOpenGroupConfig">配置</view>
     </view>
   </view>
@@ -138,24 +130,23 @@
             wx:for-index="li"
             class="layer-row {{layer.empty ? 'layer-row--empty' : ''}}"
           >
+            <!-- 卡头：图层槽名 + 灯效方块磁贴（图标 + 名称，点它开灯效面板）+ 删除 -->
             <view class="layer-row__head">
               <text class="layer-row__title">图层 {{li + 1}} · {{layer.role}}</text>
-              <!-- 灯效名：点它弹系统选择器换灯效（不占页面空间） -->
-              <!-- 灯效名：原生 picker 换灯效（8 种，超过 showActionSheet 的 6 项上限） -->
-              <picker
+              <view
                 wx:if="{{!layer.empty}}"
-                class="layer-row__effect"
-                mode="selector"
-                range="{{effectNames}}"
+                class="effect-tile bt-pressable {{gauge && gauge.si === si && gauge.li === li ? 'effect-tile--on' : ''}}"
+                style="--tile-color: {{layer.accent}};"
                 data-si="{{si}}"
                 data-li="{{li}}"
-                bindchange="onEffectChange"
+                bindtap="onOpenEffectPicker"
               >
-                <view class="layer-row__effect-inner bt-pressable">
-                  <text>{{layer.effectName}}</text>
-                  <text class="layer-row__caret">▾</text>
+                <view class="effect-tile__icon">
+                  <view class="bt-ico bt-ico--e-{{layer.effectIcon}}"></view>
                 </view>
-              </picker>
+                <text class="effect-tile__name">{{layer.effectName}}</text>
+                <text class="effect-tile__caret">▾</text>
+              </view>
               <view
                 wx:if="{{!layer.empty}}"
                 class="layer-row__del bt-pressable"
@@ -171,25 +162,26 @@
             </view>
 
             <block wx:else>
-              <!-- 圆环行：rgb 参数是实心色盘（点开颜色弹层），其余参数是细边进度环 -->
+              <!-- 圆环行：rgb 参数是实心色盘（点开颜色弹层），数值参数是细边进度环
+                   （环长与环下百分比同源）。枚举参数不占这里，另起整行选项卡。 -->
               <view class="ring-row">
                 <view
-                  wx:for="{{layer.fields}}"
+                  wx:for="{{layer.ringFields}}"
                   wx:key="name"
                   wx:for-item="fld"
                   class="ring-item"
                 >
                   <block wx:if="{{fld.type === 'rgb'}}">
                     <view
-                      class="ring-item__dot {{gauge && gauge.si === si && gauge.li === li && gauge.name === fld.name ? 'ring-item__dot--on' : ''}}"
+                      class="ring-item__dot"
                       style="background-color: {{fld.hex}};"
                       data-si="{{si}}"
                       data-li="{{li}}"
-                      data-fi="{{index}}"
+                      data-fi="{{fld.index}}"
                       bindtap="onOpenColorPicker"
                     ></view>
-                    <text class="ring-item__label">{{fld.label}}</text>
-                    <text class="ring-item__value">{{fld.hex}}</text>
+                    <!-- 名称与 hex 同一行 -->
+                    <text class="ring-item__caption">{{fld.label}} {{fld.hex}}</text>
                   </block>
                   <block wx:else>
                     <!-- 细边圆环：conic-gradient 画进度（环长 = 值比例），内层挖空成环，
@@ -208,9 +200,63 @@
                         <view class="bt-ico bt-ico--p-{{fld.icon}}"></view>
                       </view>
                     </view>
-                    <text class="ring-item__label">{{fld.label}}</text>
-                    <text class="ring-item__value">{{fld.valueText}}</text>
+                    <!-- 名称与百分比同一行：数值不独占一行，整行高度更紧凑 -->
+                    <text class="ring-item__caption">{{fld.label}} {{fld.valueText}}</text>
                   </block>
+                </view>
+              </view>
+
+              <!-- 枚举参数：整行一排选项卡，点一下即换档 -->
+              <view
+                wx:for="{{layer.optionFields}}"
+                wx:key="name"
+                wx:for-item="fld"
+                class="option-row"
+              >
+                <text class="option-row__label">{{fld.label}}</text>
+                <view class="option-tabs">
+                  <view
+                    wx:for="{{fld.options}}"
+                    wx:key="*this"
+                    wx:for-item="opt"
+                    wx:for-index="oi"
+                    class="option-tabs__item {{fld.optionIndex === oi ? 'option-tabs__item--on' : ''}} bt-pressable"
+                    data-si="{{si}}"
+                    data-li="{{li}}"
+                    data-name="{{fld.name}}"
+                    data-index="{{oi}}"
+                    bindtap="onPickOption"
+                  >{{opt}}</view>
+                </view>
+              </view>
+
+              <!-- 数字轴：只在这张图层卡片内展开（点数值圆环），横向拖动改值；
+                   高 0 → auto 的 grid 过渡让展开/收起是拉伸而不是跳变。 -->
+              <view class="gauge-slot gauge-slot--{{(gauge && gauge.si === si && gauge.li === li) || (gaugeClosing && gaugeClosing.si === si && gaugeClosing.li === li) ? 'open' : 'closed'}}">
+                <view class="gauge-slot__inner">
+                  <view
+                    wx:if="{{gauge && gauge.si === si && gauge.li === li}}"
+                    class="gauge gauge--in"
+                  >
+                    <!-- 极简：一条细线 + 一枚手柄（名称与百分比在圆环下那行），右侧只放当前值 -->
+                    <view
+                      class="gauge__track"
+                      bindtouchstart="onGaugeTouchStart"
+                      catchtouchmove="onGaugeTouchMove"
+                      bindtouchend="onGaugeTouchEnd"
+                      bindtouchcancel="onGaugeTouchEnd"
+                    >
+                      <view class="gauge__handle" style="left: {{gauge.ratio * 100}}%;"></view>
+                    </view>
+                    <text class="gauge__value">{{gauge.readout}}</text>
+                  </view>
+                  <view
+                    wx:elif="{{gaugeClosing && gaugeClosing.si === si && gaugeClosing.li === li}}"
+                    class="gauge gauge--out"
+                  >
+                    <view class="gauge__track"></view>
+                    <text class="gauge__value">{{gaugeClosing.readout}}</text>
+                  </view>
                 </view>
               </view>
 
@@ -224,34 +270,32 @@
           </view>
         </view>
 
-        <!-- 刻度轴：只在持有它的卡片内出现。横向拖动改值，圆环进度实时跟随。 -->
-        <view wx:if="{{gauge && gauge.si === si}}" class="gauge">
-          <view class="gauge__head">
-            <text class="gauge__label">{{gauge.label}}</text>
-            <text class="gauge__value">{{gauge.valueText}}</text>
-          </view>
-          <view
-            class="gauge__track"
-            bindtouchstart="onGaugeTouchStart"
-            catchtouchmove="onGaugeTouchMove"
-            bindtouchend="onGaugeTouchEnd"
-            bindtouchcancel="onGaugeTouchEnd"
-          >
-            <!-- 刻度点 / 档位文字 -->
+        <!-- 阶段时长数字轴：时长没有图层卡片，留在阶段卡片底部。
+             同一套数字轴样式，点左轴圆点展开、横向拖动改秒数。 -->
+        <view class="gauge-slot gauge-slot--{{(gauge && gauge.kind === 'duration' && gauge.si === si) || (gaugeClosing && gaugeClosing.kind === 'duration' && gaugeClosing.si === si) ? 'open' : 'closed'}}">
+          <view class="gauge-slot__inner">
             <view
-              wx:for="{{gauge.ticks}}"
-              wx:key="ratio"
-              wx:for-item="tick"
-              class="gauge__tick"
-              style="left: {{tick.ratio * 100}}%;"
+              wx:if="{{gauge && gauge.kind === 'duration' && gauge.si === si}}"
+              class="gauge gauge--in"
             >
-              <view class="gauge__tick-mark"></view>
-              <text wx:if="{{tick.label}}" class="gauge__tick-text">{{tick.label}}</text>
+              <view
+                class="gauge__track"
+                bindtouchstart="onGaugeTouchStart"
+                catchtouchmove="onGaugeTouchMove"
+                bindtouchend="onGaugeTouchEnd"
+                bindtouchcancel="onGaugeTouchEnd"
+              >
+                <view class="gauge__handle" style="left: {{gauge.ratio * 100}}%;"></view>
+              </view>
+              <text class="gauge__value">{{gauge.readout}}</text>
             </view>
-            <!-- 已选区间高亮 -->
-            <view class="gauge__fill" style="width: {{gauge.ratio * 100}}%;"></view>
-            <!-- 手柄 -->
-            <view class="gauge__handle" style="left: {{gauge.ratio * 100}}%;"></view>
+            <view
+              wx:elif="{{gaugeClosing && gaugeClosing.kind === 'duration' && gaugeClosing.si === si}}"
+              class="gauge gauge--out"
+            >
+              <view class="gauge__track"></view>
+              <text class="gauge__value">{{gaugeClosing.readout}}</text>
+            </view>
           </view>
         </view>
 
@@ -262,6 +306,59 @@
   </view>
 
   </block>
+
+  <!-- 底部磁贴面板（灯组 / 灯效两种选择共用同一套外壳：遮罩 + 底部弹板 + 标题 + 网格）：
+       灯组面板列 5 个灯组（名称 + 灯珠区间），灯效面板列 8 种灯效（方框图标 + 名称）。 -->
+  <view wx:if="{{groupPickerOpen}}" class="pick-mask" catchtouchmove="noop">
+    <view class="pick-backdrop" bindtap="onCloseGroupPicker"></view>
+    <view class="pick-panel">
+      <view class="pick-panel__head">
+        <text class="pick-panel__title">选择灯组</text>
+        <text class="pick-panel__close" bindtap="onCloseGroupPicker">✕</text>
+      </view>
+      <view class="pick-grid pick-grid--groups">
+        <view
+          wx:for="{{groups}}"
+          wx:key="gid"
+          wx:for-item="grp"
+          wx:for-index="gi"
+          class="pick-card bt-pressable {{activeGroup === gi ? 'pick-card--on' : ''}}"
+          data-group="{{gi}}"
+          bindtap="onPickGroup"
+        >
+          <text class="pick-card__name">{{grp.name}}</text>
+          <text class="pick-card__sub">{{grp.ledStart === 255 ? '未配置灯珠' : '灯珠 ' + grp.ledStart + '-' + grp.ledEnd}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 灯效磁贴面板：8 种灯效按方框磁贴铺开（图标 + 名称），当前灯效高亮。
+       点卡头的灯效方块打开；选一个即按 schema 重建该图层参数区（ADR-0018）。 -->
+  <view wx:if="{{effectPickerOpen}}" class="pick-mask" catchtouchmove="noop">
+    <view class="pick-backdrop" bindtap="onCloseEffectPicker"></view>
+    <view class="pick-panel">
+      <view class="pick-panel__head">
+        <text class="pick-panel__title">选择灯效</text>
+        <text class="pick-panel__close" bindtap="onCloseEffectPicker">✕</text>
+      </view>
+      <view class="pick-grid">
+        <view
+          wx:for="{{effectOptions}}"
+          wx:key="id"
+          wx:for-item="opt"
+          class="pick-card bt-pressable {{currentEffectId === opt.id ? 'pick-card--on' : ''}}"
+          data-effect="{{opt.id}}"
+          bindtap="onPickEffect"
+        >
+          <view class="pick-card__icon">
+            <view class="bt-ico bt-ico--e-{{opt.icon}}"></view>
+          </view>
+          <text class="pick-card__name">{{opt.label}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
 
   <!-- 颜色弹层：全屏遮罩 + 底部弹板（色轮 + 最近选色） -->
   <view wx:if="{{colorPickerOpen}}" class="color-picker-mask" catchtouchmove="noop">
