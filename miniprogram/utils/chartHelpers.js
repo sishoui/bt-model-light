@@ -66,49 +66,6 @@ function _fieldHex(fields, name, fallback) {
   return fallback
 }
 
-// ---- 阶段时间轴（泳道甘特数据） -----------------------------------------------
-// 把 steps[] + transition 转成"时间轴段"数组：每段含 x/width（0..1 归一化）、
-// layers 子段（按各自在层叠中的相对权重均分）、transition 区间标记。
-// 时长单位 = 秒（UI 显示），内部用相对比例即可。
-
-function buildTimeline(steps) {
-  const list = Array.isArray(steps) ? steps : []
-  const total = list.reduce((s, st) => s + Math.max(0.1, Number(st.duration) || 1), 0) || 1
-  let cursor = 0
-  return list.map((st, i) => {
-    const dur = Math.max(0.1, Number(st.duration) || 1)
-    const x = cursor / total
-    const w = dur / total
-    cursor += dur
-    // 过渡区间：transition>0 时在段尾留 transition/ (duration+transition) 比例的斜纹带。
-    const trans = Number(st.transition) || 0 // 0=无 1=淡入淡出 2=平滑
-    const transRatio = trans > 0 ? Math.min(0.3, (dur * 0.15) / total) : 0
-    // 空槽（占位对象，无 effect）不画子条；两格都空的阶段不产生任何子条。
-    const filled = (st.layers || [])
-      .map((l, li) => ({ l, li }))
-      .filter((it) => it.l && it.l.effect)
-    const layers = filled.map((it) => ({
-      li: it.li,
-      effect: it.l.effect,
-      color: effectColor(it.l.effect),
-      // 图层在段内横向均分（视觉上叠在同一时间窗，拆成子条便于区分）。
-      x: x,
-      w: w / Math.max(1, filled.length),
-    }))
-    return {
-      si: i,
-      name: st.name || `阶段${i + 1}`,
-      duration: dur,
-      x,
-      w,
-      transition: trans,
-      transX: x + w - transRatio,
-      transW: transRatio,
-      layers,
-    }
-  })
-}
-
 // ---- 错误日志分布（mine 页柱状图） ---------------------------------------------
 // 把 error_log 条目聚合成"最近 N 天"的桶：[{label, count}]，label 为 M/D。
 
@@ -176,7 +133,6 @@ module.exports = {
   EFFECT_COLORS,
   effectColor,
   layerGradientCss,
-  buildTimeline,
   aggregateErrorLog,
   createRssiSampler,
 }

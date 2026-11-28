@@ -14,6 +14,7 @@ const { setCurrentBleClient } = require('../utils/bleClient')
 const autoSync = require('../utils/autoSync')
 const { decodeConfigBlob } = require('../utils/configCodec')
 const { CMD, EFF } = require('../utils/protocol_gen')
+const { effectColor } = require('../utils/chartHelpers')
 
 const PIN = '../pages/pin-detail/pin-detail'
 
@@ -25,6 +26,16 @@ function fakeClient(connected) {
 // 取 activeGroup 当前层的字段（按 name 查）。
 function fieldOf(layer, name) {
   return layer.fields.find((f) => f.name === name)
+}
+
+// 用刻度轴把某段时长设成指定值（时长 UI 已无 slider/输入框，只有刻度轴）。
+// 做法：展开该段时长轴 → 量好轴宽 → 按目标值反算比例拖到该点 → 松手落盘。
+function setDuration(page, si, seconds) {
+  page.onToggleGauge({ currentTarget: { dataset: { si, kind: 'duration' } } })
+  page._gaugeRect = { left: 0, width: 1000 }
+  const ratio = (seconds - 1) / (60 - 1)
+  page.onGaugeTouchMove({ touches: [{ clientX: ratio * 1000 }] })
+  page.onGaugeTouchEnd()
 }
 
 // 取 ledCells 中 state==='selected' 的数量。
@@ -529,13 +540,13 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.groups[0].steps[0].layers[0].empty).toBe(true)
     expect(page.data.groups[0].steps[0].layers[1].empty).toBe(false)
     expect(page.data.groups[0].steps[0].layers[1].role).toBe('动效')
-    expect(page.data.activeStepEmpty).toBe(false)
+    expect(page.data.stepAxis[0].allEmpty).toBe(false)
 
     // 再删动效：两格都空 → 提示不亮
     page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 1 } } })
     expect(page.data.groups[0].steps[0].layers[0].empty).toBe(true)
     expect(page.data.groups[0].steps[0].layers[1].empty).toBe(true)
-    expect(page.data.activeStepEmpty).toBe(true)
+    expect(page.data.stepAxis[0].allEmpty).toBe(true)
     expect(bgLid).toBeDefined()
   })
 
@@ -553,23 +564,30 @@ describe('pin-detail 页（#27）', () => {
     expect(fieldOf(layer, 'speed')).toBeDefined()
   })
 
-  test('参数输入：标量写入并落盘（rgb 不再走通道 input）', () => {
+  test('刻度轴调参数：拖动写回亮度并落盘，圆环进度同步', () => {
     const page = load(0)
-    const layer = page.data.groups[0].steps[0].layers[0]
-    const brightFi = layer.fields.findIndex((f) => f.name === 'brightness')
-    // 亮度 100。
-    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '100' } })
+    // 点亮度圆环 → 展开该参数的刻度轴。
+    page.onToggleGauge({ currentTarget: { dataset: { si: 0, li: 0, name: 'brightness', kind: 'param' } } })
+    expect(page.data.gauge).toBeTruthy()
+    expect(page.data.gauge.name).toBe('brightness')
+    // 拖动到 40% 位置：亮度量程 0~255，拖动值按档量化。
+    page._gaugeRect = { left: 0, width: 100 }
+    page.onGaugeTouchMove({ touches: [{ clientX: 40 }] })
     const after = page.data.groups[0].steps[0].layers[0]
-    expect(fieldOf(after, 'brightness').value).toBe(100)
-    // rgb 通道写入已废弃：rgb 仅经颜色弹层 onColorSelected 修改。
-    expect(fieldOf(after, 'color').value).toEqual([255, 255, 255])
+    const expectVal = Math.round(0.4 * 255)
+    expect(fieldOf(after, 'brightness').value).toBe(expectVal)
+    // 圆环进度 = 值占量程比例，必须跟着变。
+    expect(fieldOf(after, 'brightness').ring).toBe(Math.round((expectVal / 255) * 100))
+    // 拖动中不下发，松手才落盘。
+    expect(getDeviceConfig(dev.id)).toBeNull()
+    page.onGaugeTouchEnd()
     const saved = getDeviceConfig(dev.id)
     const savedLayer = saved.pins.find((p) => p.pin === 0).groups[0].steps[0].layers[0]
-    expect(savedLayer.params.brightness).toBe(100)
+    expect(savedLayer.params.brightness).toBe(expectVal)
   })
 
-  // 阶段条导航（#33 / 横向阶段条单页）。
-  test('默认选中阶段一；onSelectStage 切换即可', () => {
+  // 竖向时间轴：所有阶段同屏可编辑，不再有"选中阶段"这层视图态。
+  test('竖向时间轴：每个阶段各自独立编辑，互不影响', () => {
     saveDeviceConfig(dev.id, {
       version: 1,
       pins: [
@@ -595,14 +613,14 @@ describe('pin-detail 页（#27）', () => {
       ],
     })
     const page = load(0)
-    expect(page.data.activeStepSi).toBe(0)
-    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
-    expect(page.data.activeStepSi).toBe(0)
-    page.onSelectStage({ currentTarget: { dataset: { si: 1 } } })
-    expect(page.data.activeStepSi).toBe(1)
-    // 阶段只影响视图：VM 与同步态都不动。
+    expect(page.data.activeStepSi).toBeUndefined() // 选中态已随阶段条移除
+    // 两个阶段同时在时间轴上：改第 2 段名称不影响第 1 段。
+    page.onStageNameInput({ currentTarget: { dataset: { si: 1 } }, detail: { value: '收尾' } })
+    expect(page.data.groups[0].steps[1].name).toBe('收尾')
     expect(page.data.groups[0].steps[1].duration).toBe(6)
-    expect(page.data.syncState).toBe('idle')
+    expect(page.data.groups[0].steps[0].name).toBe('阶段一')
+    // 改名即落盘下发（未连接 → local），与其余输入框同口径。
+    expect(page.data.syncState).toBe('local')
   })
 
   test('图层卡片摘要：rgb 参数出色块，亮度/速度拼摘要文案', () => {
@@ -631,104 +649,168 @@ describe('pin-detail 页（#27）', () => {
     })
     const page = load(0)
     const [l0, l1] = page.data.groups[0].steps[0].layers
-    // 常亮：有 color → 色块 + 亮度摘要（常亮无 speed，只有一项）。
+    // 常亮：有 color → 色块 + 亮度摘要（常亮无 speed/spread，只有一项）。
     expect(l0.swatch).toBe('#ff8800')
     expect(l0.summary).toBe('亮度 200')
-    // 彩虹渐变：无 rgb 参数 → 无色块 + 亮度/速度两项摘要。
+    // 彩虹渐变：无 rgb 参数 → 无色块 + 亮度/速度/扩散三项摘要。
     expect(l1.swatch).toBeNull()
-    expect(l1.summary).toBe('亮度 128 · 速度 40')
+    expect(l1.summary).toBe('亮度 128 · 速度 40 · 扩散 1')
   })
 
-  test('点图层卡片打开配置弹窗，关闭后收起', () => {
+  test('点圆环展开刻度轴：再点同一圆环收起，点别的圆环直接换过去', () => {
     const page = load(0)
-    page.onAddLayer({ currentTarget: { dataset: { si: 0 } } }) // 两个图层
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 1 } } })
-    expect(page.data.layerEditorOpen).toBe(true)
-    expect(page.data.layerEditorSi).toBe(0)
-    expect(page.data.layerEditorLi).toBe(1)
-    page.onCloseLayerEditor()
-    expect(page.data.layerEditorOpen).toBe(false)
-    // 越界定位不打开（防误点空白）。
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 9 } } })
-    expect(page.data.layerEditorOpen).toBe(false)
+    expect(page.data.gauge).toBeNull()
+    const ds = { si: 0, li: 0, name: 'brightness', kind: 'param' }
+    page.onToggleGauge({ currentTarget: { dataset: ds } })
+    expect(page.data.gauge.name).toBe('brightness')
+    expect(page.data.gauge.kind).toBe('param')
+    // 同一圆环再点 → 收起。
+    page.onToggleGauge({ currentTarget: { dataset: ds } })
+    expect(page.data.gauge).toBeNull()
+    // 换一个参数 → 直接切过去（不留上一个）。
+    page.onToggleGauge({ currentTarget: { dataset: ds } })
+    page.onToggleGauge({ currentTarget: { dataset: { si: 0, li: 0, name: 'color', kind: 'param' } } })
+    // color 是 rgb，没有量程 → 不开刻度轴（走颜色弹层）。
+    expect(page.data.gauge.name).toBe('brightness')
   })
 
-  test('弹窗内改参数：卡片摘要随字段重算，不关弹窗', () => {
+  test('点左轴圆点展开时长刻度轴；拖轴改时长，圆点秒数与起始时刻同步', () => {
     const page = load(0)
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    const brightFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'brightness')
-    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '77' } })
-    expect(page.data.groups[0].steps[0].layers[0].summary).toBe('亮度 77')
-    expect(page.data.layerEditorOpen).toBe(true) // 弹窗保持打开可继续调
+    page.onAddStep()
+    page.onToggleGauge({ currentTarget: { dataset: { si: 0, kind: 'duration' } } })
+    expect(page.data.gauge.kind).toBe('duration')
+    expect(page.data.gauge.label).toBe('时长')
+    expect(page.data.gauge.value).toBe(5)
+    // 拖到量程 60% 附近 → 时长按 1s 量化（量程 1~60）。
+    page._gaugeRect = { left: 0, width: 100 }
+    page.onGaugeTouchMove({ touches: [{ clientX: 60 }] })
+    const dur = page.data.groups[0].steps[0].duration
+    expect(dur).toBe(Math.round(1 + 0.6 * 59))
+    // 第二段起始时刻随首段时长后移。
+    expect(page.data.stepAxis[1].startAt).toBe(dur)
+    page.onGaugeTouchEnd()
+    const saved = getDeviceConfig(dev.id)
+    expect(saved.pins.find((p) => p.pin === 0).groups[0].steps[0].duration).toBe(dur)
   })
 
-  test('弹窗内选色：卡片色块同步更新', () => {
+  test('刻度轴枚举档：拖动换档位，值按档还原', () => {
+    saveDeviceConfig(dev.id, {
+      version: 1,
+      pins: [{
+        pin: 0,
+        configured: true,
+        name: 'A',
+        groups: [{
+          name: 'g0',
+          ledStart: 0,
+          ledEnd: 3,
+          steps: [{ duration: 5, transition: 0, loopMode: 1, layers: [{ effect: EFF.BREATH, params: {} }] }],
+        }],
+      }],
+    })
     const page = load(0)
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    page.onToggleGauge({ currentTarget: { dataset: { si: 0, li: 0, name: 'waveform', kind: 'param' } } })
+    expect(page.data.gauge.options).toEqual(['正弦', '方波'])
+    page._gaugeRect = { left: 0, width: 100 }
+    page.onGaugeTouchMove({ touches: [{ clientX: 100 }] })
+    // 方波 = min(0) + 档位 1。
+    expect(fieldOf(page.data.groups[0].steps[0].layers[0], 'waveform').value).toBe(1)
+    expect(page.data.gauge.valueText).toBe('方波')
+  })
+
+  test('点色盘圆点：开颜色弹层，选色后图层色块同步', () => {
+    const page = load(0)
     const colorFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'color')
     page.onOpenColorPicker({ currentTarget: { dataset: { si: 0, li: 0, fi: colorFi } } })
+    expect(page.data.colorPickerOpen).toBe(true)
     page.onColorSelected({ currentTarget: { dataset: { hex: '#12AB34' } }, detail: { value: '#12AB34' } })
     expect(page.data.groups[0].steps[0].layers[0].swatch).toBe('#12ab34')
   })
 
-  test('弹窗内切换灯效：卡片灯效名与摘要跟着换 schema', () => {
+  test('点灯效名：弹系统选择器换灯效，圆环组跟着换 schema', () => {
     const page = load(0)
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    // 常亮 → 彩虹渐变（无 rgb 参数）。
+    // showActionSheet 由 wx mock 触发 success；这里直接验证换灯效后的圆环重建。
     page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 0 } }, detail: { value: 4 } })
     const layer = page.data.groups[0].steps[0].layers[0]
     expect(layer.effectName).toBe('彩虹渐变')
     expect(layer.swatch).toBeNull()
-    expect(page.data.layerEditorOpen).toBe(true)
+    // 彩虹没有 rgb 参数 → 全是进度环（ring 非 null），且亮度/速度都在。
+    expect(layer.fields.every((f) => f.ring !== null)).toBe(true)
+    expect(layer.fields.map((f) => f.name)).toContain('brightness')
   })
 
-  test('弹窗内删除图层：关弹窗、该槽清空，另一格不受影响', () => {
+  test('删除图层：抬起对应槽，另一格不受影响，并收起刻度轴', () => {
     const page = load(0)
     page.onAddLayer({ currentTarget: { dataset: { si: 0, slot: 1 } } })
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 1 } } })
+    page.onToggleGauge({ currentTarget: { dataset: { si: 0, li: 1, name: 'brightness', kind: 'param' } } })
+    expect(page.data.gauge).not.toBeNull()
     page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 1 } } })
     expect(page.data.groups[0].steps[0].layers[1].empty).toBe(true)
     expect(page.data.groups[0].steps[0].layers[0].empty).toBe(false)
-    expect(page.data.layerEditorOpen).toBe(false)
+    expect(page.data.gauge).toBeNull()
   })
 
-  test('卡片右上角删除：不打开配置弹窗，删的是卡片对应图层', () => {
-    const page = load(0)
-    page.onAddLayer({ currentTarget: { dataset: { si: 0, slot: 1 } } })
-    const keep = page.data.groups[0].steps[0].layers[0].lid
-    page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 1 } } }) // 卡片 ✕ 与弹窗底部同一个处理函数
-    expect(page.data.groups[0].steps[0].layers[1].empty).toBe(true)
-    expect(page.data.groups[0].steps[0].layers[0].lid).toBe(keep)
-    expect(page.data.layerEditorOpen).toBe(false)
-  })
-
-  test('切换灯组/阶段/增删阶段时弹窗收起（避免定位到已不存在的图层）', () => {
+  test('切换灯组/移动/删除阶段时收起刻度轴（避免定位到已不存在的量）', () => {
     const page = load(0)
     page.onAddStep()
-    page.onAddLayer({ currentTarget: { dataset: { si: 1 } } })
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 1, li: 1 } } })
-    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
-    expect(page.data.layerEditorOpen).toBe(false)
+    page.onToggleGauge({ currentTarget: { dataset: { si: 1, kind: 'duration' } } })
+    page.onMoveStep({ currentTarget: { dataset: { si: 1, dir: -1 } } })
+    expect(page.data.gauge).toBeNull()
 
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    page.onToggleGauge({ currentTarget: { dataset: { si: 0, kind: 'duration' } } })
+    page.onDeleteStep({ currentTarget: { dataset: { si: 1 } } })
+    expect(page.data.gauge).toBeNull()
+
+    page.onToggleGauge({ currentTarget: { dataset: { si: 0, kind: 'duration' } } })
     page.onGroupPick({ detail: { value: 1 } })
-    expect(page.data.layerEditorOpen).toBe(false)
+    expect(page.data.gauge).toBeNull()
   })
 
-  test('新增阶段选中新阶段；长按删除后选中顺延', () => {
+  test('新增阶段追加到末尾并标记进入动画；删除按卡头下标删对应段', () => {
     const page = load(0)
     page.onAddStep()
     page.onAddStep()
     expect(page.data.groups[0].steps).toHaveLength(3)
-    expect(page.data.activeStepSi).toBe(2) // 添加后选中新阶段
-    // 长按删阶段 0：选中顺延到原阶段 1（同下标 0）。
+    expect(page.data.enterIndex).toBe(2) // 新卡片播一次淡入
+    expect(page.data.groups[0].steps[2].name).toBe('阶段三')
     page.onDeleteStep({ currentTarget: { dataset: { si: 0 } } })
     expect(page.data.groups[0].steps).toHaveLength(2)
-    expect(page.data.activeStepSi).toBe(0)
-    // 删尾：选中新的最后一个。
-    page.onDeleteStep({ currentTarget: { dataset: { si: 1 } } })
-    expect(page.data.groups[0].steps).toHaveLength(1)
-    expect(page.data.activeStepSi).toBe(0)
+    expect(page.data.groups[0].steps[0].name).toBe('阶段二') // 列表顺序即播放顺序
+  })
+
+  test('↑↓ 调整阶段先后：越界不动，交换后起始时刻与连序重算', () => {
+    const page = load(0)
+    page.onAddStep()
+    page.onAddStep()
+    page.onStageNameInput({ currentTarget: { dataset: { si: 0 } }, detail: { value: '甲' } })
+    page.onStageNameInput({ currentTarget: { dataset: { si: 1 } }, detail: { value: '乙' } })
+    page.onStageNameInput({ currentTarget: { dataset: { si: 2 } }, detail: { value: '丙' } })
+    setDuration(page, 0, 3)
+    setDuration(page, 1, 4)
+
+    // 首段上移 / 末段下移：越界忽略。
+    page.onMoveStep({ currentTarget: { dataset: { si: 0, dir: -1 } } })
+    page.onMoveStep({ currentTarget: { dataset: { si: 2, dir: 1 } } })
+    expect(page.data.groups[0].steps.map((st) => st.name)).toEqual(['甲', '乙', '丙'])
+
+    // 末段上移一位：丙插到乙前面。
+    page.onMoveStep({ currentTarget: { dataset: { si: 2, dir: -1 } } })
+    expect(page.data.groups[0].steps.map((st) => st.name)).toEqual(['甲', '丙', '乙'])
+    // 起始时刻按新顺序累加：甲 0s，丙 3s，乙 3+5=8s。
+    expect(page.data.stepAxis.map((a) => a.startAt)).toEqual([0, 3, 8])
+    // 3 + 5 + 4 = 12s。
+    expect(page.data.stepsTotal).toBe(12)
+  })
+
+  test('时间轴左轴：节点色取该段首个灯效主题色，两格都空则灰且标记 allEmpty', () => {
+    const page = load(0)
+    // 默认常亮 → SOLID 主题色。
+    expect(page.data.stepAxis[0].color).toBe(effectColor(EFF.SOLID))
+    expect(page.data.stepAxis[0].allEmpty).toBe(false)
+    // 两格删空 → 退灰 + allEmpty。
+    page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
+    expect(page.data.stepAxis[0].allEmpty).toBe(true)
+    expect(page.data.stepAxis[0].color).toBe('') // 空串 → WXML 不下发内联色，走 CSS 灰环
   })
 
   // 颜色弹层（#33）。
@@ -1006,12 +1088,14 @@ describe('pin-detail 页（#27）', () => {
     setCurrentBleClient(client)
     const page = load(0)
     // 连续三次参数改动（亮度 10 → 20 → 30），每次间隔 200ms < 防抖窗口。
-    const brightFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'brightness')
-    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '10' } })
-    jest.advanceTimersByTime(200)
-    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '20' } })
-    jest.advanceTimersByTime(200)
-    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: brightFi } }, detail: { value: '30' } })
+    // 刻度轴拖动期间 silent，松手各落一次盘——三次都落在同一个防抖窗口内。
+    page.onToggleGauge({ currentTarget: { dataset: { si: 0, li: 0, name: 'brightness', kind: 'param' } } })
+    page._gaugeRect = { left: 0, width: 255 }
+    for (const v of [10, 20, 30]) {
+      page.onGaugeTouchMove({ touches: [{ clientX: v }] })
+      page.onGaugeTouchEnd()
+      jest.advanceTimersByTime(200)
+    }
     jest.advanceTimersByTime(500)
     await flush()
 
@@ -1096,34 +1180,20 @@ describe('pin-detail 页（#27）', () => {
     jest.useRealTimers()
   })
 
-  test('点空槽卡片：就地新建该槽图层，不打开配置弹窗', () => {
+  test('点空槽：就地新建该槽图层', () => {
     const page = load(0)
     expect(page.data.groups[0].steps[0].layers[1].empty).toBe(true)
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 1 } } })
+    page.onLayerCardTap({ currentTarget: { dataset: { si: 0, li: 1 } } })
     expect(page.data.groups[0].steps[0].layers[1].empty).toBe(false)
     expect(page.data.groups[0].steps[0].layers[1].role).toBe('动效')
-    expect(page.data.layerEditorOpen).toBe(false)
   })
 
-  test('预览与时间轴：空槽不参与合成，两格都空时预览无图层', () => {
+  test('时间轴左轴：两格都删空 → 节点标记 allEmpty 且退灰', () => {
     const page = load(0)
-    // 只有背景槽 → 预览 1 层。
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    expect(page.data.previewLayerCount).toBe(1)
-    page.onCloseLayerEditor()
-
-    // 两格都删空 → 预览 0 层，时间轴该阶段无子条。
     page.onDeleteLayer({ currentTarget: { dataset: { si: 0, li: 0 } } })
     expect(page.data.groups[0].steps[0].layers.every((l) => l.empty)).toBe(true)
-    expect(page.data.timeline[0].layers).toHaveLength(0)
-    expect(page.data.timelineLegend).toHaveLength(0)
-  })
-
-  test('空闲槽补图层后预览层数增加', () => {
-    const page = load(0)
-    page.onAddLayer({ currentTarget: { dataset: { si: 0, slot: 1 } } })
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    expect(page.data.previewLayerCount).toBe(2)
+    expect(page.data.stepAxis[0].allEmpty).toBe(true)
+    expect(page.data.stepAxis[0].color).toBe('')
   })
 
   test('自动推送：校验失败（终点 < 起点）静默跳过，不写 Storage、不下发', async () => {
@@ -1197,49 +1267,38 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.configured).toBeUndefined()
   })
 
-  // ---- 图表（时间轴 / 渐变色带 / 波形） ---------------------------------------
+  // ---- 图表（时间轴左轴 / 渐变色带 / 波形） -----------------------------------
 
-  test('时间轴：加载后按 duration 生成归一化段，总时长与图例正确', () => {
+  test('时间轴左轴：加载后只有一段，起始 0s、总时长 = 该段时长', () => {
     const page = load(0)
     // 默认 1 阶段 5s。
-    expect(page.data.timeline).toHaveLength(1)
-    expect(page.data.timeline[0].x).toBe(0)
-    expect(page.data.timeline[0].w).toBeCloseTo(1, 5)
-    expect(page.data.timelineTotal).toBe(5)
-    expect(page.data.timeline[0].active).toBe(true)
-    expect(page.data.timelineLegend).toHaveLength(1)
-    expect(page.data.timelineLegend[0].name).toBe('常亮')
+    expect(page.data.stepAxis).toHaveLength(1)
+    expect(page.data.stepAxis[0].startAt).toBe(0)
+    expect(page.data.stepsTotal).toBe(5)
   })
 
-  test('时间轴：新增阶段与改时长后段宽按比例重算', () => {
+  test('时间轴左轴：新增阶段与改时长后起始时刻/总时长重算', () => {
     const page = load(0)
     page.onAddStep() // 阶段一 5s + 阶段二 5s
-    expect(page.data.timeline).toHaveLength(2)
-    expect(page.data.timeline[0].w).toBeCloseTo(0.5, 5)
-    expect(page.data.timelineTotal).toBe(10)
-    // 阶段二改成 15s → 5/20 与 15/20
-    page.onDurationChange({ currentTarget: { dataset: { si: 1 } }, detail: { value: 15 } })
-    expect(page.data.timeline[0].w).toBeCloseTo(0.25, 5)
-    expect(page.data.timeline[1].w).toBeCloseTo(0.75, 5)
-    expect(page.data.timelineTotal).toBe(20)
+    expect(page.data.stepAxis.map((a) => a.startAt)).toEqual([0, 5])
+    expect(page.data.stepsTotal).toBe(10)
+    // 阶段二改成 15s → 起点不动，总时长 20s。
+    setDuration(page, 1, 15)
+    expect(page.data.stepAxis.map((a) => a.startAt)).toEqual([0, 5])
+    expect(page.data.stepsTotal).toBe(20)
+    // 首段改成 2s → 第二段起点随之前移。
+    setDuration(page, 0, 2)
+    expect(page.data.stepAxis.map((a) => a.startAt)).toEqual([0, 2])
+    expect(page.data.stepsTotal).toBe(17)
   })
 
-  test('时间轴：选中阶段高亮切换；切组后用新组的阶段重建', () => {
-    const page = load(0)
-    page.onAddStep()
-    expect(page.data.timeline[0].active).toBe(false)
-    expect(page.data.timeline[1].active).toBe(true) // 新增后选中新阶段 si=1
-    page.onSelectStage({ currentTarget: { dataset: { si: 0 } } })
-    expect(page.data.timeline[0].active).toBe(true)
-    expect(page.data.timeline[1].active).toBe(false)
-  })
-
-  test('时间轴：切组后重建（不同组阶段数不同）', () => {
+  test('时间轴左轴：切换灯组后按新组的阶段重建', () => {
     const page = load(0)
     page.onAddStep() // 组 0 变 2 阶段
-    expect(page.data.timeline).toHaveLength(2)
+    expect(page.data.stepAxis).toHaveLength(2)
     page.onGroupPick({ detail: { value: 1 } }) // 组 1 仍是默认 1 阶段
-    expect(page.data.timeline).toHaveLength(1)
+    expect(page.data.stepAxis).toHaveLength(1)
+    expect(page.data.stepsTotal).toBe(5)
   })
 
   test('渐变色带：彩虹有渐变、常亮无', () => {
@@ -1250,157 +1309,4 @@ describe('pin-detail 页（#27）', () => {
     expect(page.data.groups[0].steps[0].layers[0].gradientCss).toContain('linear-gradient')
   })
 
-  test('3D 预览：打开弹窗后装配预览数据（灯效参数/灯珠数/长条几何）', () => {
-    const page = load(0)
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    expect(page._previewLayers).toHaveLength(1)
-    expect(page._previewLayers[0].effect).toBe(EFF.SOLID)
-    expect(page._previewLayers[0].params.brightness).toBe(128)
-    // 默认灯组未配灯珠 → 示意长度
-    expect(page._previewLeds).toBe(24)
-    expect(page.data.previewLeds).toBe(24)
-    expect(page._previewGeometry).toHaveLength(24)
-    expect(page._previewGeometry[0]).toHaveProperty('x')
-  })
-
-  test('3D 预览：灯珠数跟随灯组区间，改参数后渲染数据跟着变', () => {
-    const page = load(0)
-    // 直接给灯组配 10 颗灯珠（[0,9]），预览灯带长度随之变化。
-    page.setData({
-      groups: page.data.groups.map((g, i) => (i ? g : Object.assign({}, g, { ledStart: 0, ledEnd: 9 }))),
-    })
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    expect(page._previewLeds).toBe(10)
-    expect(page.data.previewLeds).toBe(10)
-    expect(page._previewGeometry).toHaveLength(10)
-    const before = page._previewLayers[0].params.brightness
-    const briFi = page.data.groups[0].steps[0].layers[0].fields.findIndex((f) => f.name === 'brightness')
-    page.onParamChange({ currentTarget: { dataset: { si: 0, li: 0, fi: briFi } }, detail: { value: 200 } })
-    expect(page._previewLayers[0].params.brightness).toBe(200)
-    expect(page._previewLayers[0].params.brightness).not.toBe(before)
-  })
-
-  test('3D 预览：切换灯效后预览目标跟随新灯效', () => {
-    const page = load(0)
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    expect(page._previewLayers[0].effect).toBe(EFF.SOLID)
-    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 0 } }, detail: { value: 4 } }) // 彩虹
-    expect(page._previewLayers[0].effect).toBe(EFF.RAINBOW)
-  })
-
-  test('3D 预览：按阶段整体合成——双图层都进入预览', () => {
-    const page = load(0)
-    page.onAddLayer({ currentTarget: { dataset: { si: 0 } } })
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 1 } } })
-    expect(page._previewLayers).toHaveLength(2)
-    expect(page.data.previewLayerCount).toBe(2)
-    // 改动效层（图层 2）灯效后，背景层参数仍独立保留在预览里。
-    // 注意 detail.value 是下拉下标（0 起），对应 EFF id = 下标 + 1。
-    page.onEffectChange({ currentTarget: { dataset: { si: 0, li: 1 } }, detail: { value: EFF.BREATH - 1 } }) // 呼吸
-    expect(page._previewLayers[0].effect).toBe(EFF.SOLID) // 背景仍是常亮
-    expect(page._previewLayers[1].effect).toBe(EFF.BREATH)
-  })
-
-  test('3D 预览：关闭弹窗/切后台停掉动画循环', () => {
-    const page = load(0)
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    page._stopPreviewLoop = jest.fn(page._stopPreviewLoop)
-    page.onCloseLayerEditor()
-    expect(page._stopPreviewLoop).toHaveBeenCalled()
-    expect(page.data.layerEditorOpen).toBe(false)
-  })
-
-  test('3D 预览：拖动旋转改角度并限位俯仰', () => {
-    const page = load(0)
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    const yaw0 = page._previewYaw
-    page.onPreviewTouchStart({ touches: [{ clientX: 0, clientY: 0 }] })
-    page.onPreviewTouchMove({ touches: [{ clientX: 40, clientY: 0 }] })
-    expect(page._previewYaw).not.toBe(yaw0)
-    page.onPreviewTouchMove({ touches: [{ clientX: 40, clientY: 5000 }] })
-    expect(page._previewPitch).toBeLessThanOrEqual(1.1)
-    expect(page._previewPitch).toBeGreaterThanOrEqual(-1.1)
-    page.onPreviewTouchEnd()
-    expect(page._previewDragging).toBe(false)
-  })
-
-  test('3D 预览：切后台停动画，回前台重取节点并恢复', () => {
-    const page = load(0)
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    page._previewRunning = true
-    page.onHide()
-    expect(page._previewRunning).toBe(false)
-    const drawn = jest.fn()
-    page._drawEffectPreview = drawn
-    page.onShow()
-    // 弹窗开着 → 回前台重取 canvas 节点（内部会重启动画循环）。
-    return Promise.resolve().then(() => expect(drawn).toHaveBeenCalled())
-  })
-
-  test('3D 预览：弹窗关闭时 onShow 不重绘', () => {
-    const page = load(0)
-    const drawn = jest.fn()
-    page._drawEffectPreview = drawn
-    page.onShow()
-    return Promise.resolve().then(() => expect(drawn).not.toHaveBeenCalled())
-  })
-
-  test('3D 预览：渲染单帧画出灯条板身与灯珠（深度排序 + 合成两层）', () => {
-    const page = load(0)
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    const arcs = []
-    const path = []
-    const ctx = {
-      setTransform: jest.fn(),
-      clearRect: jest.fn(),
-      beginPath: jest.fn(() => path.push('begin')),
-      moveTo: jest.fn(),
-      lineTo: jest.fn(),
-      closePath: jest.fn(),
-      stroke: jest.fn(),
-      arc: (x, y, r) => arcs.push({ x, y, r }),
-      fill: jest.fn(),
-      set fillStyle(v) { this._fill = v },
-      get fillStyle() { return this._fill },
-      set strokeStyle(v) { this._stroke = v },
-      get strokeStyle() { return this._stroke },
-      set lineWidth(v) { this._lw = v },
-      get lineWidth() { return this._lw },
-      globalCompositeOperation: 'source-over',
-    }
-    page._previewCanvas = { canvas: {}, ctx, w: 300, h: 160, dpr: 2 }
-    page._renderPreviewFrame()
-    // 灯条板身先成形（一条闭合路径 + 描边），灯珠随后叠在条上。
-    expect(path.length).toBeGreaterThanOrEqual(2) // 板身 + 每颗灯珠各一次 beginPath
-    expect(ctx.stroke).toHaveBeenCalled()
-    // 常亮 → 每颗灯珠都画了光晕 + 灯芯两个圆。
-    expect(arcs.length).toBeGreaterThanOrEqual(page._previewLeds * 2)
-    for (const a of arcs) {
-      expect(a.x).toBeGreaterThan(0)
-      expect(a.x).toBeLessThan(300)
-      expect(a.y).toBeGreaterThan(0)
-      expect(a.y).toBeLessThan(160)
-    }
-    // 加色混合用完恢复为 normal，避免影响后续绘制。
-    expect(ctx.globalCompositeOperation).toBe('source-over')
-  })
-
-  test('3D 预览：灯条是横向长条（宽远大于高）', () => {
-    const page = load(0)
-    page.onOpenLayerEditor({ currentTarget: { dataset: { si: 0, li: 0 } } })
-    const pts = page._previewGeometry
-    const out = require('../utils/effectPreview').projectPoints(pts, {
-      width: 300,
-      height: 160,
-      yaw: 0,
-      pitch: 0,
-      yawRange: 0.85,
-      pitchRange: 0.55,
-    })
-    const xs = out.map((p) => p.x)
-    const ys = out.map((p) => p.y)
-    const w = Math.max(...xs) - Math.min(...xs)
-    const hgt = Math.max(...ys) - Math.min(...ys)
-    expect(w).toBeGreaterThan(hgt * 5) // 长条而非方块/螺旋
-  })
 })

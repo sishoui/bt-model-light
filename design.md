@@ -12,7 +12,7 @@
 2. **层级三层**：页面底 `bg` → 卡片 `bg-elevated` → 卡内凹陷块 `bg-sunken`。任何"再套一层"的容器都在下一档底色上，不叠边框。
 3. **同心圆角**：卡片 32rpx / 卡内块 20rpx / 胶囊 999rpx。嵌套时内层半径 = 外层半径 − 内边距，视觉上"嵌入"而非"摆放"。
 4. **图标胶囊**：快捷入口与设置行一律「浅 tint 底圆形 + 线性图标」，激活态为「实心品牌色 + 白图标」。图标用纯 CSS 几何绘制，不用图标字体/图片（避免包体与 Android 缺字）。
-5. **克制动效**：过渡一律 `0.25s ease-out`；按压 `scale(0.975) + opacity 0.85`。禁止滚动驱动动画、弹簧物理、`@keyframes`（分段条入场 fade 是唯一例外）。
+5. **克制动效**：过渡一律 `0.25s ease-out`；按压 `scale(0.975) + opacity 0.85`。禁止滚动驱动动画、弹簧物理、`@keyframes`（时间轴新段入场 fade 是唯一例外）。
 6. **零硬编码颜色**：颜色一律走语义 token（第 3 节）。页面 wxss 不写 hex；wxml 内联属性（switch/slider 的 `color`）与 `app.json` 配色从 token 同源取值。
 7. **渐进增强**：毛玻璃只用于功能层（悬浮 Dock、浮层提示）。`backdrop-filter` 不生效时走的降级纯色是一等公民，不是妥协。
 
@@ -98,7 +98,7 @@
 
 | token | 值 | 用途 |
 |---|---|---|
-| `--bt-radius-card` | `32rpx` | 卡片、舞台、分段条容器、弹层 |
+| `--bt-radius-card` | `32rpx` | 卡片、舞台、时间轴段卡、弹层 |
 | `--bt-radius-inner` | `20rpx` | 卡内块（媒体区、输入框、色块、次级按钮） |
 | `--bt-radius-pill` | `999rpx` | 按钮、胶囊、药丸容器、Dock |
 
@@ -191,7 +191,12 @@
 
 - 单列白卡列表，无舞台柔光。
 - **device-list**：方形媒体区 + 卡内信息行（名称 / 设备 ID / 解绑弱化红胶囊）。浮层只留「使用中」accent 胶囊与在线/离线白底半透明胶囊。
-- **pin-detail**：顶部信息卡（图 + 名称 + 引脚号/开关 + 药丸灯组选择与「配置」）→ 阶段分段条（白卡容器，段间 1rpx 极淡分隔，激活段 accent-soft）→ 时间轴甘特（白卡 + 内凹轨道）→ 阶段详情气泡卡（三角箭头指向当前段）→ 图层双槽卡（`bg-sunken` 底 + 20rpx 圆角，空槽虚线 accent-soft）。
+- **pin-detail**：顶部信息卡（图 + 名称 + 引脚号/开关 + 药丸灯组选择与「配置」）→ 阶段标题行（标题 + 总时长 + 圆形「＋」）→ **竖向时间轴**：左列细轴（每段起始秒 + **时长圆点**（环内为秒数，环色取该段首个灯效主题色）+ 竖向连线），右侧每段一张白卡；卡头为序号胶囊 + 名称输入 + ↑↓ 排序 + 删除。
+  - **阶段时长只在左轴圆点上改**：点圆点在卡片下方展开时长刻度轴；卡片内不再有时长滑块。
+  - **图层纵向一列**（`bg-sunken` 底 + 20rpx 圆角，空槽虚线 accent-soft）。卡头是「图层 N · 角色」+ 灯效名（原生 `picker` 换灯效）+ 删除；下面一排参数圆环。
+  - **参数圆环**：每个可调参数一枚 64rpx 细边环（2rpx 环宽，`conic-gradient` 画进度，内层 2rpx 内缩挖空），环内居中放该参数的极简线条图标（28rpx 画框，纯 CSS 伪元素 + `currentColor`，见 `app.wxss` 的 `bt-ico` 同风格），环下两行小字（名称 / 值）。环长 = 值占量程比例。rgb 参数改实心色盘圆点（点开颜色弹层），不放图标。
+  - **刻度轴**：点任意圆环在该卡片下方展开（同一时刻只开一个，再点收起）。轨道是 2rpx 细线 + 刻度点 + 白色细边手柄，横向拖动按「格」量化改值；拖动中圆环进度实时跟随，松手才落盘下发。枚举参数按档位分格，刻度文字换成选项名。
+  - 列表顺序即播放顺序，所有阶段同屏展开，无选中态。过渡/循环两项目前**无 UI 入口**（数据模型与协议字段保留，老配置原样透传）。
 - 弹层统一：40rpx 圆角、`--bt-shadow-raised`、遮罩 `rgba(17,24,39,.4)`、右上圆形灰底关闭钮。
 
 ### 6.3 设置页范式：`profile`（我的 Tab）
@@ -205,19 +210,19 @@
 
 **不引入第三方图表库**（包体 + 风格统一），图表一律"纯函数算数据 + 原生渲染"两步：
 
-- 数据层：`utils/chartHelpers.js`（无 wx/BLE 依赖，Jest 覆盖）。含 `layerGradientCss`、`buildTimeline`、`aggregateErrorLog`、`pushBrightnessHistory`/`loadBrightnessHistory`、`createRssiSampler`。
-- 灯效可视化数据层：`utils/effectPreview.js`（纯函数）——`effectPixel`/`renderStrip` 逐灯珠渲染（规则镜像固件 `effects.cpp`，时间单位 10ms tick），`stripPoints`/`projectPoints` 做长条排布与透视投影。
+- 数据层：`utils/chartHelpers.js`（无 wx/BLE 依赖，Jest 覆盖）。含 `layerGradientCss`、`effectColor`、`aggregateErrorLog`、`pushBrightnessHistory`/`loadBrightnessHistory`、`createRssiSampler`。
 - 渲染分三档：
   - **纯 CSS**（优先）：柱状图、渐变色带、进度区间。零成本、可深色、无 DPR 问题。
   - **canvas 2d**：`<canvas type="2d">` + `createSelectorQuery().fields({node:true,size:true})`，必须按 `pixelRatio` 缩放（否则真机模糊）。
   - **不用 canvas**：简单分段用 view + 百分比定位。
 - 配色：图表数据色取灯效主题色 `EFFECT_COLORS`；网格/轴标签用 `label-*` / `separator`；主数据色用 `accent`。canvas 内无法读 CSS 变量，须写与 token 同源的 rgba 字面量（**这是唯一允许写 hex/rgba 的地方，且必须注释同源**）。
-- 尺寸：迷你图 48–120rpx，3D 灯效预览 220rpx（宽扁长条）；轴标签 20–22rpx tertiary；空数据不画图（不留空壳容器）。
+- 尺寸：迷你图 48–120rpx；参数圆环 64rpx；刻度轴轨道触摸区 88rpx（视觉细线在垂直中线）；轴标签 20–22rpx tertiary；空数据不画图（不留空壳容器）。
 
 | 页面 | 图表 | 类型 | 数据源 |
 |---|---|---|---|
-| pin-detail | 阶段时间轴（泳道甘特，含图层子条 + 过渡斜纹） | CSS 定位 | `buildTimeline(steps)` |
-| pin-detail | 3D 灯效预览（图层弹窗内，可拖动旋转） | canvas 2d | `renderStageStrip` + `stripPoints` + `projectPoints` |
+| pin-detail | 竖向时间轴左轴（起始秒 + 时长圆点 + 连线） | CSS | 页面 `_refreshStepAxis()`（`effectColor`） |
+| pin-detail | 参数圆环进度（环长 = 值占量程比例） | CSS conic-gradient | 字段 `ring`（`ringPercent`） |
+| pin-detail | 刻度轴（刻度点 + 已选区间 + 手柄） | CSS 定位 | `buildGaugeTicks` / `gaugeRatioOf` |
 | pin-detail | 图层卡渐变色带 | CSS gradient | `layerGradientCss(effect, fields)` |
 | home | 亮度竖条（方块↔长条，纯 CSS 高度过渡，无 canvas） | CSS | `brightness` / `brightnessPercent` / `brightnessExpanded` |
 | profile | 近 7 天错误分布柱状图（日志弹层内） | CSS 柱 | `aggregateErrorLog(error_log, 7)` |
@@ -232,7 +237,8 @@
 | 通用过渡（颜色/背景/圆角/位移） | `transition: 0.25s ease-out`（写具体属性，不裸 `all`） |
 | 按压反馈 | `scale(0.975)` + `opacity 0.85`，0.25s |
 | 弹层出现 | 无入场动画（瞬时显示）；只对内部数值做过渡（进度条 width 0.2s） |
-| 分段条新增段 | 唯一 `@keyframes`：`stage-seg-in` fade 0.22s |
+| 时间轴新增段 | 唯一 `@keyframes`：`tl-card-in` fade 0.22s |
+| 圆环展开/收起 | 只描边高亮（`box-shadow` 2rpx accent-soft-2）+ 图标转品牌色，0.25s——**不放大、不染内圈**（进度弧配染盘会被读成扇形） |
 | 触感 | 仅关键操作（保存成功、连接成功、删除设备）：`wx.vibrateShort({ type: 'light' })` |
 | 禁止 | 滚动驱动动画、视差、弹簧物理、>0.4s 过渡 |
 

@@ -1,6 +1,8 @@
 <!-- 引脚配置详情页（ADR-0027 / #27 / T7；灯珠拖选 #31；design.md §7.3 工具页范式）。
-     顶部信息卡（图/名称/开关 + 药丸灯组选择）→ 阶段分段条 / 时间轴 → 阶段详情气泡卡（图层双槽）。
-     修改即推送（autoSync 防抖下发），无保存按钮。 -->
+     顶部信息卡（图/名称/开关 + 药丸灯组选择）→ 竖向时间轴（左轴圆点管时长，
+     右侧每段一张卡片）。卡片里图层纵向排列，每个可调参数是一枚细边圆环：
+     环长 = 当前值比例，点开在该卡片下方展开刻度轴拖动改值（环同步走）。
+     列表顺序即播放顺序，段内 ↑↓ 调整先后。修改即推送（autoSync 防抖下发），无保存按钮。 -->
 <view class="page">
   <sim-banner wx:if="{{simMode}}" />
 
@@ -57,170 +59,208 @@
   <!-- 灯珠范围拖选：长按 1s 激活刷选；被其他灯组占用的格灰显不可选；
        拖选时全屏半透明覆盖层 fixed 屏幕下方（微信语音取消样式），拖入松手回滚。 -->
   <block wx:if="{{groups.length}}">
-  <!-- 阶段标题 + 添加（＋ 在标题右侧，满 5 禁用）；下方圆形节点步进条撑满居中 -->
+  <!-- 阶段标题行：标题 + 总时长 + 添加（＋ 在右侧，满 stepsPerGroupMax 禁用） -->
   <view class="stage-head">
     <text class="stage-head__title">阶段</text>
+    <text class="stage-head__total">共 {{stepsTotal}}s</text>
     <view
       class="stage-add {{groups[activeGroup].steps.length >= stepsPerGroupMax ? 'stage-add--disabled' : ''}} bt-pressable"
       bindtap="onAddStep"
     >＋</view>
   </view>
-  <scroll-view class="stage-bar__scroll" scroll-x enhanced show-scrollbar="{{false}}">
-    <view class="stage-inner">
-      <block wx:for="{{groups[activeGroup].steps}}" wx:key="sid" wx:for-item="step" wx:for-index="si">
-        <view
-          class="stage-seg {{activeStepSi === si ? 'stage-seg--active' : ''}} {{dragIndex === si ? 'stage-seg--drag' : ''}} {{enterIndex === si ? 'stage-seg--enter' : ''}}"
-          style="width: {{segW[si] || 0}}rpx; transform: translateX({{offsets[si] || 0}}px);"
-          data-si="{{si}}"
-          bindtap="onSelectStage"
-          bindlongpress="onStageLongPress"
-          catchtouchmove="onStageTouchMove"
-          bindtouchend="onStageTouchEnd"
-          bindtouchcancel="onStageTouchEnd"
-        >
-          <text class="stage-seg__num">{{si + 1}}</text>
-          <text class="stage-seg__name">{{step.name}}</text>
-          <text class="stage-seg__info">{{step.duration}}s</text>
-        </view>
-      </block>
-    </view>
-  </scroll-view>
 
-  <!-- 阶段时间轴图（泳道甘特）：按 duration 比例的总时长条 + 每段内图层子条 +
-       过渡斜纹区间。与上方分段条互补：分段条管选中/拖排序，这里看整体节奏构成。 -->
-  <view wx:if="{{timeline.length}}" class="timeline">
-    <view class="timeline__head">
-      <text class="timeline__title">时间轴</text>
-      <text class="timeline__total">{{timelineTotal}}s · {{timeline.length}} 阶段</text>
-    </view>
-    <view class="timeline__track">
-      <view
-        wx:for="{{timeline}}"
-        wx:key="si"
-        wx:for-item="seg"
-        class="timeline__seg {{seg.active ? 'timeline__seg--active' : ''}}"
-        style="left: {{seg.x * 100}}%; width: {{seg.w * 100}}%;"
-        data-si="{{seg.si}}"
-        bindtap="onSelectStage"
-      >
-        <!-- 段内图层子条：每层一条横条，颜色取灯效主题色 -->
-        <view class="timeline__layers">
-          <view
-            wx:for="{{seg.layers}}"
-            wx:key="li"
-            wx:for-item="ly"
-            class="timeline__layer"
-            style="background-color: {{ly.color}}; width: {{100 / seg.layers.length}}%;"
-          ></view>
-        </view>
-        <!-- 过渡区间：段尾斜纹（可选过渡/循环模式时出现） -->
+  <!-- 竖向时间轴：左列是轴（圆点 = 阶段时长，点它展开时长刻度轴；环色 = 该段首个
+       灯效主题色），右侧每段一张卡片。列表顺序即播放顺序，↑↓ 调整先后。
+       卡片里的图层纵向排列，每个可调参数是一枚细边圆环：环长 = 当前值比例，
+       点开后在该卡片下方展开刻度轴，拖轴实时改值（环同步走）。 -->
+  <view class="timeline">
+    <view
+      wx:for="{{groups[activeGroup].steps}}"
+      wx:key="sid"
+      wx:for-item="step"
+      wx:for-index="si"
+      class="tl-row"
+    >
+      <!-- 左轴：起始时刻 + 时长圆点 + 连线（末段不画线） -->
+      <view class="tl-axis">
+        <text class="tl-axis__time">{{stepAxis[si].startAt}}s</text>
         <view
-          wx:if="{{seg.transW > 0}}"
-          class="timeline__trans"
-          style="left: {{(seg.transX - seg.x) / seg.w * 100}}%; width: {{seg.transW / seg.w * 100}}%;"
-        ></view>
-        <text class="timeline__label">{{seg.duration}}s</text>
+          class="tl-axis__dot {{gauge && gauge.kind === 'duration' && gauge.si === si ? 'tl-axis__dot--on' : ''}}"
+          style="{{stepAxis[si].color ? 'border-color: ' + stepAxis[si].color + ';' : ''}}"
+          data-si="{{si}}"
+          data-kind="duration"
+          bindtap="onToggleGauge"
+        ><text class="tl-axis__duration">{{step.duration}}</text></view>
+        <view wx:if="{{si < groups[activeGroup].steps.length - 1}}" class="tl-axis__line"></view>
       </view>
-    </view>
-    <!-- 图例：当前灯组用到的灯效 -->
-    <view wx:if="{{timelineLegend.length}}" class="timeline__legend">
-      <view wx:for="{{timelineLegend}}" wx:key="effect" class="timeline__legend-item">
-        <view class="timeline__legend-dot" style="background-color: {{item.color}};"></view>
-        <text class="timeline__legend-text">{{item.name}}</text>
+
+      <view class="tl-card {{enterIndex === si ? 'tl-card--enter' : ''}}">
+        <!-- 卡头：序号 + 名称输入 + 上移/下移 + 删除阶段（仅 1 段时不给删） -->
+        <view class="tl-card__head">
+          <text class="tl-card__no">{{si + 1}}</text>
+          <input
+            class="tl-card__name"
+            value="{{step.name}}"
+            placeholder="阶段名称"
+            placeholder-class="pin-head__placeholder"
+            data-si="{{si}}"
+            bindinput="onStageNameInput"
+          />
+          <view
+            class="tl-card__move {{si === 0 ? 'tl-card__move--off' : ''}}"
+            data-si="{{si}}"
+            data-dir="-1"
+            catchtap="onMoveStep"
+          >↑</view>
+          <view
+            class="tl-card__move {{si === groups[activeGroup].steps.length - 1 ? 'tl-card__move--off' : ''}}"
+            data-si="{{si}}"
+            data-dir="1"
+            catchtap="onMoveStep"
+          >↓</view>
+          <view
+            wx:if="{{groups[activeGroup].steps.length > 1}}"
+            class="tl-card__del"
+            data-si="{{si}}"
+            catchtap="onDeleteStep"
+          >✕</view>
+        </view>
+
+        <!-- 图层：纵向一列（背景 / 动效固定两槽）。卡头显示灯效名（点它换灯效），
+             下面一排圆环是该灯效的可调参数：环长 = 值占量程比例，没有弹窗。
+             空槽显示「＋ 添加」，点它在该槽位新建；删完回到空槽，另一格原位不动；
+             两格都空 = 该阶段不亮（ADR-0033）。 -->
+        <view class="layer-list">
+          <view
+            wx:for="{{step.layers}}"
+            wx:key="lid"
+            wx:for-item="layer"
+            wx:for-index="li"
+            class="layer-row {{layer.empty ? 'layer-row--empty' : ''}}"
+          >
+            <view class="layer-row__head">
+              <text class="layer-row__title">图层 {{li + 1}} · {{layer.role}}</text>
+              <!-- 灯效名：点它弹系统选择器换灯效（不占页面空间） -->
+              <!-- 灯效名：原生 picker 换灯效（8 种，超过 showActionSheet 的 6 项上限） -->
+              <picker
+                wx:if="{{!layer.empty}}"
+                class="layer-row__effect"
+                mode="selector"
+                range="{{effectNames}}"
+                data-si="{{si}}"
+                data-li="{{li}}"
+                bindchange="onEffectChange"
+              >
+                <view class="layer-row__effect-inner bt-pressable">
+                  <text>{{layer.effectName}}</text>
+                  <text class="layer-row__caret">▾</text>
+                </view>
+              </picker>
+              <view
+                wx:if="{{!layer.empty}}"
+                class="layer-row__del bt-pressable"
+                data-si="{{si}}"
+                data-li="{{li}}"
+                catchtap="onDeleteLayer"
+              >✕</view>
+            </view>
+
+            <view wx:if="{{layer.empty}}" class="layer-row__empty bt-pressable" data-si="{{si}}" data-li="{{li}}" data-slot="{{li}}" bindtap="onLayerCardTap">
+              <text class="layer-row__plus">＋</text>
+              <text class="layer-row__add-text">添加{{layer.role}}</text>
+            </view>
+
+            <block wx:else>
+              <!-- 圆环行：rgb 参数是实心色盘（点开颜色弹层），其余参数是细边进度环 -->
+              <view class="ring-row">
+                <view
+                  wx:for="{{layer.fields}}"
+                  wx:key="name"
+                  wx:for-item="fld"
+                  class="ring-item"
+                >
+                  <block wx:if="{{fld.type === 'rgb'}}">
+                    <view
+                      class="ring-item__dot {{gauge && gauge.si === si && gauge.li === li && gauge.name === fld.name ? 'ring-item__dot--on' : ''}}"
+                      style="background-color: {{fld.hex}};"
+                      data-si="{{si}}"
+                      data-li="{{li}}"
+                      data-fi="{{index}}"
+                      bindtap="onOpenColorPicker"
+                    ></view>
+                    <text class="ring-item__label">{{fld.label}}</text>
+                    <text class="ring-item__value">{{fld.hex}}</text>
+                  </block>
+                  <block wx:else>
+                    <!-- 细边圆环：conic-gradient 画进度（环长 = 值比例），内层挖空成环，
+                         洞里放该参数的极简线条图标。点击只描边高亮，不染内圈——
+                         否则进度弧 + 染色圆盘会被读成"扇形"。 -->
+                    <view
+                      class="ring-item__ring {{gauge && gauge.si === si && gauge.li === li && gauge.name === fld.name ? 'ring-item__ring--on' : ''}}"
+                      style="background: conic-gradient(var(--bt-color-accent) {{fld.ring}}%, var(--bt-color-gray-5) 0);"
+                      data-si="{{si}}"
+                      data-li="{{li}}"
+                      data-name="{{fld.name}}"
+                      data-kind="param"
+                      bindtap="onToggleGauge"
+                    >
+                      <view class="ring-item__hole">
+                        <view class="bt-ico bt-ico--p-{{fld.icon}}"></view>
+                      </view>
+                    </view>
+                    <text class="ring-item__label">{{fld.label}}</text>
+                    <text class="ring-item__value">{{fld.valueText}}</text>
+                  </block>
+                </view>
+              </view>
+
+              <!-- 渐变色带：多色灯效（彩虹/双色渐变/流星等）一眼可见；单色灯效不显示 -->
+              <view
+                wx:if="{{layer.gradientCss}}"
+                class="layer-row__gradient"
+                style="background-image: {{layer.gradientCss}};"
+              ></view>
+            </block>
+          </view>
+        </view>
+
+        <!-- 刻度轴：只在持有它的卡片内出现。横向拖动改值，圆环进度实时跟随。 -->
+        <view wx:if="{{gauge && gauge.si === si}}" class="gauge">
+          <view class="gauge__head">
+            <text class="gauge__label">{{gauge.label}}</text>
+            <text class="gauge__value">{{gauge.valueText}}</text>
+          </view>
+          <view
+            class="gauge__track"
+            bindtouchstart="onGaugeTouchStart"
+            catchtouchmove="onGaugeTouchMove"
+            bindtouchend="onGaugeTouchEnd"
+            bindtouchcancel="onGaugeTouchEnd"
+          >
+            <!-- 刻度点 / 档位文字 -->
+            <view
+              wx:for="{{gauge.ticks}}"
+              wx:key="ratio"
+              wx:for-item="tick"
+              class="gauge__tick"
+              style="left: {{tick.ratio * 100}}%;"
+            >
+              <view class="gauge__tick-mark"></view>
+              <text wx:if="{{tick.label}}" class="gauge__tick-text">{{tick.label}}</text>
+            </view>
+            <!-- 已选区间高亮 -->
+            <view class="gauge__fill" style="width: {{gauge.ratio * 100}}%;"></view>
+            <!-- 手柄 -->
+            <view class="gauge__handle" style="left: {{gauge.ratio * 100}}%;"></view>
+          </view>
+        </view>
+
+        <!-- 两格都空时的提示：该阶段下发后灯珠不亮 -->
+        <text wx:if="{{stepAxis[si].allEmpty}}" class="layer-empty-hint">本阶段没有图层，灯珠不亮</text>
       </view>
     </view>
   </view>
 
-  <!-- 阶段详情气泡卡片：箭头指向当前选中阶段（left 由 JS 按段中心算出） -->
-  <view class="step-bubble" style="--bubble-x: {{bubbleX}}rpx;">
-    <view class="step-bubble__arrow"></view>
-    <view class="step-detail">
-      <view class="step-detail__head">
-        <text class="step-detail__title">{{groups[activeGroup].name}} · {{groups[activeGroup].steps[activeStepSi].name}}</text>
-      </view>
-
-    <view class="row">
-      <text class="row__label">阶段名称</text>
-      <input class="row__input" value="{{groups[activeGroup].steps[activeStepSi].name}}" data-si="{{activeStepSi}}" bindinput="onStageNameInput" />
-    </view>
-
-      <view class="row">
-        <text class="row__label">时长</text>
-        <slider class="row__slider" min="{{1}}" max="{{60}}" step="1" value="{{groups[activeGroup].steps[activeStepSi].duration}}" activeColor="#0088FF" block-size="20" data-si="{{activeStepSi}}" bindchanging="onDurationChanging" bindchange="onDurationChange" />
-        <input class="row__input row__input--num row__slider-input" type="number" value="{{groups[activeGroup].steps[activeStepSi].duration}}" data-si="{{activeStepSi}}" bindinput="onDurationInput" />
-      </view>
-      <view class="row row--two">
-        <view class="row__half">
-          <text class="row__label">过渡</text>
-          <picker class="row__picker" mode="selector" range="{{transitionOptions}}" data-si="{{activeStepSi}}" bindchange="onTransitionChange">
-            <view>{{transitionOptions[groups[activeGroup].steps[activeStepSi].transition]}}</view>
-          </picker>
-        </view>
-        <view class="row__half">
-          <text class="row__label">循环</text>
-          <picker class="row__picker" mode="selector" range="{{loopOptions}}" data-si="{{activeStepSi}}" bindchange="onLoopChange">
-            <view>{{loopOptions[groups[activeGroup].steps[activeStepSi].loopMode]}}</view>
-          </picker>
-        </view>
-      </view>
-
-      <!-- 图层：两列固定槽位卡（背景 / 动效）。占用槽显示灯效/色块/摘要，点开弹窗编辑；
-           空槽显示「＋ 添加」，点它在该槽位新建。每格右下角都带删除，删完该格回到空槽，
-           另一格原位不动；两格都空 = 该阶段不亮（ADR-0033）。 -->
-      <view class="layer-grid">
-        <view
-          wx:for="{{groups[activeGroup].steps[activeStepSi].layers}}"
-          wx:key="lid"
-          wx:for-item="layer"
-          wx:for-index="li"
-          class="layer-card {{layer.empty ? 'layer-card--empty' : ''}} bt-pressable"
-          data-si="{{activeStepSi}}"
-          data-li="{{li}}"
-          data-slot="{{li}}"
-          bindtap="onOpenLayerEditor"
-        >
-          <view class="layer-card__top">
-            <text class="layer-card__title">图层 {{li + 1}} · {{layer.role}}</text>
-            <!-- 右上角删除：catchtap 拦住冒泡，删图层不打开配置弹窗。每个占用槽都有 -->
-            <view
-              wx:if="{{!layer.empty}}"
-              class="layer-card__del bt-pressable"
-              data-si="{{activeStepSi}}"
-              data-li="{{li}}"
-              catchtap="onDeleteLayer"
-            >✕</view>
-          </view>
-          <block wx:if="{{layer.empty}}">
-            <view class="layer-card__empty-body">
-              <text class="layer-card__plus">＋</text>
-              <text class="layer-card__add-text">添加{{layer.role}}</text>
-            </view>
-          </block>
-          <block wx:else>
-            <view class="layer-card__mid">
-              <view
-                class="layer-card__swatch {{layer.swatch ? '' : 'layer-card__swatch--none'}}"
-                style="{{layer.swatch ? 'background-color: ' + layer.swatch + ';' : ''}}"
-              ></view>
-              <text class="layer-card__effect">{{layer.effectName}}</text>
-            </view>
-            <!-- 渐变色带：多色灯效（彩虹/双色渐变/流星等）一眼可见；单色灯效不显示 -->
-            <view
-              wx:if="{{layer.gradientCss}}"
-              class="layer-card__gradient"
-              style="background-image: {{layer.gradientCss}};"
-            ></view>
-            <text class="layer-card__summary">{{layer.summary || '默认参数'}}</text>
-          </block>
-        </view>
-      </view>
-
-      <!-- 两格都空时的提示：该阶段下发后灯珠不亮 -->
-      <text wx:if="{{activeStepEmpty}}" class="layer-empty-hint">本阶段没有图层，灯珠不亮</text>
-    </view>
-
-    <view wx:if="{{groups[activeGroup].steps.length > 1}}" class="del-stage bt-pressable" data-si="{{activeStepSi}}" catchtap="onDeleteStep">删除当前阶段</view>
-    </view>
   </block>
 
   <!-- 颜色弹层：全屏遮罩 + 底部弹板（色轮 + 最近选色） -->
@@ -266,128 +306,6 @@
           ></view>
         </view>
       </view>
-    </view>
-  </view>
-
-  <!-- 图层配置弹窗（点两列卡片打开）：灯效下拉 + schema 参数表单 + 删除图层。
-       颜色弹层 z-index 更高，可在本弹窗之上叠开，选完色回落到本弹窗继续编辑。 -->
-  <view wx:if="{{layerEditorOpen}}" class="layer-editor-mask" catchtouchmove="noop">
-    <view class="layer-editor-backdrop" bindtap="onCloseLayerEditor"></view>
-    <view class="layer-editor-panel">
-      <view class="layer-editor-head">
-        <text class="layer-editor-title">图层 {{layerEditorLi + 1}} · {{groups[activeGroup].steps[layerEditorSi].layers[layerEditorLi].role}} · {{groups[activeGroup].steps[layerEditorSi].layers[layerEditorLi].effectName}}</text>
-        <text class="layer-editor-close" bindtap="onCloseLayerEditor">✕</text>
-      </view>
-
-      <picker class="row__picker layer-editor__effect" mode="selector" range="{{effectNames}}" data-si="{{layerEditorSi}}" data-li="{{layerEditorLi}}" bindchange="onEffectChange">
-        <view>灯效：{{groups[activeGroup].steps[layerEditorSi].layers[layerEditorLi].effectName}}</view>
-      </picker>
-
-      <!-- 3D 灯效预览（canvas 2d）：按当前灯效 + 参数逐灯珠渲染（规则同固件），
-           再投影成一条长条灯条。调参即时重绘，也可拖动旋转查看。 -->
-      <view class="effect3d">
-        <view class="effect3d__head">
-          <text class="effect3d__title">3D 灯效预览</text>
-          <text class="effect3d__hint">{{previewLeds}} 颗 · {{previewLayerCount}} 图层 · 拖动旋转</text>
-        </view>
-        <view
-          class="effect3d__stage"
-          bindtouchstart="onPreviewTouchStart"
-          catchtouchmove="onPreviewTouchMove"
-          bindtouchend="onPreviewTouchEnd"
-          bindtouchcancel="onPreviewTouchEnd"
-        >
-          <canvas
-            type="2d"
-            class="effect3d-canvas"
-            id="effect3d-canvas"
-          ></canvas>
-        </view>
-      </view>
-
-      <!-- 参数表单：按 effect schema 渲染（u8/u16 连续量走滑块，枚举走胶囊，rgb 走色块弹层） -->
-      <view
-        wx:for="{{groups[activeGroup].steps[layerEditorSi].layers[layerEditorLi].fields}}"
-        wx:key="name"
-        wx:for-item="fld"
-        wx:for-index="fi"
-        class="row param"
-      >
-        <text class="row__label">{{fld.label}}</text>
-        <block wx:if="{{fld.type === 'rgb'}}">
-          <view
-            class="color-swatch"
-            style="background-color: {{fld.hex}};"
-            data-si="{{layerEditorSi}}"
-            data-li="{{layerEditorLi}}"
-            data-fi="{{fi}}"
-            bindtap="onOpenColorPicker"
-          ></view>
-        </block>
-        <view
-          wx:elif="{{fld.options}}"
-          class="param-radio"
-          data-si="{{layerEditorSi}}"
-          data-li="{{layerEditorLi}}"
-          data-fi="{{fi}}"
-        >
-          <view
-            wx:for="{{fld.options}}"
-            wx:key="*this"
-            wx:for-item="opt"
-            wx:for-index="oi"
-            class="param-radio__item {{fld.displayValue === oi ? 'param-radio__item--on' : ''}}"
-            data-si="{{layerEditorSi}}"
-            data-li="{{layerEditorLi}}"
-            data-fi="{{fi}}"
-            data-oi="{{oi}}"
-            bindtap="onParamOptionTap"
-          >{{opt}}</view>
-        </view>
-        <block wx:elif="{{fld.slider}}">
-          <slider
-            class="param-slider__bar"
-            min="{{fld.min}}"
-            max="{{fld.max}}"
-            step="1"
-            value="{{fld.value}}"
-            activeColor="#0088FF"
-            block-size="20"
-            data-si="{{layerEditorSi}}"
-            data-li="{{layerEditorLi}}"
-            data-fi="{{fi}}"
-            bindchanging="onParamChanging"
-            bindchange="onParamChange"
-          />
-          <input
-            class="row__input row__input--num row__slider-input"
-            type="number"
-            value="{{fld.value}}"
-            data-si="{{layerEditorSi}}"
-            data-li="{{layerEditorLi}}"
-            data-fi="{{fi}}"
-            bindinput="onParamInput"
-          />
-        </block>
-        <input
-          wx:else
-          class="row__input row__input--num"
-          type="number"
-          value="{{fld.value}}"
-          data-si="{{layerEditorSi}}"
-          data-li="{{layerEditorLi}}"
-          data-fi="{{fi}}"
-          bindinput="onParamInput"
-        />
-      </view>
-
-      <!-- 弹窗内删除：清空该槽位（另一格不受影响）；两格都空后本阶段灯珠不亮 -->
-      <view
-        class="layer-editor__del bt-pressable"
-        data-si="{{layerEditorSi}}"
-        data-li="{{layerEditorLi}}"
-        bindtap="onDeleteLayer"
-      >删除该图层</view>
     </view>
   </view>
 

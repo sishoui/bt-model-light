@@ -1,7 +1,10 @@
 // 引脚配置详情页（ADR-0027 / #27 / T7）。
 //
-// 结构：顶部（图片/名称/开关）+ 灯组 Tab（长按弹配置窗改名称/灯珠范围）
-// + 步骤/图层编辑器 + 灯效下拉 + 参数表单联动（同页）。修改即推送：任何有效改动落盘 Storage 后
+// 结构：顶部（图片/名称/开关）+ 灯组选择（药丸 picker，右侧「配置」改名称/灯珠范围）
+// + 竖向时间轴（左轴圆点管时长，右侧每段一张卡片）。阶段卡片里图层纵向排列，
+// 每个可调参数是一个细边圆环控件：环的进度 = 当前值占量程的比例，点一下在卡片
+// 下方展开刻度轴，拖动刻度轴实时改值（环同步走），松手才下发。
+// 列表顺序即播放顺序，段内 ↑↓ 调整先后。修改即推送：任何有效改动落盘 Storage 后
 // 经 autoSync 防抖下发固件（WRITE_CONFIG + APPLY），无保存按钮。
 // 引脚固定 8 个（硬件不可增删），本页无删除引脚入口。
 //
@@ -16,7 +19,6 @@ const { getRecentColors, pushRecentColor, rgbToHex, hexToRgb, hsvToRgb, rgbToHsv
 const { EFF, EFFECT_PARAMS, LIMITS } = require('../../utils/protocol_gen')
 const autoSync = require('../../utils/autoSync')
 const charts = require('../../utils/chartHelpers')
-const effectPreview = require('../../utils/effectPreview')
 
 // ---- 静态选项（下拉 range / 文案） -------------------------------------------
 
@@ -39,28 +41,52 @@ const EFFECT_OPTIONS = Object.keys(EFF)
   .map((id) => ({ id, label: EFFECT_LABELS[id] || `效果 ${id}` }))
 const EFFECT_NAMES = EFFECT_OPTIONS.map((o) => o.label)
 
-const TRANSITION_OPTIONS = ['无', '淡入淡出', '平滑']
-const LOOP_OPTIONS = ['单次', '循环', '往复']
-
-// 参数名 → 中文标签（表单展示）。
+// 参数名 → 中文标签（圆环下方小字；带单位会让圆环一行拥挤，单位改由刻度轴展示）。
 const PARAM_LABELS = {
   color: '颜色',
-  color2: '第二颜色',
+  color2: '色 2',
   brightness: '亮度',
   speed: '速度',
   direction: '方向',
-  period: '周期(ms)',
+  period: '周期',
   waveform: '波形',
-  on_time: '亮时长(ms)',
-  off_time: '灭时长(ms)',
-  led_count: '灯珠数',
+  on_time: '亮时',
+  off_time: '灭时',
+  led_count: '灯珠',
   gap: '间隔',
   spread: '扩散',
   tail_length: '尾长',
   decay: '衰减',
   mode: '模式',
   pattern: '节奏',
-  step_size: '跳变步长',
+  step_size: '步长',
+}
+
+// 参数名 → 刻度轴上的单位后缀（无单位的不显示）。
+const PARAM_UNITS = {
+  period: 'ms',
+  on_time: 'ms',
+  off_time: 'ms',
+}
+
+// 参数名 → 圆环内的图标类名（纯 CSS 伪元素画的极简线条图形，见 pin-detail.wxss）。
+// 颜色参数不在此列——它是实心色盘，没有环也放不了图标。
+const PARAM_ICONS = {
+  brightness: 'sun',
+  speed: 'speed',
+  direction: 'arrow',
+  period: 'clock',
+  waveform: 'wave',
+  on_time: 'lamp-on',
+  off_time: 'lamp-off',
+  led_count: 'dots',
+  gap: 'gap',
+  spread: 'spread',
+  tail_length: 'tail',
+  decay: 'decay',
+  mode: 'toggle',
+  pattern: 'rhythm',
+  step_size: 'step',
 }
 
 // effect id → schema 名复用 configCodec.effectName（单一真相源，避免重造反向表）。
@@ -78,22 +104,80 @@ function defaultParamValue(p) {
   return p.min
 }
 
-// 枚举型参数：离散取值用 picker（选项标签 → 值由 min 起算的序号）。
+// 枚举型参数：刻度轴按档位分格（选项标签 → 值由 min 起算的序号）。
 const PARAM_OPTIONS = {
   direction: ['正向', '反向'],
   waveform: ['正弦', '方波'],
   mode: ['渐变', '渐变回卷'],
 }
 
-// 连续型参数用滑块；离散/枚举用 picker；其余（小范围整数如灯珠数/间隔）留数字输入。
-const SLIDER_PARAMS = new Set([
-  'brightness', 'speed', 'period', 'on_time', 'off_time',
-  'spread', 'tail_length', 'decay', 'step_size',
-])
-
 // ---- 图层参数：schema ↔ 表单字段 -------------------------------------------
 
-// 按 effect 的 EFFECT_PARAMS schema 生成表单字段描述（供 WXML 渲染）。
+// ---- 刻度轴（gauge）-----------------------------------------------------------
+// 所有可调量（阶段时长 / 灯效参数）走同一个刻度轴：点圆环展开，横向拖动改值。
+// 轴 = 量程 min..max 均分 steps 格，拖动位置按"格"量化，避免 u8 参数拖出小数。
+// 圆环进度与刻度轴位置都从同一个 value 派生，天然同步。
+//
+// 注意：比例（0~1）必须用 clampRatio 而不是 clamp——clamp 走 clampInt，
+// 会把 0.4 取整成 0，拖动/环长全部退化成两端。
+
+function clampRatio(v) {
+  const n = Number(v)
+  if (!isFinite(n)) return 0
+  return n < 0 ? 0 : n > 1 ? 1 : n
+}
+
+// 拖动位置（0~1）→ 刻度值：先落到最近的格，再换算回实际单位。
+function gaugeValueAt(ratio, min, max, steps) {
+  const n = Math.max(1, steps || 1)
+  if (n === 1) return min
+  const idx = Math.round(clampRatio(ratio) * (n - 1))
+  // 连续量的步长恒为 1（schema 里的量程都是整数），枚举量按档位还原成协议值。
+  const span = max - min
+  const stride = span / (n - 1)
+  return clamp(Math.round(min + idx * stride), min, max)
+}
+
+// 刻度值 → 拖动位置（0~1）：gaugeValueAt 的逆，用于初始摆放手柄。
+function gaugeRatioOf(value, min, max) {
+  const span = max - min
+  if (!(span > 0)) return 0
+  return clampRatio((value - min) / span)
+}
+
+// 刻度轴的刻度点数组：连续量只画首/中/末（细节太多没意义），
+// 枚举量每档一个点。返回 [{ ratio, label }]，label 为空则不画文字。
+function buildGaugeTicks(field) {
+  const { min, max, steps, options } = field
+  if (options) {
+    return options.map((opt, i) => ({
+      ratio: gaugeRatioOf(min + i, min, max),
+      label: opt,
+    }))
+  }
+  const n = Math.max(1, steps || 1)
+  // 连续量：只在档位足够少（≤10）时逐格画点，否则只画首/中/末三个。
+  const idxs = n <= 10 ? Array.from({ length: n }, (_, i) => i) : [0, Math.floor((n - 1) / 2), n - 1]
+  return idxs.map((i) => {
+    const v = gaugeValueAt(n === 1 ? 0 : i / (n - 1), min, max, n)
+    return {
+      ratio: n === 1 ? 0 : i / (n - 1),
+      label: i === 0 || i === n - 1 || n <= 10 ? String(v) : '',
+    }
+  })
+}
+
+// 圆环进度：当前值占量程的比例（0~100），供 WXML 画环。
+// 量程为 0 的退化情况给 100（满环），避免除零。
+function ringPercent(value, min, max) {
+  const span = max - min
+  if (!(span > 0)) return 100
+  return Math.round(gaugeRatioOf(value, min, max) * 100)
+}
+
+// 按 effect 的 EFFECT_PARAMS schema 生成圆环控件描述（供 WXML 渲染）。
+// 每个控件 = 一个细边圆环（环长表示当前值）+ 下方两行小字（名称 / 值）。
+// rgb 类型不开圆环：它没有量程，走颜色弹层，用色盘圆点表示。
 function buildParamFields(effectId, params) {
   const spec = EFFECT_PARAMS[effectName(effectId)] || []
   const src = params || {}
@@ -109,12 +193,30 @@ function buildParamFields(effectId, params) {
       value = clamp(v, p.min, p.max)
     }
     const options = p.type === 'rgb' ? null : PARAM_OPTIONS[p.name] || null
-    // 枚举 picker 的 value 是选项序号（0 起），与协议值（min 起）差一个 min 偏移。
-    const displayValue = options ? value - p.min : value
+    // 刻度轴分档：枚举型按选项数分档（档位序号 0 起），连续量按 1 递增一格。
+    const steps = p.type === 'rgb' ? 0 : options ? options.length : p.max - p.min + 1
+    // 刻度轴上显示的值：rgb 无刻度，枚举显示选项文本，其余显示数字 + 单位。
+    const valueText = p.type === 'rgb'
+      ? ''
+      : options
+        ? options[clamp(value - p.min, 0, options.length - 1)]
+        : `${value}${PARAM_UNITS[p.name] || ''}`
     return {
-      name: p.name, label: PARAM_LABELS[p.name] || p.name, type: p.type,
-      min: p.min, max: p.max, value, hex, options, displayValue,
-      slider: !options && p.type !== 'rgb' && SLIDER_PARAMS.has(p.name),
+      name: p.name,
+      label: PARAM_LABELS[p.name] || p.name,
+      type: p.type,
+      min: p.min,
+      max: p.max,
+      value,
+      hex,
+      options,
+      displayValue: options ? value - p.min : value,
+      // 圆环进度（0~100）：rgb 不画环，给 null 让 WXML 走色盘分支。
+      ring: p.type === 'rgb' ? null : ringPercent(value, p.min, p.max),
+      // 环内图标（极简线条图形），色盘参数没有。
+      icon: p.type === 'rgb' ? '' : PARAM_ICONS[p.name] || 'dot',
+      steps,
+      valueText,
     }
   })
 }
@@ -129,25 +231,10 @@ function fieldsToParams(fields) {
   return out
 }
 
-// ---- 3D 灯效预览几何 ---------------------------------------------------------
+// ---- 图层卡片摘要（纵向一列，整行宽度足够放更多参数） -----------------------
 
-// 长条灯带模型：一颗灯珠一个点，等距排在一条直线上（长条灯条）。
-const PREVIEW_STRIP = { length: 8 }
-// 相机距离（模型单位）：长条几乎正对镜头，用较长焦（距离=焦距）压住透视畸变，
-// 灯条保持"长条"观感而不是一截粗管。
-const PREVIEW_LENS = 14
-// 旋转限位：长条只需轻微倾斜就能读出立体感；转太大既会缩成一条斜线，
-// 又会因投影缩放按最坏角度算而把整个灯条压小。这两个值同时决定缩放口径
-// （projectPoints 按此范围算最坏尺寸），必须成对改。
-const PREVIEW_YAW_LIMIT = 0.45
-const PREVIEW_PITCH_LIMIT = 0.25
-// 自动摆动：在限位内轻微来回摆，比整圈自转更适合长条。
-const PREVIEW_SWAY_YAW = 0.34
-
-// ---- 图层卡片摘要（两列卡片只读展示，详情在弹窗里编辑） ---------------------
-
-// 摘要取这两个参数：各灯效都有、最常用；半屏宽的卡片只放得下两项。
-const SUMMARY_PARAMS = ['brightness', 'speed']
+// 摘要参数：这几个是用户最常看的（灯效节奏感与亮度），纵向整行放得下。
+const SUMMARY_PARAMS = ['brightness', 'speed', 'spread', 'tail_length']
 
 // 字段 → 卡片摘要：首个 rgb 字段作色块，关键参数拼一行文案。
 function buildLayerCard(fields) {
@@ -155,7 +242,7 @@ function buildLayerCard(fields) {
   const parts = []
   for (const name of SUMMARY_PARAMS) {
     const f = fields.find((fd) => fd.name === name && fd.type !== 'rgb')
-    if (f) parts.push(`${f.label} ${f.value}`)
+    if (f) parts.push(`${f.label} ${f.valueText || f.value}`)
   }
   return { swatch: color ? color.hex : null, summary: parts.join(' · ') }
 }
@@ -359,31 +446,16 @@ Page({
     ledCells: [], // [{ i, state }] 渲染用（state: empty/selected/occupied/drag-*）
     // 灯组配置弹窗（长按灯组 Tab 打开）：名称 + 灯珠范围拖选内嵌其中。
     groupConfigOpen: false,
-    // 当前选中的阶段下标（横向阶段条 + 下方详情单页）。
-    activeStepSi: 0,
-    // 气泡卡片箭头水平位置(rpx)：当前选中段中心相对 stage-inner 起点。
-    bubbleX: 0,
-    // 长按拖动排序态：dragIndex 为正在拖动的节点下标（null=未拖），dragX 为其当前位移(rpx)，
-    // hoverIndex 为当前悬停落点下标（拖动中其余节点据此实时避让）。
-    dragIndex: null,
-    dragX: 0,
-    hoverIndex: 0,
-    // 各节点相对 flex 基础位的位移(rpx)：拖动跟手 / 其余节点避让。
-    offsets: {},
-    // 各分段宽度(rpx)：按 duration 比例、带最小长度。
-    segW: [],
-    // 阶段时间轴图（泳道甘特）：steps 的归一化时间窗 + 图层子段 + 过渡区间。
-    // 由 _refreshTimeline 在 groups/activeGroup/activeStepSi 变化时重算。
-    timeline: [],
-    // 3D 灯效预览 canvas：预览灯珠数与参与合成的图层数（标题栏展示）。
-    previewLeds: effectPreview.PREVIEW_LEDS_FALLBACK,
-    previewLayerCount: 1,
-    // 新增节点的进入动画标记（该下标播放一次 scale-in 后清除）。
+    // 竖向时间轴左轴的派生数据：每段起始时刻(s) / 节点环色 / 是否两格都空。
+    stepAxis: [],
+    // 当前灯组总时长(s)：阶段标题右侧展示。
+    stepsTotal: 0,
+    // 新增阶段的进入动画标记（该下标播放一次淡入后清除）。
     enterIndex: -1,
-    // 图层配置弹窗：卡片只读展示，点开弹窗改灯效/参数。target 为定位（si/li）。
-    layerEditorOpen: false,
-    layerEditorSi: 0,
-    layerEditorLi: 0,
+    // 展开中的刻度轴：{ si, li, kind, name, label, min, max, steps, options,
+    //   ticks, value, valueText, ratio }。kind = 'duration' | 'param'，
+    //   kind === 'param' 时用 li/name 定位具体参数。同一时刻只开一个。
+    gauge: null,
     // 颜色弹层（#33）。
     colorPickerOpen: false,
     colorPickerTarget: null, // 目标 field 定位（si/li/fi），随 setData 同步给 WXML
@@ -398,14 +470,10 @@ Page({
     syncAt: '',
     // 静态选项
     effectNames: EFFECT_NAMES,
-    transitionOptions: TRANSITION_OPTIONS,
-    loopOptions: LOOP_OPTIONS,
     // 上限透传给 WXML（避免模板里硬编码 5/2 与 JS 校验漂移）。
     groupsPerPinMax: LIMITS.groupsPerPinMax,
     stepsPerGroupMax: LIMITS.stepsPerGroupMax,
     layersPerStepMax: LIMITS.layersPerStepMax,
-    // 当前阶段两格都空 → WXML 提示"灯珠不亮"（_refreshTimeline 维护）。
-    activeStepEmpty: false,
   },
 
   onLoad(options) {
@@ -414,11 +482,6 @@ Page({
     const app = getApp()
     this._deviceId = (app && app.globalData && app.globalData.currentDeviceId) || null
     _uidSeq = 1
-    try {
-      this._winW = (wx.getSystemInfoSync() || {}).windowWidth || 375
-    } catch (e) {
-      this._winW = 375
-    }
     this._loadFromStore(Number.isFinite(pin) ? pin : 0)
     this.setData({ simMode: !!(app && app.globalData && app.globalData.simMode) })
     // 同步状态条订阅（autoSync 全局单例）；页面卸载时退订。
@@ -430,22 +493,8 @@ Page({
   },
 
   onUnload() {
-    this._stopPreviewLoop()
     if (this._offSync) this._offSync()
     this._syncUnloadGuard()
-  },
-
-  // 切后台停掉预览动画（省电），回来时若弹窗还开着就重取节点并恢复（内部会重启循环）。
-  onHide() {
-    this._stopPreviewLoop()
-  },
-
-  onShow() {
-    if (this.data.layerEditorOpen && wx.nextTick) wx.nextTick(() => this._drawEffectPreview())
-  },
-
-  onReady() {
-    this._measureStage()
   },
 
   // 从 Storage 读该引脚配置 → 编辑态；无配置则初始化默认灯组。
@@ -477,236 +526,196 @@ Page({
       masterPower: getDevicePower(this._deviceId),
       groups,
       activeGroup: 0,
-      activeStepSi: 0,
       dragging: false,
       dragRange: null,
       inCancelZone: false,
     })
     // 初始灯珠网格按 activeGroup=0 渲染，含其他组占用灰显。
     this.setData({ ledCells: this._buildLedCells(groups[0], ledCount, this._computeOccupied(0), null) })
-    this._refreshTimeline()
+    this._refreshStepAxis()
   },
 
-  // ---- 视图导航 --------------------------------------------------------------
+  // ---- 阶段排序 --------------------------------------------------------------
 
-  // 轻点阶段节点：选中该阶段（图层卡片随之切到该阶段）。
-  onSelectStage(e) {
-    if (this.data.dragIndex !== null) return // 拖动中忽略点击
-    const si = Number(e.currentTarget.dataset.si)
-    const group = this.data.groups[this.data.activeGroup]
-    if (!group || !group.steps[si]) return
-    this.setData({ activeStepSi: si, layerEditorOpen: false })
-    this._recalcBubbleX()
-    this._refreshTimeline()
-  },
-
-  // 测量阶段条容器宽度(px)，并按段时长比例(带最小长度)计算各段宽(rpx)。
-  _measureStage() {
-    if (typeof wx === 'undefined' || !wx.createSelectorQuery) return
-    const q = wx.createSelectorQuery().in(this)
-    q.select('.stage-inner').boundingClientRect((r) => {
-      if (r && r.width) {
-        this._stageW = r.width
-        this._recalcSegW()
-      }
-    })
-    q.exec()
-  },
-
-  // 段宽：最小 MIN(rpx)，其余按 duration 比例分配；总宽不足时全取最小（横向滚动）。
-  _recalcSegW() {
+  // 卡片内 ↑↓：与相邻阶段交换位置，保持同一阶段在视线上跟手（列表顺序即播放顺序）。
+  // 用上下移动按钮而不是拖动：纵向拖动与页面滚动手势冲突，且小程序无法阻止滚动抢占。
+  onMoveStep(e) {
+    const ds = e.currentTarget.dataset
+    const si = Number(ds.si)
+    const dir = Number(ds.dir)
     const steps = this.data.groups[this.data.activeGroup].steps
-    const n = steps.length || 1
-    const winW = this._winW || 375
-    const availPx = this._stageW || winW * 0.9
-    const availRpx = (availPx * 750) / winW
-    const MIN = 96
-    let widths
-    if (n * MIN >= availRpx) {
-      widths = []
-      for (let i = 0; i < n; i++) widths.push(MIN)
-    } else {
-      const total = steps.reduce((s, st) => s + (st.duration || 1), 0) || 1
-      const rem = availRpx - n * MIN
-      widths = steps.map((st) => MIN + (rem * (st.duration || 1)) / total)
-    }
-    this._segRpx = widths
-    this.setData({ segW: widths })
-    this._recalcBubbleX()
-  },
-
-  // 气泡箭头水平位置：当前选中段中心(rpx)。stage-inner 左右各 24rpx 外边距，
-  // 气泡卡片同样 24rpx 外边距，二者起点对齐，故段中心即箭头 left。
-  _recalcBubbleX() {
-    const widths = this._segRpx || []
-    const si = this.data.activeStepSi
-    if (!widths.length || si >= widths.length) {
-      this.setData({ bubbleX: 0 })
-      return
-    }
-    let x = 0
-    for (let i = 0; i < si; i++) x += widths[i]
-    x += widths[si] / 2
-    this.setData({ bubbleX: x })
-  },
-
-  // 各段像素宽 / 累计起点(px)，供拖动使用。
-  _segLayoutPx() {
-    const winW = this._winW || 375
-    const k = winW / 750
-    const widths = (this._segRpx || []).map((w) => w * k)
-    const base = []
-    let acc = 0
-    for (let i = 0; i < widths.length; i++) {
-      base.push(acc)
-      acc += widths[i]
-    }
-    return { widths, base, total: acc }
-  },
-
-  // 拖动中按落点避让：被拖段跟手，其余按被拖段宽让位。
-  _recalcOffsets(dragX, hoverIndex) {
-    const dragIndex = this.data.dragIndex
-    const n = this.data.groups[this.data.activeGroup].steps.length
-    const { widths, base } = this._segLayoutPx()
-    const wDrag = widths[dragIndex] || 0
-    const off = {}
-    for (let si = 0; si < n; si++) {
-      if (dragIndex === null || dragIndex === si) {
-        off[si] = dragIndex === si ? dragX - base[si] : 0
-        continue
-      }
-      let d = 0
-      if (dragIndex < hoverIndex && si > dragIndex && si <= hoverIndex) d = -wDrag
-      else if (dragIndex > hoverIndex && si >= hoverIndex && si < dragIndex) d = wDrag
-      off[si] = d
-    }
-    return off
-  },
-
-  // 长按段：进入跟手拖动。
-  onStageLongPress(e) {
-    const si = Number(e.currentTarget.dataset.si)
-    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
-    this._dragStartClientX = t.clientX || 0
-    const { base } = this._segLayoutPx()
-    const startX = base[si] || 0
-    this.setData({ dragIndex: si, dragX: startX, hoverIndex: si, enterIndex: -1, offsets: this._recalcOffsets(startX, si) })
+    const to = si + dir
+    if (!steps[si] || to < 0 || to >= steps.length || !dir) return
+    this._editActiveGroup((group, arr) => {
+      const moved = arr.splice(si, 1)[0]
+      arr.splice(to, 0, moved)
+    })
+    this.setData({ gauge: null })
     if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
   },
 
-  onStageTouchMove(e) {
-    if (this.data.dragIndex === null) return
-    const t = e.touches && e.touches[0]
-    if (!t) return
-    const { widths, base, total } = this._segLayoutPx()
-    const wDrag = widths[this.data.dragIndex] || 0
-    const x = Math.max(0, Math.min(total - wDrag, (base[this.data.dragIndex] || 0) + (t.clientX - this._dragStartClientX)))
-    // 落点：被拖段中心落在哪一段区间。
-    const center = x + wDrag / 2
-    let hover = 0
-    for (let i = 0; i < widths.length; i++) {
-      if (center >= base[i]) hover = i
+  // ---- 刻度轴（圆环 = 参数，点开后在卡片下方展开轴） --------------------------
+
+  // 点圆环：展开/收起该量的刻度轴。同一个圆环再点一次收起；点别的圆环直接换过去。
+  // 阶段时长也走这条路径（kind='duration'），圆环就是左轴上的那个节点。
+  onToggleGauge(e) {
+    const ds = e.currentTarget.dataset
+    const si = Number(ds.si)
+    const kind = ds.kind || 'param'
+    const li = Number(ds.li)
+    const name = ds.name || ''
+    const cur = this.data.gauge
+    if (cur && cur.si === si && cur.kind === kind && cur.li === li && cur.name === name) {
+      this.setData({ gauge: null })
+      return
     }
-    const changed = hover !== this.data.hoverIndex
-    this.setData({ dragX: x, hoverIndex: hover, offsets: this._recalcOffsets(x, hover) })
-    if (changed && wx.vibrateShort) wx.vibrateShort({ type: 'light' })
+    const step = this.data.groups[this.data.activeGroup].steps[si]
+    if (!step) return
+    let gauge
+    if (kind === 'duration') {
+      gauge = this._durationGauge(si, step)
+    } else {
+      const layer = step.layers[li]
+      const field = layer && (layer.fields || []).find((f) => f.name === name)
+      if (!field || field.type === 'rgb') return // rgb 走颜色弹层，没有量程
+      gauge = this._paramGauge(si, li, field)
+    }
+    if (!gauge) return
+    this.setData({ gauge })
+    if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
   },
 
-  onStageTouchEnd() {
-    if (this.data.dragIndex === null) return
-    const from = this.data.dragIndex
-    const to = this.data.hoverIndex
-    if (to !== from) {
-      this._editActiveGroup((group, arr) => {
-        const moved = arr.splice(from, 1)[0]
-        arr.splice(to, 0, moved)
-      })
-      this.setData({ activeStepSi: to, layerEditorOpen: false })
-      this._recalcBubbleX()
+  // 阶段时长刻度轴。
+  _durationGauge(si, step) {
+    const min = LIMITS.stepDurationMin
+    const max = LIMITS.stepDurationMax
+    const value = clamp(step.duration, min, max)
+    return {
+      si,
+      li: -1,
+      kind: 'duration',
+      name: 'duration',
+      label: '时长',
+      min,
+      max,
+      steps: max - min + 1,
+      options: null,
+      ticks: buildGaugeTicks({ min, max, steps: max - min + 1, options: null }),
+      value,
+      valueText: `${value}s`,
+      ratio: gaugeRatioOf(value, min, max),
     }
-    this.setData({ dragIndex: null, dragX: 0, offsets: {} })
   },
 
-  // 点图层卡片：打开该图层的配置弹窗（灯效 + 参数表单都在弹窗里）。
-  // 点空槽卡片 = 在该槽位新建图层，不打开弹窗。
-  onOpenLayerEditor(e) {
+  // 灯效参数刻度轴（枚举型按档位分格，轴标签换成选项文本）。
+  _paramGauge(si, li, field) {
+    const value = clamp(field.value, field.min, field.max)
+    return {
+      si,
+      li,
+      kind: 'param',
+      name: field.name,
+      label: field.label,
+      min: field.min,
+      max: field.max,
+      steps: field.steps,
+      options: field.options,
+      ticks: buildGaugeTicks(field),
+      value,
+      valueText: field.valueText,
+      ratio: gaugeRatioOf(value, field.min, field.max),
+    }
+  },
+
+  // 刻度轴拖动：像素位置 → 量程比例 → 量化后的值，实时写回 VM 并同步圆环。
+  // 拖动中 silent（不下发）；松手由 onGaugeEnd 落盘。
+  _applyGaugeX(touchX) {
+    const gauge = this.data.gauge
+    if (!gauge || !this._gaugeRect || !this._gaugeRect.width) return
+    const ratio = (touchX - this._gaugeRect.left) / this._gaugeRect.width
+    const value = gaugeValueAt(ratio, gauge.min, gauge.max, gauge.steps)
+    if (value === gauge.value) return
+    this.setData({ 'gauge.value': value, 'gauge.ratio': gaugeRatioOf(value, gauge.min, gauge.max), 'gauge.valueText': this._gaugeValueText(gauge, value) })
+    this._writeGauge(value, { silent: true })
+  },
+
+  // 刻度轴上显示的值文本：枚举换选项名，连续量补单位。
+  _gaugeValueText(gauge, value) {
+    if (gauge.kind === 'duration') return `${value}s`
+    if (gauge.options) return gauge.options[clamp(value - gauge.min, 0, gauge.options.length - 1)] || ''
+    return `${value}${PARAM_UNITS[gauge.name] || ''}`
+  },
+
+  // 把刻度轴的值写回该量的真相源：时长写 step.duration，参数写 field.value。
+  // 参数写回后重算该图层的圆环与摘要（refreshLayerCard），圆环进度才算同步。
+  _writeGauge(value, opts) {
+    const gauge = this.data.gauge
+    if (!gauge) return
+    const si = gauge.si
+    if (gauge.kind === 'duration') {
+      this._editActiveGroup((group, steps) => {
+        steps[si] = Object.assign({}, steps[si], { duration: clamp(value, LIMITS.stepDurationMin, LIMITS.stepDurationMax) })
+      }, opts)
+      return
+    }
+    const li = gauge.li
+    const name = gauge.name
+    this._editActiveGroup((group, steps) => {
+      const layers = steps[si].layers.slice()
+      const layer = Object.assign({}, layers[li])
+      const fields = layer.fields.slice()
+      const f = Object.assign({}, fields.find((fd) => fd.name === name))
+      if (!f || f.type === 'rgb') return
+      f.value = clamp(value, f.min, f.max)
+      f.displayValue = f.options ? f.value - f.min : f.value
+      f.ring = ringPercent(f.value, f.min, f.max)
+      f.valueText = f.options
+        ? f.options[clamp(f.value - f.min, 0, f.options.length - 1)]
+        : `${f.value}${PARAM_UNITS[f.name] || ''}`
+      const idx = fields.findIndex((fd) => fd.name === name)
+      fields[idx] = f
+      layer.fields = fields
+      layers[li] = refreshLayerCard(layer)
+      steps[si] = Object.assign({}, steps[si], { layers })
+    }, opts)
+  },
+
+  // 刻度轴按下：量定轴宽（后续拖动按它换算比例），并立即吸附到手指位置。
+  onGaugeTouchStart(e) {
+    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
+    const query = wx.createSelectorQuery()
+    query.in(this)
+    query.select('.gauge__track').boundingClientRect()
+    query.exec((res) => {
+      this._gaugeRect = (res && res[0]) || null
+      if (this._gaugeRect) this._applyGaugeX(t.clientX || 0)
+    })
+  },
+
+  onGaugeTouchMove(e) {
+    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
+    this._applyGaugeX(t.clientX || 0)
+  },
+
+  // 松手：把当前值正式落盘并下发一次（拖动期间一直 silent）。
+  onGaugeTouchEnd() {
+    const gauge = this.data.gauge
+    if (!gauge) return
+    this._writeGauge(gauge.value, undefined)
+  },
+
+  // 点空槽：在该槽位新建图层。
+  // 换灯效走原生 picker（见 WXML 的 layer-row__effect），不用 showActionSheet：
+  // 灯效有 8 种，而 showActionSheet 的 itemList 上限是 6 项。
+  onLayerCardTap(e) {
     const si = Number(e.currentTarget.dataset.si)
     const li = Number(e.currentTarget.dataset.li)
     const step = this.data.groups[this.data.activeGroup].steps[si]
     const layer = step && step.layers && step.layers[li]
-    if (!layer) return
-    if (layer.empty) {
-      this.onAddLayer(e)
-      return
-    }
-    this.setData({ layerEditorOpen: true, layerEditorSi: si, layerEditorLi: li })
-    this._preparePreview(si, li, true)
-    // canvas 节点在 wx:if 内，必须等下一帧再取节点。
-    if (wx.nextTick) wx.nextTick(() => this._drawEffectPreview())
+    if (!layer || !layer.empty) return
+    this.onAddLayer(e)
   },
 
-  onCloseLayerEditor() {
-    this._stopPreviewLoop()
-    this.setData({ layerEditorOpen: false })
-  },
-
-  // 预览数据装配：目标阶段 → 各图层渲染参数、灯珠数、长条几何。
-  // 弹窗内每次字段变更都调用（灯珠数会影响几何）；resetView 仅在打开弹窗时置位。
-  _preparePreview(si, li, resetView) {
-    const group = this.data.groups[this.data.activeGroup]
-    const step = group && group.steps[si]
-    if (!step) return
-    // 预览按阶段整体合成（0~2 个图层），编辑中的图层自然包含在内——
-    // 这才能反映"动效层亮灯珠覆盖背景层"的真实输出（镜像固件 compose_layer）。
-    // 空槽不参与合成；两格都空时预览画布整条不亮。
-    this._previewLayers = (step.layers || [])
-      .filter((l) => l && !l.empty && l.effect)
-      .map((l) => ({ effect: l.effect, params: fieldsToParams(l.fields || []) }))
-    const leds = effectPreview.stripLength(group)
-    this._previewLeds = leds
-    this._previewGeometry = effectPreview.stripPoints(leds, PREVIEW_STRIP)
-    if (resetView || this._previewElapsed === undefined) {
-      this._previewElapsed = 0
-      // 初始视角略偏侧 + 略俯视：能看出灯条的纵深与灯珠层次，又保住横向长条形状。
-      this._previewYaw = -0.28
-      this._previewPitch = 0.22
-      this._previewSway = 0
-    }
-    if (this.data.previewLeds !== leds) this.setData({ previewLeds: leds })
-    if (this.data.previewLayerCount !== this._previewLayers.length) {
-      this.setData({ previewLayerCount: this._previewLayers.length })
-    }
-  },
-
-  // 预览舞台拖动旋转：水平拖 → 绕 y 轴，垂直拖 → 俯仰。
-  // 两个方向都限位：长条转过 ±50° 会缩成一条斜线，看不出灯珠阵列。
-  onPreviewTouchStart(e) {
-    const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
-    this._previewDragging = true
-    this._previewTouchAt = Date.now()
-    this._previewTouchStart = { x: t.clientX || 0, y: t.clientY || 0 }
-    this._previewStartAngles = { yaw: this._previewYaw || 0, pitch: this._previewPitch || 0 }
-  },
-
-  onPreviewTouchMove(e) {
-    if (!this._previewDragging) return
-    const t = (e.touches && e.touches[0]) || {}
-    const start = this._previewTouchStart
-    const angles = this._previewStartAngles
-    if (!start || !angles) return
-    const dx = (t.clientX || 0) - start.x
-    const dy = (t.clientY || 0) - start.y
-    this._previewYaw = clamp(angles.yaw + dx * 0.012, -PREVIEW_YAW_LIMIT, PREVIEW_YAW_LIMIT)
-    this._previewPitch = clamp(angles.pitch + dy * 0.010, -PREVIEW_PITCH_LIMIT, PREVIEW_PITCH_LIMIT)
-    this._previewTouchAt = Date.now()
-    this._renderPreviewFrame()
-  },
-
-  onPreviewTouchEnd() {
-    this._previewDragging = false
-    this._previewTouchAt = Date.now()
-  },
 
   // 灯珠网格渲染模型：按 state 渲染（空/选中/占用/拖选起终/拖选中间）。
   // occupied: 其他组占用的格号集合；dragRange: [min,max] 拖选临时区间。
@@ -802,217 +811,29 @@ Page({
     group.steps = steps
     groups[this.data.activeGroup] = group
     this.setData({ groups })
-    this._refreshTimeline()
-    // 图层弹窗开着时，参数变更 → 重建预览（几何可能随灯珠数变化）并重绘。
-    if (this.data.layerEditorOpen) {
-      this._preparePreview(this.data.layerEditorSi, this.data.layerEditorLi)
-    }
+    this._refreshStepAxis()
+    // 刻度轴开着且改的是正在调的那个量 → 位置/文本已由拖动处就地更新，无需再算。
     if (!(opts && opts.silent)) this._markDirty()
   },
 
-  // 阶段时间轴图数据（泳道甘特）：当前灯组的 steps → 归一化时间窗 + 图层子段。
-  // 与横向分段条互补：分段条用于选中/拖排序，时间轴图用于看"总时长比例 + 图层构成"。
-  _refreshTimeline() {
+  // 竖向时间轴左轴的派生数据：每段起始时刻 = 前序 duration 累加（含本段时长），
+  // 节点环色取该段首个图层灯效的主题色（空阶段给空串，由 CSS 兜底灰环）。
+  _refreshStepAxis() {
     const group = this.data.groups[this.data.activeGroup]
-    if (!group) {
-      this.setData({ timeline: [], timelineTotal: 0, timelineLegend: [], activeStepEmpty: true })
-      return
-    }
-    const timeline = charts.buildTimeline(group.steps || [])
-    // 选中态：时间轴图里当前阶段高亮。
-    const si = this.data.activeStepSi
-    let total = 0
-    const seen = {}
-    const legend = []
-    for (const seg of timeline) {
-      seg.active = seg.si === si
-      total += seg.duration
-      for (const ly of seg.layers) {
-        if (seen[ly.effect]) continue
-        seen[ly.effect] = true
-        legend.push({
-          effect: ly.effect,
-          name: EFFECT_LABELS[ly.effect] || `效果 ${ly.effect}`,
-          color: ly.color,
-        })
+    const steps = (group && group.steps) || []
+    let acc = 0
+    const stepAxis = steps.map((step) => {
+      const layers = step.layers || []
+      const first = layers.find((l) => l && !l.empty && l.effect)
+      const axis = {
+        startAt: Math.round(acc * 10) / 10,
+        color: first ? charts.effectColor(first.effect) : '',
+        allEmpty: !first,
       }
-    }
-    // 当前阶段两格都空 → 页面提示"灯珠不亮"（与下发语义一致）。
-    const layers = (group.steps && group.steps[si] && group.steps[si].layers) || []
-    const activeStepEmpty = !layers.some((l) => l && !l.empty)
-    this.setData({ timeline, timelineTotal: Math.round(total * 10) / 10, timelineLegend: legend, activeStepEmpty })
-  },
-
-  // 3D 灯效预览 canvas：把阶段的灯效逐灯珠渲染后投影成长条灯条。
-  // 页面只有这一个预览 canvas（图层弹窗内）；字段变动重绘，弹窗打开时动画自转。
-  _drawEffectPreview() {
-    if (typeof wx === 'undefined' || !wx.createSelectorQuery) return
-    const step = this.data.groups[this.data.activeGroup] &&
-      this.data.groups[this.data.activeGroup].steps[this.data.layerEditorSi]
-    const layer = step && step.layers && step.layers[this.data.layerEditorLi]
-    if (!layer || layer.empty) return
-    const query = wx.createSelectorQuery().in(this)
-    query.select('.effect3d-canvas').fields({ node: true, size: true })
-    query.exec((res) => {
-      const info = res && res[0]
-      if (!info || !info.node) return
-      const canvas = info.node
-      const ctx = canvas.getContext('2d')
-      const dpr = (wx.getSystemInfoSync && wx.getSystemInfoSync().pixelRatio) || 2
-      const w = info.width || 300
-      const h = info.height || 180
-      canvas.width = w * dpr
-      canvas.height = h * dpr
-      this._previewCanvas = { canvas, ctx, w, h, dpr }
-      this._renderPreviewFrame()
-      this._startPreviewLoop()
+      acc += Math.max(0.1, Number(step.duration) || 1)
+      return axis
     })
-  },
-
-  // 单帧：动画时间 + 相机角度 → 灯珠屏幕坐标与颜色。ctx 用 CSS 像素坐标（已按 dpr 缩放）。
-  // 画法分三层：灯条板身（带一点厚度感的圆角长条）→ 每颗灯珠的发光 → 灯芯。
-  // 发光用 lighter（加色）混合叠两个圆，比逐颗建径向渐变便宜得多。
-  _renderPreviewFrame() {
-    const view = this._previewCanvas
-    if (!view) return
-    const { ctx, w, h, dpr } = view
-    const layers = this._previewLayers
-    if (!layers || !layers.length) return
-    const colors = effectPreview.renderStageStrip(layers, this._previewLeds, this._previewElapsed || 0)
-    const points = effectPreview.projectPoints(this._previewGeometry, {
-      width: w,
-      height: h,
-      yaw: this._previewYaw || 0,
-      pitch: this._previewPitch || 0,
-      distance: PREVIEW_LENS,
-      focal: PREVIEW_LENS,
-      yawRange: PREVIEW_YAW_LIMIT,
-      pitchRange: PREVIEW_PITCH_LIMIT,
-    })
-    if (!points.length) return
-    const scale = w / 300
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.clearRect(0, 0, w, h)
-    // 灯条板身：灯珠连成一条（半透明底 + 描边），先铺出"长条灯条"的实体感。
-    this._drawStripBody(ctx, points, scale)
-    // 由远及近绘制：近处灯珠盖住远处。
-    const order = points.map((p, i) => i).sort((a, b) => points[b].depth - points[a].depth)
-    ctx.globalCompositeOperation = 'lighter'
-    for (const i of order) {
-      const p = points[i]
-      const c = colors[i] || [0, 0, 0]
-      const lit = c[0] + c[1] + c[2]
-      if (lit <= 0) continue
-      // 深度衰减：越远越暗，模拟空气透视。
-      const depthK = Math.min(1, Math.max(0.35, p.rel || 1))
-      const core = Math.max(1.1, 2.2 * (p.rel || 1) * scale)
-      const halo = core * 3.4
-      const strength = (lit / 765) * depthK
-      // 光晕：淡而大。
-      ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${0.30 * strength})`
-      ctx.beginPath()
-      ctx.arc(p.x, p.y, halo, 0, Math.PI * 2)
-      ctx.fill()
-      // 灯芯：提亮到接近白，模拟 LED 过曝核心。
-      const wr = Math.min(255, Math.round(c[0] + 70 * strength))
-      const wg = Math.min(255, Math.round(c[1] + 70 * strength))
-      const wb = Math.min(255, Math.round(c[2] + 70 * strength))
-      ctx.fillStyle = `rgba(${wr},${wg},${wb},${Math.min(1, 0.55 + 0.45 * strength)})`
-      ctx.beginPath()
-      ctx.arc(p.x, p.y, core, 0, Math.PI * 2)
-      ctx.fill()
-    }
-    ctx.globalCompositeOperation = 'source-over'
-  },
-
-  // 灯条板身：把灯珠位置连成一条带宽度的长条（模拟柔性灯带的白色基板）。
-  // 用每个点向两侧法线方向偏移半个条宽再串成闭合路径，宽度随透视深度缩放。
-  _drawStripBody(ctx, points, scale) {
-    const n = points.length
-    if (n < 2) return
-    const halfW = (pt) => Math.max(1.6, 3.4 * (pt.rel || 1) * scale)
-    const left = []
-    const right = []
-    for (let i = 0; i < n; i++) {
-      const p = points[i]
-      // 切线方向用相邻点差分（端点退化为一段）。
-      const a = points[Math.max(0, i - 1)]
-      const b = points[Math.min(n - 1, i + 1)]
-      const dx = b.x - a.x
-      const dy = b.y - a.y
-      const len = Math.hypot(dx, dy) || 1
-      // 法线：切线旋转 90°。
-      const nx = -dy / len
-      const ny = dx / len
-      const hw = halfW(p)
-      left.push({ x: p.x + nx * hw, y: p.y + ny * hw })
-      right.push({ x: p.x - nx * hw, y: p.y - ny * hw })
-    }
-    ctx.beginPath()
-    ctx.moveTo(left[0].x, left[0].y)
-    for (let i = 1; i < n; i++) ctx.lineTo(left[i].x, left[i].y)
-    for (let i = n - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y)
-    ctx.closePath()
-    // 板身底色：略亮的深灰，暗灯珠时也能看出灯条轮廓。
-    ctx.fillStyle = 'rgba(150,156,172,0.16)'
-    ctx.fill()
-    ctx.strokeStyle = 'rgba(170,178,196,0.20)'
-    ctx.lineWidth = Math.max(0.6, 1 * scale)
-    ctx.stroke()
-  },
-
-  // 启动预览动画（弹窗打开时）：灯效时间推进 + 灯条轻微摆动 + 逐帧重绘。
-  // 长条不做整圈自转（转过 90° 会缩成一条斜线），改为在 ±55° 内缓慢来回摆。
-  // 限帧 30fps：灯效本身变化慢，30fps 足够顺滑且省电。
-  _startPreviewLoop() {
-    this._stopPreviewLoop()
-    if (typeof wx === 'undefined') return
-    const FRAME_MS = 33
-    let lastDraw = 0
-    const tick = () => {
-      if (!this._previewRunning) return
-      const now = Date.now()
-      const dt = Math.min(64, now - (this._previewLastTs || now))
-      this._previewLastTs = now
-      // 选色弹层在上时冻结动画（避免用户选色时背景还在跑）。
-      if (!this.data.colorPickerOpen) {
-        this._previewElapsed += dt
-        // 拖动后暂停摆动 1.5s，让用户能停在想看的角度。
-        const idle = now - (this._previewTouchAt || 0) > 1500
-        if (idle && !this._previewDragging) {
-          this._previewSway = (this._previewSway || 0) + dt * 0.0009
-          this._previewYaw = Math.sin(this._previewSway) * PREVIEW_SWAY_YAW - 0.32
-        }
-      }
-      if (now - lastDraw >= FRAME_MS - 2) {
-        lastDraw = now
-        this._renderPreviewFrame()
-      }
-      this._previewRaf = this._requestFrame(tick)
-    }
-    this._previewRunning = true
-    this._previewLastTs = Date.now()
-    this._previewRaf = this._requestFrame(tick)
-  },
-
-  // 逐帧调度：优先 canvas.requestAnimationFrame（2d canvas 节点自带），否则退回 setTimeout。
-  _requestFrame(cb) {
-    const view = this._previewCanvas
-    if (view && view.canvas && typeof view.canvas.requestAnimationFrame === 'function') {
-      return view.canvas.requestAnimationFrame(cb)
-    }
-    return setTimeout(cb, 16)
-  },
-
-  _stopPreviewLoop() {
-    this._previewRunning = false
-    const view = this._previewCanvas
-    if (this._previewRaf && view && view.canvas && typeof view.canvas.cancelAnimationFrame === 'function') {
-      view.canvas.cancelAnimationFrame(this._previewRaf)
-    } else if (this._previewRaf) {
-      clearTimeout(this._previewRaf)
-    }
-    this._previewRaf = null
+    this.setData({ stepAxis, stepsTotal: Math.round(acc * 10) / 10 })
   },
 
   // ---- 顶部 -------------------------------------------------------------------
@@ -1035,11 +856,9 @@ Page({
   _activateGroup(index) {
     if (!this.data.groups[index]) return
     if (index === this.data.activeGroup) return
-    this.setData({ activeGroup: index, activeStepSi: 0, layerEditorOpen: false, dragging: false, dragRange: null, inCancelZone: false })
+    this.setData({ activeGroup: index, gauge: null, dragging: false, dragRange: null, inCancelZone: false })
     this.setData({ ledCells: this._buildLedCells(this.data.groups[index], this.data.ledCount, this._computeOccupied(index), null) })
-    this._recalcBubbleX()
-    this._refreshTimeline()
-    if (wx.nextTick) wx.nextTick(() => this._measureStage())
+    this._refreshStepAxis()
   },
 
   // 下拉框选组（picker selector）：越界/同组忽略。
@@ -1218,14 +1037,11 @@ Page({
     this._editActiveGroup((group, steps) => {
       steps.push(defaultStep(newSi))
     })
-    // 添加后选中新阶段；新节点播放一次进入动画。
-    this.setData({ activeStepSi: newSi, enterIndex: newSi, layerEditorOpen: false })
-    this._recalcBubbleX()
-    this._refreshTimeline() // 选中态变了，时间轴高亮需重算
+    // 新卡片播放一次淡入；新阶段在最底部，滚动落点交给系统即可。
+    this.setData({ enterIndex: newSi, gauge: null })
     setTimeout(() => {
       if (this.data.enterIndex === newSi) this.setData({ enterIndex: -1 })
     }, 300)
-    if (wx.nextTick) wx.nextTick(() => this._measureStage())
   },
 
   onDeleteStep(e) {
@@ -1238,13 +1054,7 @@ Page({
     this._editActiveGroup((group, arr) => {
       arr.splice(si, 1)
     })
-    // 删除后选中顺延：删中间选中原下一个（同下标），删尾选新的最后一个。
-    const nextLen = this.data.groups[this.data.activeGroup].steps.length
-    const nextSi = si < nextLen ? si : nextLen - 1
-    this.setData({ activeStepSi: nextSi, layerEditorOpen: false })
-    this._recalcBubbleX()
-    this._refreshTimeline() // 选中态变了，时间轴高亮需重算
-    if (wx.nextTick) wx.nextTick(() => this._measureStage())
+    this.setData({ gauge: null })
   },
 
   onStageNameInput(e) {
@@ -1252,51 +1062,6 @@ Page({
     const v = e.detail.value
     this._editActiveGroup((group, steps) => {
       steps[si] = Object.assign({}, steps[si], { name: v })
-    })
-  },
-
-  // 时长数字输入：与 slider 双向绑定（onDurationChange 同步改）。
-  onDurationInput(e) {
-    const si = Number(e.currentTarget.dataset.si)
-    const v = clamp(e.detail.value, LIMITS.stepDurationMin, LIMITS.stepDurationMax)
-    this._editActiveGroup((group, steps) => {
-      steps[si] = Object.assign({}, steps[si], { duration: v })
-    })
-    this._recalcSegW()
-  },
-
-  // 时长滑块拖动中：实时更新 VM（不触发下发，松手 onDurationChange 才落盘）。
-  onDurationChanging(e) {
-    const si = Number(e.currentTarget.dataset.si)
-    const v = clamp(e.detail.value, LIMITS.stepDurationMin, LIMITS.stepDurationMax)
-    this._editActiveGroup((group, steps) => {
-      steps[si] = Object.assign({}, steps[si], { duration: v })
-    }, { silent: true })
-    this._recalcSegW()
-  },
-
-  onDurationChange(e) {
-    const si = Number(e.currentTarget.dataset.si)
-    const v = clamp(e.detail.value, LIMITS.stepDurationMin, LIMITS.stepDurationMax)
-    this._editActiveGroup((group, steps) => {
-      steps[si] = Object.assign({}, steps[si], { duration: v })
-    })
-    this._recalcSegW()
-  },
-
-  onTransitionChange(e) {
-    const si = Number(e.currentTarget.dataset.si)
-    const v = Number(e.detail.value)
-    this._editActiveGroup((group, steps) => {
-      steps[si] = Object.assign({}, steps[si], { transition: v })
-    })
-  },
-
-  onLoopChange(e) {
-    const si = Number(e.currentTarget.dataset.si)
-    const v = Number(e.detail.value)
-    this._editActiveGroup((group, steps) => {
-      steps[si] = Object.assign({}, steps[si], { loopMode: v })
     })
   },
 
@@ -1341,7 +1106,7 @@ Page({
       layers[slot] = emptyLayer(slot)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
-    this.setData({ layerEditorOpen: false })
+    this.setData({ gauge: null })
   },
 
   // 切换灯效：重建该图层参数表单（schema 联动，ADR-0018）。
@@ -1356,105 +1121,6 @@ Page({
       if (!old || old.empty) return
       // 换灯效只换 effect/params，槽位与 lid 保持不变（位置语义，ADR-0033）。
       layers[li] = makeLayer(opt.id, null, old.lid, old.slot)
-      steps[si] = Object.assign({}, steps[si], { layers })
-    })
-  },
-
-  // 参数输入：标量数字走 input；枚举 picker / 连续滑块走 onParamChange。rgb 走色块弹层（#33）。
-  onParamInput(e) {
-    const ds = e.currentTarget.dataset
-    const si = Number(ds.si)
-    const li = Number(ds.li)
-    const fi = Number(ds.fi)
-    const field = this._locateField(si, li, fi)
-    if (!field) return
-    if (field.type === 'rgb') {
-      // rgb 已由 onOpenColorPicker + onColorSelected 处理；旧 data-ch 入口不再绑定。
-      return
-    }
-    // 标量（u8/u16）数字输入。
-    const raw = e.detail.value
-    this._editActiveGroup((group, steps) => {
-      const layers = steps[si].layers.slice()
-      const layer = Object.assign({}, layers[li])
-      const fields = layer.fields.slice()
-      const f = Object.assign({}, fields[fi])
-      f.value = clamp(raw, f.min, f.max)
-      fields[fi] = f
-      layer.fields = fields
-      layers[li] = refreshLayerCard(layer)
-      steps[si] = Object.assign({}, steps[si], { layers })
-    })
-  },
-
-  // 参数滑块拖动中：实时更新 VM（不触发下发）。
-  onParamChanging(e) {
-    const ds = e.currentTarget.dataset
-    const si = Number(ds.si)
-    const li = Number(ds.li)
-    const fi = Number(ds.fi)
-    const field = this._locateField(si, li, fi)
-    if (!field) return
-    const raw = clamp(e.detail.value, field.min, field.max)
-    this._editActiveGroup((group, steps) => {
-      const layers = steps[si].layers.slice()
-      const layer = Object.assign({}, layers[li])
-      const fields = layer.fields.slice()
-      const f = Object.assign({}, fields[fi])
-      f.value = raw
-      fields[fi] = f
-      layer.fields = fields
-      layers[li] = refreshLayerCard(layer)
-      steps[si] = Object.assign({}, steps[si], { layers })
-    }, { silent: true })
-  },
-
-  // 参数滑块：连续量按 min~max 写入（松手落盘）。
-  onParamChange(e) {
-    const ds = e.currentTarget.dataset
-    const si = Number(ds.si)
-    const li = Number(ds.li)
-    const fi = Number(ds.fi)
-    const field = this._locateField(si, li, fi)
-    if (!field) return
-    if (field.type === 'rgb') {
-      // rgb 已由 onOpenColorPicker + onColorSelected 处理；旧 data-ch 入口不再绑定。
-      return
-    }
-    const raw = e.detail.value
-    this._editActiveGroup((group, steps) => {
-      const layers = steps[si].layers.slice()
-      const layer = Object.assign({}, layers[li])
-      const fields = layer.fields.slice()
-      const f = Object.assign({}, fields[fi])
-      f.value = clamp(raw, f.min, f.max)
-      fields[fi] = f
-      layer.fields = fields
-      layers[li] = refreshLayerCard(layer)
-      steps[si] = Object.assign({}, steps[si], { layers })
-    })
-  },
-
-  // 枚举单选：点击胶囊选项，按序号 + min 偏移还原协议值。
-  onParamOptionTap(e) {
-    const ds = e.currentTarget.dataset
-    const si = Number(ds.si)
-    const li = Number(ds.li)
-    const fi = Number(ds.fi)
-    const oi = Number(ds.oi)
-    const field = this._locateField(si, li, fi)
-    if (!field || !field.options) return
-    const raw = field.min + oi
-    this._editActiveGroup((group, steps) => {
-      const layers = steps[si].layers.slice()
-      const layer = Object.assign({}, layers[li])
-      const fields = layer.fields.slice()
-      const f = Object.assign({}, fields[fi])
-      f.value = clamp(raw, f.min, f.max)
-      f.displayValue = oi
-      fields[fi] = f
-      layer.fields = fields
-      layers[li] = refreshLayerCard(layer)
       steps[si] = Object.assign({}, steps[si], { layers })
     })
   },

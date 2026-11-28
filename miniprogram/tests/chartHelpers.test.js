@@ -1,11 +1,10 @@
-// chartHelpers 纯函数层测试：渐变 / 时间轴 / 错误聚合 / RSSI 采样。
+// chartHelpers 纯函数层测试：渐变 / 效果配色 / 错误聚合 / RSSI 采样。
 
 'use strict'
 
 const {
   effectColor,
   layerGradientCss,
-  buildTimeline,
   aggregateErrorLog,
   createRssiSampler,
   RAINBOW_STOPS,
@@ -36,31 +35,6 @@ describe('layerGradientCss', () => {
   test('SOLID/BLINK 返回 null（单色用 swatch）', () => {
     expect(layerGradientCss(EFF.SOLID, [])).toBeNull()
     expect(layerGradientCss(EFF.BLINK, [])).toBeNull()
-  })
-})
-
-describe('buildTimeline', () => {
-  test('段宽按 duration 比例、x 累计、总宽=1', () => {
-    const steps = [
-      { name: 'A', duration: 5, transition: 0, layers: [{ effect: EFF.SOLID }] },
-      { name: 'B', duration: 15, transition: 1, layers: [{ effect: EFF.BREATH }, { effect: EFF.BLINK }] },
-    ]
-    const tl = buildTimeline(steps)
-    expect(tl).toHaveLength(2)
-    expect(tl[0].x).toBe(0)
-    expect(tl[0].w).toBeCloseTo(0.25, 5)
-    expect(tl[1].x).toBeCloseTo(0.25, 5)
-    expect(tl[1].w).toBeCloseTo(0.75, 5)
-    // 第二段有过渡 → transW > 0
-    expect(tl[1].transW).toBeGreaterThan(0)
-    // 图层子段均分段宽
-    expect(tl[1].layers).toHaveLength(2)
-    expect(tl[1].layers[0].w).toBeCloseTo(tl[1].w / 2, 5)
-  })
-
-  test('空数组返回空', () => {
-    expect(buildTimeline([])).toEqual([])
-    expect(buildTimeline(null)).toEqual([])
   })
 })
 
